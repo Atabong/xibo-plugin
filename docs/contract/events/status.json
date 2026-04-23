@@ -1,0 +1,73 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://crowdaq.example/xibo-plugin/contract/events/status.json",
+  "title": "CROWDAQ status event",
+  "description": "Event-lifecycle transition. Emitted once per state change so widgets / downstream consumers can switch rendering modes (pre-game placard vs live vs final score card).",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "event_id",
+    "timestamp",
+    "state"
+  ],
+  "properties": {
+    "event_id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
+    },
+    "timestamp": {
+      "type": "string",
+      "format": "date-time",
+      "description": "RFC 3339 UTC timestamp of the transition."
+    },
+    "state": {
+      "type": "string",
+      "enum": [
+        "pre_game",
+        "live",
+        "halftime",
+        "extra_time",
+        "penalty_shootout",
+        "final",
+        "cancelled",
+        "postponed"
+      ],
+      "description": "New lifecycle state of the event."
+    },
+    "previous_state": {
+      "type": "string",
+      "enum": [
+        "pre_game",
+        "live",
+        "halftime",
+        "extra_time",
+        "penalty_shootout",
+        "final",
+        "cancelled",
+        "postponed"
+      ],
+      "description": "Optional previous state, for debuggability."
+    },
+    "reason": {
+      "type": "string",
+      "maxLength": 500,
+      "description": "Optional short human-readable reason, e.g. \"weather delay\" or \"kickoff whistle\"."
+    }
+  },
+  "examples": [
+    {
+      "event_id": "worldcup-2026-semi-br-ar",
+      "timestamp": "2026-06-12T19:00:00Z",
+      "state": "live",
+      "previous_state": "pre_game",
+      "reason": "Kickoff"
+    },
+    {
+      "event_id": "worldcup-2026-semi-br-ar",
+      "timestamp": "2026-06-12T20:52:00Z",
+      "state": "final",
+      "previous_state": "live"
+    }
+  ]
+}

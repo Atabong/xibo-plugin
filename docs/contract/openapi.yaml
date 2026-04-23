@@ -1,0 +1,257 @@
+# Copyright (C) 2026 CROWDAQ
+# Licensed under AGPL-3.0-or-later. See the LICENSE file at the repo root.
+#
+# OpenAPI 3.1 description of the CROWDAQ --> Xibo widget data contract.
+#
+# Why this spec exists:
+#   The Xibo plugin in this repo is a thin Twig-rendered widget that opens
+#   an EventSource directly against the CROWDAQ backend from the player's
+#   Chromium runtime (see modules/crowdaq-widget.xml -> <onRender>). The
+#   wire between backend and widget is therefore the only integration
+#   surface this repo has. This file is the source of truth for that
+#   surface; datatypes/crowdaq-event.xml, docs/ARCHITECTURE.md, the widget
+#   <sampleData> block, and the bar-player bootstrap all reference it.
+#
+# Scope:
+#   - The single SSE endpoint (GET /events/{eventId}/stream).
+#   - All five SSE event names the widget may receive on that stream.
+#   - Error responses on the HTTP open handshake.
+#
+# Out of scope (deferred to later iters):
+#   - Real backend hostname (placeholder server below; bar-player bootstrap
+#     injects the real URL at deploy time; see README "Data contract").
+#   - JWT signing / key-rotation scheme. The Authorization header is
+#     described here so clients do not have to be rewritten when JWTs
+#     land; issuance remains out-of-band Phase-2 scope.
+#   - Snapshot fallback endpoint used when EventSource is unavailable
+#     (tracked in the MVP-widget iter).
+
+openapi: 3.1.0
+info:
+  title: CROWDAQ Widget Feed (SSE)
+  version: 1.0.0
+  summary: Server-Sent Events contract consumed by the CROWDAQ Xibo widget.
+  description: |
+    The CROWDAQ backend exposes a single Server-Sent Events (SSE) stream per
+    live sports event. The Xibo widget opens an `EventSource` against this
+    stream and re-renders its DOM on every event.
+
+    Five named SSE events flow on the stream. Each event's JSON payload is
+    described by a JSON Schema under `docs/contract/events/`:
+
+    - `score-update` -- authoritative match snapshot (score, clock, excitement,
+      last notable moment). Schema: `events/score-update.json`. Shape matches
+      `datatypes/crowdaq-event.xml` exactly; this is the only event the MVP
+      widget renders directly into the DOM.
+    - `moment` -- standalone notable-moment announcement that the widget may
+      overlay for a few seconds. Schema: `events/moment.json`.
+    - `status` -- event lifecycle transitions (pre-game, live, halftime,
+      final, etc.). Schema: `events/status.json`.
+    - `heartbeat` -- proxy/keepalive ping; widget uses it to flip the status
+      indicator between `live` and `stale`. Schema: `events/heartbeat.json`.
+    - `error` -- stream-level error (auth expiry, backend degraded). Clients
+      should log, show a `reconnecting` pill, and let the browser's native
+      EventSource retry handle the reconnect. Schema: `events/error.json`.
+
+    SSE framing (standard [MDN EventSource](https://developer.mozilla.org/docs/Web/API/Server-sent_events/Using_server-sent_events)):
+
+    ```
+    event: score-update
+    id: 1713889123
+    data: { ... JSON payload matching events/score-update.json ... }
+
+    ```
+
+    Each block is terminated by a blank line (`\n\n`). The `id:` field is
+    optional but recommended so browsers replay from `Last-Event-ID` on
+    reconnect.
+  license:
+    name: AGPL-3.0-or-later
+    url: https://www.gnu.org/licenses/agpl-3.0.html
+  contact:
+    name: CROWDAQ platform
+    url: https://github.com/Atabong/xibo-plugin
+
+servers:
+  - url: https://api.crowdaq.example/v1
+    description: |
+      Placeholder base URL. The real hostname is tailnet-only and is
+      injected into the Xibo Player at deploy time (see `README.md`
+      section "Data contract" and the bar-player bootstrap in the `xibo`
+      repo at `infra/bar-pc/`). Path templates below are stable regardless
+      of host.
+
+paths:
+  /events/{eventId}/stream:
+    get:
+      operationId: streamEvent
+      summary: Open the SSE stream for a CROWDAQ event.
+      description: |
+        Returns `text/event-stream` and keeps the connection open. The
+        server will never close the stream deliberately during a live
+        event; transient disconnects are expected (network blips,
+        tailscale hiccups) and the client should let the browser's
+        EventSource reconnect with `Last-Event-ID` automatically.
+
+        The first event on a fresh connection is always a `score-update`
+        carrying the full current snapshot, even if nothing has changed
+        upstream. This guarantees the widget can render a complete frame
+        without a separate snapshot call.
+      parameters:
+        - $ref: '#/components/parameters/EventId'
+        - name: Last-Event-ID
+          in: header
+          required: false
+          description: |
+            Standard SSE resume header. If present the backend will skip
+            re-sending events with `id:` values <= this one. Optional;
+            widget relies on browser to manage it.
+          schema:
+            type: string
+            maxLength: 64
+      responses:
+        '200':
+          description: Stream opened successfully. Body is an SSE stream.
+          headers:
+            Cache-Control:
+              schema: { type: string, const: 'no-cache' }
+            Connection:
+              schema: { type: string, const: 'keep-alive' }
+          content:
+            text/event-stream:
+              schema:
+                type: string
+                description: |
+                  Raw SSE stream. Each block has `event:` naming one of
+                  `score-update | moment | status | heartbeat | error`
+                  and a `data:` line whose body is JSON matching the
+                  corresponding schema under `docs/contract/events/`.
+              examples:
+                openingFrame:
+                  summary: Opening frame on a live match.
+                  value: |
+                    event: score-update
+                    id: 1713889123
+                    data: {"match_id":"worldcup-2026-semi-br-ar","event_id":"worldcup-2026-semi-br-ar","clock":{"minute":78,"stoppage":2,"period":"2H"},"score":{"home":1,"away":1},"teams":{"home":{"name":"Brazil","abbreviation":"BRA","logo_url":"https://cdn.crowdaq.example/crest/bra.svg"},"away":{"name":"Argentina","abbreviation":"ARG","logo_url":"https://cdn.crowdaq.example/crest/arg.svg"}},"excitement":{"level":0.82,"trend":"rising"},"last_moment":{"type":"goal","team":"home","minute":78,"text":"Goal! Brazil equalise in the 78th minute — stadium erupts."},"next_update_hint_ms":500}
+
+                    event: heartbeat
+                    id: 1713889133
+                    data: {"timestamp":"2026-06-12T20:15:13Z"}
+
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '500':
+          $ref: '#/components/responses/ServerError'
+        '503':
+          $ref: '#/components/responses/Unavailable'
+      security:
+        - bearerAuth: []
+        - {}  # also accept unauthenticated on the tailnet (Phase-1 posture)
+
+components:
+  parameters:
+    EventId:
+      name: eventId
+      in: path
+      required: true
+      description: |
+        CROWDAQ event identifier. League/tournament-scoped, slug-cased.
+        Example: `worldcup-2026-semi-br-ar`.
+
+        The widget's `eventId` property is passed through verbatim.
+      schema:
+        type: string
+        minLength: 3
+        maxLength: 128
+        pattern: '^[a-z0-9][a-z0-9-_]*[a-z0-9]$'
+        examples:
+          - worldcup-2026-semi-br-ar
+          - epl-2025-26-liv-mci-md32
+
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: |
+        Phase-2 upgrade. If present, the `Authorization: Bearer <jwt>`
+        header carries a short-lived JWT minted out-of-band by CROWDAQ.
+        Signing / rotation / audience claims are NOT specified here --
+        that is the Phase-2 task `Decide CROWDAQ backend hosting + data
+        contract` follow-up. In Phase-1 the endpoint is reachable
+        directly over the tailnet and this header is optional.
+
+  responses:
+    Unauthorized:
+      description: Missing or invalid bearer token (only applies once JWT auth lands).
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    Forbidden:
+      description: Token is valid but is not allowed to read this event.
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    NotFound:
+      description: No such event id, or event is archived / purged.
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    TooManyRequests:
+      description: Client opened too many streams; back off and retry.
+      headers:
+        Retry-After:
+          schema: { type: integer, minimum: 1 }
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    ServerError:
+      description: Backend failed to open the stream; client should retry.
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    Unavailable:
+      description: Backend is degraded or starting up; retry later.
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+
+  schemas:
+    Error:
+      type: object
+      additionalProperties: false
+      required: [code, message]
+      properties:
+        code:
+          type: string
+          description: |
+            Short machine-readable code. One of
+            `unauthorized | forbidden | not_found | rate_limited |
+            internal | unavailable`.
+          enum:
+            - unauthorized
+            - forbidden
+            - not_found
+            - rate_limited
+            - internal
+            - unavailable
+        message:
+          type: string
+          description: Human-readable explanation. Not for end users.
+          maxLength: 500
+        retry_after_ms:
+          type: integer
+          minimum: 0
+          description: Backend's hint for how long to wait before reconnecting.
+      examples:
+        - code: not_found
+          message: 'No such event: worldcup-2026-semi-br-ar'
+        - code: rate_limited
+          message: 'Too many open streams from this display'
+          retry_after_ms: 5000

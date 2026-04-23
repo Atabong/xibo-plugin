@@ -14,8 +14,41 @@
   represented by dotted-id fields (e.g. "teams.home.name") — Xibo's
   data-provider registry treats them as selector strings.
 
-  The full semantic contract is docs/ARCHITECTURE.md → "Event schema
-  (per SSE event)".
+  SOURCE OF TRUTH: docs/contract/openapi.yaml + docs/contract/events/
+  JSON Schemas. This file must stay 1:1 with
+  docs/contract/events/score-update.json (the only event the widget
+  renders into the DOM). If they drift, the JSON Schema wins — update
+  this XML to match. CI enforces schema validity but does NOT yet
+  enforce XML-to-schema field parity; that is a tightening-step for a
+  later iter.
+
+  Field-by-field mapping (XML id <-> JSON pointer in score-update.json):
+
+    match_id                      -> /match_id                   (string)
+    event_id                      -> /event_id                   (string)
+    clock.minute                  -> /clock/minute               (integer)
+    clock.stoppage                -> /clock/stoppage             (integer)
+    clock.period                  -> /clock/period               (enum string)
+    score.home                    -> /score/home                 (integer)
+    score.away                    -> /score/away                 (integer)
+    teams.home.name               -> /teams/home/name            (string)
+    teams.home.abbreviation       -> /teams/home/abbreviation    (string)
+    teams.home.logo_url           -> /teams/home/logo_url        (string, may be "")
+    teams.away.name               -> /teams/away/name            (string)
+    teams.away.abbreviation       -> /teams/away/abbreviation    (string)
+    teams.away.logo_url           -> /teams/away/logo_url        (string, may be "")
+    excitement.level              -> /excitement/level           (number 0.0-1.0)
+    excitement.trend              -> /excitement/trend           (enum string)
+    last_moment.type              -> /last_moment/type           (enum string)
+    last_moment.team              -> /last_moment/team           (enum string)
+    last_moment.minute            -> /last_moment/minute         (integer)
+    last_moment.text              -> /last_moment/text           (string)
+    next_update_hint_ms           -> /next_update_hint_ms        (integer)
+
+  The other SSE event types (moment, status, heartbeat, error) are not
+  declared here because they are not consumed by Xibo's data-provider
+  registry — the widget handles them in <onRender> JS directly. They
+  still have JSON Schemas under docs/contract/events/.
 -->
 <datatypes>
     <datatype>

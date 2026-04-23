@@ -40,10 +40,89 @@ jobs:
         # that the real implementation lands in the MVP-widget iter.
         run: composer run analyse || true
 
+  contract:
+    name: Data-contract validation (OpenAPI + JSON Schema)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # Pinned Node LTS so the Redocly CLI + ajv-cli binaries we install
+      # below resolve against the same runtime on every CI run. Do not
+      # float to a `*` range — the loop's hard constraint is "no
+      # @latest pins".
+      - name: Setup Node.js 20.17.0
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20.17.0'
+
+      # @redocly/cli ships `redocly lint` which validates OpenAPI 3.0/3.1
+      # against the JSON Schema and Redocly's rule set. ajv-cli 5.x uses
+      # ajv v8 which supports draft 2020-12 via the ajv-formats addon.
+      # Both installed together into a scratch `ci-contract-tools/`
+      # directory so the repo root stays free of Node build artefacts
+      # (no package.json or package-lock.json is committed). Versions
+      # pinned -- bump explicitly, never float to @latest.
+      - name: Install pinned contract-validation tools
+        run: |
+          set -euxo pipefail
+          mkdir -p ci-contract-tools
+          cd ci-contract-tools
+          npm init -y > /dev/null
+          npm install --no-save --no-fund --no-audit \
+            @redocly/cli@1.25.5 \
+            ajv-cli@5.0.0 \
+            ajv-formats@3.0.1
+
+      # Redocly lint: fail on any error; warnings are allowed for now
+      # (we can tighten with `--max-problems 0` once the spec stabilises).
+      - name: Lint OpenAPI
+        run: ./ci-contract-tools/node_modules/.bin/redocly lint docs/contract/openapi.yaml
+
+      # Each JSON Schema file must itself be a valid Draft 2020-12
+      # document (meta-validation). ajv-cli's `compile` mode compiles
+      # the schema against the 2020-12 meta-schema, failing on any
+      # structural error.
+      - name: Meta-validate JSON Schemas
+        run: |
+          set -euxo pipefail
+          for f in docs/contract/events/*.json; do
+            ./ci-contract-tools/node_modules/.bin/ajv compile \
+              --spec=draft2020 \
+              -c ajv-formats \
+              -s "$f"
+          done
+
+      # Extract the <sampleData> block from the widget manifest and run
+      # it through ajv against score-update.json — catches drift between
+      # the widget's in-CMS preview payload and the formal contract.
+      - name: Validate widget <sampleData> against score-update.json
+        run: |
+          set -euxo pipefail
+          python3 - <<'PY'
+          import re, json, sys, pathlib
+          xml = pathlib.Path('modules/crowdaq-widget.xml').read_text(encoding='utf-8')
+          m = re.search(r'<sampleData><!\[CDATA\[(.*?)\]\]></sampleData>', xml, re.S)
+          if not m:
+              print('no <sampleData> block found', file=sys.stderr)
+              sys.exit(1)
+          payload = json.loads(m.group(1))
+          # manifest embeds an array with a single event object
+          if not isinstance(payload, list) or len(payload) != 1:
+              print('expected sampleData to be a single-element JSON array', file=sys.stderr)
+              sys.exit(1)
+          pathlib.Path('sampleData.json').write_text(
+              json.dumps(payload[0], indent=2), encoding='utf-8')
+          PY
+          ./ci-contract-tools/node_modules/.bin/ajv validate \
+            --spec=draft2020 \
+            -c ajv-formats \
+            -s docs/contract/events/score-update.json \
+            -d sampleData.json
+
   package:
     name: Build release zip
     runs-on: ubuntu-latest
-    needs: lint
+    needs: [lint, contract]
     steps:
       - uses: actions/checkout@v4
 
@@ -62,7 +141,7 @@ jobs:
         run: |
           mkdir -p dist
           VERSION=$(git describe --tags --always)
-          zip -r "dist/crowdaq-xibo-plugin-${VERSION}.zip" modules stencils datatypes src composer.json README.md LICENSE -x '*/.*'
+          zip -r "dist/crowdaq-xibo-plugin-${VERSION}.zip" modules stencils datatypes src docs/contract composer.json README.md LICENSE -x '*/.*'
           ls -la dist/
 
       - name: Upload dist artifact
