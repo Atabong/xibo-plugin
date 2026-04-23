@@ -1,0 +1,190 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://crowdaq.example/xibo-plugin/contract/events/score-update.json",
+  "title": "CROWDAQ score-update event",
+  "description": "Authoritative match snapshot pushed by the CROWDAQ backend on every meaningful change (goal, score correction, clock tick with excitement delta, last-moment update). This is the primary event the widget renders into the DOM; its shape is what datatypes/crowdaq-event.xml declares to Xibo's data-provider registry.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "match_id",
+    "event_id",
+    "clock",
+    "score",
+    "teams",
+    "excitement",
+    "last_moment",
+    "next_update_hint_ms"
+  ],
+  "properties": {
+    "match_id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128,
+      "description": "Stable league/tournament-scoped identifier for the underlying match."
+    },
+    "event_id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128,
+      "description": "CROWDAQ-side event id (equals match_id in phase 1)."
+    },
+    "clock": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["minute", "stoppage", "period"],
+      "properties": {
+        "minute": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 200,
+          "description": "1-indexed match minute; 0 in pre-game."
+        },
+        "stoppage": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 30,
+          "description": "Added stoppage-time minutes for the current period."
+        },
+        "period": {
+          "type": "string",
+          "enum": ["PRE", "1H", "HT", "2H", "ET1", "ETHT", "ET2", "PEN", "FT"],
+          "description": "Match period code."
+        }
+      }
+    },
+    "score": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["home", "away"],
+      "properties": {
+        "home": { "type": "integer", "minimum": 0, "maximum": 99 },
+        "away": { "type": "integer", "minimum": 0, "maximum": 99 }
+      }
+    },
+    "teams": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["home", "away"],
+      "properties": {
+        "home": { "$ref": "#/$defs/team" },
+        "away": { "$ref": "#/$defs/team" }
+      }
+    },
+    "excitement": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["level", "trend"],
+      "properties": {
+        "level": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1,
+          "description": "CROWDAQ excitement score, 0.0 to 1.0. Widget renders as level*10."
+        },
+        "trend": {
+          "type": "string",
+          "enum": ["rising", "falling", "flat"]
+        }
+      }
+    },
+    "last_moment": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "team", "minute", "text"],
+      "properties": {
+        "type": {
+          "type": "string",
+          "enum": [
+            "kickoff",
+            "goal",
+            "card",
+            "var",
+            "penalty",
+            "substitution",
+            "period_end",
+            "end"
+          ]
+        },
+        "team": {
+          "type": "string",
+          "enum": ["home", "away", "neutral"]
+        },
+        "minute": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 200
+        },
+        "text": {
+          "type": "string",
+          "maxLength": 500,
+          "description": "Human-readable description. May exceed the widget's maxMomentLength; the client truncates."
+        }
+      }
+    },
+    "next_update_hint_ms": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 600000,
+      "description": "Backend's hint for how many ms until the next tick. Advisory only; SSE push cadence is truth."
+    }
+  },
+  "$defs": {
+    "team": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "abbreviation", "logo_url"],
+      "properties": {
+        "name": { "type": "string", "minLength": 1, "maxLength": 64 },
+        "abbreviation": {
+          "type": "string",
+          "minLength": 2,
+          "maxLength": 5,
+          "description": "2-5 char team code (FIFA / league convention)."
+        },
+        "logo_url": {
+          "type": "string",
+          "maxLength": 512,
+          "description": "Optional team crest URL. Empty string when unavailable; widget hides the <img> cleanly."
+        }
+      }
+    }
+  },
+  "examples": [
+    {
+      "match_id": "worldcup-2026-semi-br-ar",
+      "event_id": "worldcup-2026-semi-br-ar",
+      "clock": { "minute": 78, "stoppage": 2, "period": "2H" },
+      "score": { "home": 1, "away": 1 },
+      "teams": {
+        "home": { "name": "Brazil", "abbreviation": "BRA", "logo_url": "https://cdn.crowdaq.example/crest/bra.svg" },
+        "away": { "name": "Argentina", "abbreviation": "ARG", "logo_url": "https://cdn.crowdaq.example/crest/arg.svg" }
+      },
+      "excitement": { "level": 0.82, "trend": "rising" },
+      "last_moment": {
+        "type": "goal",
+        "team": "home",
+        "minute": 78,
+        "text": "Goal! Brazil equalise in the 78th minute — stadium erupts."
+      },
+      "next_update_hint_ms": 500
+    },
+    {
+      "match_id": "sample-match-001",
+      "event_id": "sample-match-001",
+      "clock": { "minute": 78, "stoppage": 2, "period": "2H" },
+      "score": { "home": 1, "away": 1 },
+      "teams": {
+        "home": { "name": "Home FC", "abbreviation": "HME", "logo_url": "" },
+        "away": { "name": "Away FC", "abbreviation": "AWY", "logo_url": "" }
+      },
+      "excitement": { "level": 0.82, "trend": "rising" },
+      "last_moment": {
+        "type": "goal",
+        "team": "home",
+        "minute": 78,
+        "text": "Goal! Home FC equalise in the 78th minute — stadium erupts."
+      },
+      "next_update_hint_ms": 500
+    }
+  ]
+}

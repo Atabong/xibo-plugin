@@ -1,0 +1,60 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://crowdaq.example/xibo-plugin/contract/events/error.json",
+  "title": "CROWDAQ stream-level error event",
+  "description": "Emitted when the backend is going to drop the connection or degrade the stream. The widget should flag the status pill (`reconnecting` or `disconnected`) and rely on the browser's native EventSource reconnect. This is distinct from HTTP 4xx/5xx responses on the initial open (those are described in openapi.yaml).",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "code",
+    "message",
+    "timestamp"
+  ],
+  "properties": {
+    "code": {
+      "type": "string",
+      "enum": [
+        "unauthorized",
+        "forbidden",
+        "not_found",
+        "rate_limited",
+        "internal",
+        "unavailable",
+        "stale_token",
+        "backend_restart"
+      ],
+      "description": "Short machine-readable code. Same top of the enum as the HTTP error schema in openapi.yaml, with two stream-only additions."
+    },
+    "message": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 500,
+      "description": "Human-readable explanation. Not for end users."
+    },
+    "timestamp": {
+      "type": "string",
+      "format": "date-time",
+      "description": "RFC 3339 UTC time the error was emitted."
+    },
+    "retry_after_ms": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 600000,
+      "description": "Backend's hint for how long to wait before reconnecting. Widget does not enforce this; EventSource retry interval is driven by the browser."
+    }
+  },
+  "examples": [
+    {
+      "code": "stale_token",
+      "message": "Bearer token expired; please reopen the stream with a fresh JWT.",
+      "timestamp": "2026-06-12T20:15:00Z",
+      "retry_after_ms": 0
+    },
+    {
+      "code": "backend_restart",
+      "message": "Backend pod restarting for a rolling deploy; reconnect in ~5s.",
+      "timestamp": "2026-06-12T20:16:42Z",
+      "retry_after_ms": 5000
+    }
+  ]
+}

@@ -1,0 +1,27 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://crowdaq.example/xibo-plugin/contract/events/heartbeat.json",
+  "title": "CROWDAQ heartbeat event",
+  "description": "Keepalive ping. Emitted by the backend every ~10 seconds when nothing else is happening. Widgets use it to flip the status indicator between `live` and `stale`, and to detect silent disconnects behind proxies.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "timestamp"
+  ],
+  "properties": {
+    "timestamp": {
+      "type": "string",
+      "format": "date-time",
+      "description": "RFC 3339 UTC time the heartbeat was sent."
+    },
+    "server_id": {
+      "type": "string",
+      "maxLength": 64,
+      "description": "Optional backend-pod identifier. Useful for debugging stream-routing issues."
+    }
+  },
+  "examples": [
+    { "timestamp": "2026-06-12T20:15:13Z" },
+    { "timestamp": "2026-06-12T20:15:23Z", "server_id": "crowdaq-api-7f4b9c8d5-kx2vt" }
+  ]
+}

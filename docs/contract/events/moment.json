@@ -1,0 +1,88 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://crowdaq.example/xibo-plugin/contract/events/moment.json",
+  "title": "CROWDAQ moment event",
+  "description": "Standalone notable-moment announcement (goal, red card, VAR, etc.). Emitted in addition to the score-update snapshot so the widget can overlay a dedicated celebration card for a few seconds without waiting for the next full snapshot.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "event_id",
+    "timestamp",
+    "moment_type",
+    "team",
+    "minute",
+    "description"
+  ],
+  "properties": {
+    "event_id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128,
+      "description": "CROWDAQ event id this moment belongs to. Same shape as score-update.event_id."
+    },
+    "timestamp": {
+      "type": "string",
+      "format": "date-time",
+      "description": "RFC 3339 UTC timestamp of when the moment was observed."
+    },
+    "moment_type": {
+      "type": "string",
+      "enum": [
+        "kickoff",
+        "goal",
+        "card",
+        "var",
+        "penalty",
+        "substitution",
+        "period_end",
+        "end"
+      ],
+      "description": "Matches the enum used in score-update.last_moment.type."
+    },
+    "team": {
+      "type": "string",
+      "enum": ["home", "away", "neutral"]
+    },
+    "minute": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 200
+    },
+    "description": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 500,
+      "description": "Human-readable description. Upstream may exceed the widget's maxMomentLength; client truncates with trailing ellipsis."
+    },
+    "media_url": {
+      "type": "string",
+      "maxLength": 512,
+      "description": "Optional image or short-video URL for an overlay. Empty / absent when none."
+    },
+    "player_or_actor": {
+      "type": "string",
+      "maxLength": 128,
+      "description": "Optional player / actor involved (e.g. goal scorer, card recipient)."
+    }
+  },
+  "examples": [
+    {
+      "event_id": "worldcup-2026-semi-br-ar",
+      "timestamp": "2026-06-12T20:14:58Z",
+      "moment_type": "goal",
+      "team": "home",
+      "minute": 78,
+      "description": "Goal! Brazil equalise in the 78th minute — stadium erupts.",
+      "media_url": "https://cdn.crowdaq.example/clips/worldcup-2026-semi-br-ar/goal-78.mp4",
+      "player_or_actor": "Vinicius Jr."
+    },
+    {
+      "event_id": "epl-2025-26-liv-mci-md32",
+      "timestamp": "2026-04-19T15:32:10Z",
+      "moment_type": "card",
+      "team": "away",
+      "minute": 23,
+      "description": "Yellow card shown to the Manchester City midfielder for a late tackle."
+    }
+  ]
+}

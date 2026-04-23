@@ -58,6 +58,44 @@ Notion decision `Decide CROWDAQ plugin phase-1 scope [DECIDED]`.
 
 ---
 
+## Data contract
+
+The CROWDAQ → widget wire protocol is specified formally under
+[`docs/contract/`](docs/contract/):
+
+- [`docs/contract/openapi.yaml`](docs/contract/openapi.yaml) — OpenAPI
+  3.1 spec for the single SSE endpoint
+  `GET /events/{eventId}/stream`, error responses, and Bearer-token
+  auth (Phase-2).
+- [`docs/contract/events/`](docs/contract/events/) — one JSON Schema
+  (Draft 2020-12) per SSE event type:
+  - [`score-update.json`](docs/contract/events/score-update.json) —
+    primary snapshot; consumed by the widget DOM renderer. Shape mirrors
+    [`datatypes/crowdaq-event.xml`](datatypes/crowdaq-event.xml) 1:1.
+  - [`moment.json`](docs/contract/events/moment.json) — standalone
+    notable-moment announcement.
+  - [`status.json`](docs/contract/events/status.json) — event-lifecycle
+    transitions.
+  - [`heartbeat.json`](docs/contract/events/heartbeat.json) —
+    keepalive / liveness ping.
+  - [`error.json`](docs/contract/events/error.json) — stream-level
+    error.
+
+Anywhere docs disagree with the formal spec, the formal spec wins. CI
+(`.github/workflows/ci.yml`, job `contract`) enforces:
+
+- OpenAPI validity via `@redocly/cli lint` (pinned).
+- JSON Schema meta-validity (Draft 2020-12) via `ajv-cli` (pinned).
+
+### Overriding the backend URL
+
+The OpenAPI `servers[0].url` is the placeholder
+`https://api.crowdaq.example/v1`. The real hostname is tailnet-only and
+is not committed. At deploy time the Xibo Player reads the backend base
+URL from a browser global injected by the bar-PC bootstrap (see the
+`xibo` repo, `infra/bar-pc/`): `window.crowdaqBackendBase`. The widget's
+`eventId` property is appended verbatim to produce the full stream URL.
+
 ## Widget properties
 
 Operators configure the widget instance via the standard Xibo property
@@ -96,7 +134,15 @@ xibo-plugin/
 ├── src/
 │   └── README.md                  Why this directory is empty in phase 1.
 ├── docs/
-│   └── ARCHITECTURE.md            Data flow + data-contract fields + property table.
+│   ├── ARCHITECTURE.md            Data flow + property table; links into contract/.
+│   └── contract/
+│       ├── openapi.yaml           OpenAPI 3.1 spec for the SSE endpoint.
+│       └── events/
+│           ├── score-update.json  Match-snapshot payload schema (primary tick).
+│           ├── moment.json        Notable-moment announcement schema.
+│           ├── status.json        Event-lifecycle transition schema.
+│           ├── heartbeat.json     Keepalive schema.
+│           └── error.json         Stream-level error schema.
 └── dist/                          Release artifacts (gitignored).
 ```
 

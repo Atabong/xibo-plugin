@@ -1,8 +1,23 @@
 # CROWDAQ Xibo Plugin — Architecture
 
-_Status: manifest iter. Diagrams are still textual; a rendered version
+_Status: data-contract iter. Diagrams are still textual; a rendered version
 will land in the `Author architecture diagram (D2 -> Kroki -> wiki)`
 iteration._
+
+> **Source of truth for the CROWDAQ → widget wire protocol:**
+> [`docs/contract/openapi.yaml`](contract/openapi.yaml) and the
+> per-event JSON Schemas under [`docs/contract/events/`](contract/events/).
+> This document describes the surrounding architecture; anywhere it
+> contradicts the formal spec, the formal spec wins.
+>
+> - SSE endpoint: `GET /events/{eventId}/stream` — see `openapi.yaml`.
+> - Event schemas:
+>   [`score-update.json`](contract/events/score-update.json) (primary
+>   snapshot the widget renders),
+>   [`moment.json`](contract/events/moment.json),
+>   [`status.json`](contract/events/status.json),
+>   [`heartbeat.json`](contract/events/heartbeat.json),
+>   [`error.json`](contract/events/error.json).
 
 ---
 
@@ -89,12 +104,26 @@ signed JWT is an optional phase-2 upgrade.
 
 ### Event schema (per SSE event)
 
-This is the authoritative CROWDAQ → widget contract. It is mirrored in
-two machine-readable places in this repo:
+The authoritative CROWDAQ → widget contract is the OpenAPI + JSON
+Schema bundle under [`docs/contract/`](contract/). Five SSE event types
+are emitted on the single `/events/{eventId}/stream` endpoint:
+
+| Event name | Schema | Purpose |
+|---|---|---|
+| `score-update` | [`score-update.json`](contract/events/score-update.json) | Full match snapshot; primary tick rendered into the DOM. |
+| `moment` | [`moment.json`](contract/events/moment.json) | Standalone notable-moment announcement (goal, card, VAR). |
+| `status` | [`status.json`](contract/events/status.json) | Event-lifecycle transitions (pre-game → live → final …). |
+| `heartbeat` | [`heartbeat.json`](contract/events/heartbeat.json) | Keepalive ping; flips the status pill between `live` and `stale`. |
+| `error` | [`error.json`](contract/events/error.json) | Stream-level error; client should log + let EventSource retry. |
+
+The `score-update` shape is mirrored in two additional machine-readable
+places in this repo, both of which MUST stay 1:1 with
+`score-update.json`:
 
 - `datatypes/crowdaq-event.xml` — declared to Xibo's data-provider
   registry and referenced by `modules/crowdaq-widget.xml` via
-  `<dataType>crowdaq-event</dataType>`.
+  `<dataType>crowdaq-event</dataType>`. Field-by-field mapping is
+  documented in that file's header.
 - `modules/crowdaq-widget.xml` `<sampleData>` block — one canonical
   sample event used by the CMS layout editor and by the stencil when no
   live feed is yet connected.
@@ -154,13 +183,19 @@ only (phase 1 has no scrollback / history).
    initial DOM using the widget properties (theme, eventId, flags).
 3. `<onRender>` JS runs against that DOM:
    - If cached / sample data is available, paint it first so the screen
-     is never blank.
+     is never blank. Cached / sample data MUST validate against
+     `docs/contract/events/score-update.json`.
    - Open an `EventSource` to
-     `GET /stream?display_id=<xibo_display_id>&event_id=<optional>`.
-   - On each SSE tick, parse the JSON payload (matches the data shape
-     above) and rewrite the DOM in place — no full page reload.
-   - On connection error, flag the status pill `disconnected` and let
-     `EventSource`'s native reconnect handle the rest.
+     `GET /events/<eventId>/stream` (see `docs/contract/openapi.yaml`).
+   - Route events by their SSE `event:` name to the right handler:
+     - `score-update` → rewrite the score / excitement / last-moment DOM.
+     - `moment` → overlay a celebration card for a few seconds (phase-2
+       polish; MVP widget renders last-moment via `score-update` only).
+     - `status` → swap top-level render mode (pre-game placard, live,
+       final-score card).
+     - `heartbeat` → flip status pill between `live` and `stale`.
+     - `error` → flag `reconnecting` / `disconnected` and let
+       `EventSource`'s native reconnect handle the rest.
 4. On next player refresh, step 2 runs again; JS state is discarded.
 
 Refresh cadence:
