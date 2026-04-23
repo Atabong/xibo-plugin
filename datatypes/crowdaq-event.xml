@@ -1,0 +1,87 @@
+<!--
+  ~ Copyright (C) 2026 CROWDAQ
+  ~
+  ~ This file is part of the CROWDAQ Xibo Plugin.
+  ~ Licensed under AGPL-3.0-or-later. See the LICENSE file at the repo root.
+  -->
+<!--
+  CROWDAQ event data type — referenced from modules/crowdaq-widget.xml
+  via the <dataType>crowdaq-event</dataType> element.
+
+  Structure mirrors upstream xibo-cms 4.4.2 datatype definitions (see
+  modules/datatypes/stock.xml, currency.xml). Xibo datatypes use a flat
+  list of <field> elements; nested objects in the JSON payload are
+  represented by dotted-id fields (e.g. "teams.home.name") — Xibo's
+  data-provider registry treats them as selector strings.
+
+  The full semantic contract is docs/ARCHITECTURE.md → "Event schema
+  (per SSE event)".
+-->
+<datatypes>
+    <datatype>
+        <id>crowdaq-event</id>
+        <name>CROWDAQ Event</name>
+        <fields>
+            <field id="match_id" type="text">
+                <title>Match identifier (league/tournament-scoped).</title>
+            </field>
+            <field id="event_id" type="text">
+                <title>CROWDAQ event id (may equal match_id in phase 1).</title>
+            </field>
+            <field id="clock.minute" type="number">
+                <title>Current match minute.</title>
+            </field>
+            <field id="clock.stoppage" type="number">
+                <title>Added stoppage-time minutes for the current period.</title>
+            </field>
+            <field id="clock.period" type="text">
+                <title>Match period code: 1H, HT, 2H, ET1, ET2, PEN, FT.</title>
+            </field>
+            <field id="score.home" type="number">
+                <title>Home-side score.</title>
+            </field>
+            <field id="score.away" type="number">
+                <title>Away-side score.</title>
+            </field>
+            <field id="teams.home.name" type="text">
+                <title>Home team full name.</title>
+            </field>
+            <field id="teams.home.abbreviation" type="text">
+                <title>Home team short code (e.g. BRA, ARG).</title>
+            </field>
+            <field id="teams.home.logo_url" type="text">
+                <title>Home team crest URL. May be empty.</title>
+            </field>
+            <field id="teams.away.name" type="text">
+                <title>Away team full name.</title>
+            </field>
+            <field id="teams.away.abbreviation" type="text">
+                <title>Away team short code.</title>
+            </field>
+            <field id="teams.away.logo_url" type="text">
+                <title>Away team crest URL. May be empty.</title>
+            </field>
+            <field id="excitement.level" type="number">
+                <title>CROWDAQ excitement score, 0.0 to 1.0 (multiply by 10 for UI).</title>
+            </field>
+            <field id="excitement.trend" type="text">
+                <title>Excitement trend: rising, falling, flat.</title>
+            </field>
+            <field id="last_moment.type" type="text">
+                <title>Moment type: goal, card, var, penalty, substitution, kickoff, end, …</title>
+            </field>
+            <field id="last_moment.team" type="text">
+                <title>Which side the moment involves: home, away, neutral.</title>
+            </field>
+            <field id="last_moment.minute" type="number">
+                <title>Match minute the moment occurred in.</title>
+            </field>
+            <field id="last_moment.text" type="text">
+                <title>Human-readable description of the moment.</title>
+            </field>
+            <field id="next_update_hint_ms" type="number">
+                <title>Backend's hint for how many ms until the next tick; advisory only.</title>
+            </field>
+        </fields>
+    </datatype>
+</datatypes>

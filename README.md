@@ -4,9 +4,11 @@ An open-source [Xibo CMS](https://xibosignage.com/) custom module that renders
 [CROWDAQ](#what-is-crowdaq) sports-excitement content on Xibo-managed digital
 signage screens (typically bar TVs).
 
-> Status: **scaffold** — structure and placeholders only. Real manifest, Twig
-> stencil, data fetch, and CI are filled in by follow-up iterations (see
-> `docs/ARCHITECTURE.md` and the CROWDAQ + Xibo Delivery Infra Notion project).
+> Status: **manifest + stencil authored** — the module manifest and
+> inline Twig stencil are real. The live backend wire-up (SSE fetch,
+> multi-bar targeting, release packaging, CI packaging) is filled in by
+> follow-up iterations (see `docs/ARCHITECTURE.md` and the
+> CROWDAQ + Xibo Delivery Infra Notion project).
 
 ---
 
@@ -27,24 +29,51 @@ with two halves:
 - **Xibo Player** — a desktop or Android client that pulls layouts from the
   CMS and renders them on a screen.
 
-Xibo CMS supports **Custom Modules**: XML-defined widgets (with a Twig
-stencil and, optionally, a PHP data-provider class) that are dropped into
-the CMS `custom/` directory.
+Xibo CMS 4.x supports **Custom Modules** as **XML-first**: a widget is fully
+defined by its `<module>` manifest (with an inline Twig stencil) dropped into
+the CMS `custom/` directory. A PHP data-provider class is optional and only
+needed when the CMS itself must fetch the feed (phase 1 does not need one —
+the Xibo Player opens the CROWDAQ SSE stream directly from the rendered
+widget HTML).
 
 ## What this plugin does
 
 This plugin ships a **CROWDAQ widget** that a layout designer can drag onto
 a Xibo region. The widget:
 
-1. Fetches the latest CROWDAQ feed from the CROWDAQ backend (data contract
-   defined in the Notion `Define CROWDAQ data source contract` task).
-2. Renders the payload through a Twig stencil that becomes the HTML
-   delivered to the player.
+1. Fetches the latest CROWDAQ feed from the CROWDAQ backend over SSE
+   (`GET /stream?display_id=…&event_id=…`) — data contract documented in
+   [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) and declared to Xibo as
+   the `crowdaq-event` datatype in [`datatypes/crowdaq-event.xml`](datatypes/crowdaq-event.xml).
+2. Renders the payload through an inline Twig stencil in
+   [`modules/crowdaq-widget.xml`](modules/crowdaq-widget.xml). A mirror of
+   just the Twig body is also kept at
+   [`stencils/crowdaq-widget.twig`](stencils/crowdaq-widget.twig) for
+   IDE-friendly editing — the inline copy is the one the CMS reads.
 3. Supports Xibo's **display tags** so operators can target specific bars
-   (see `Multi-bar targeting via display tags`).
+   (see the `Multi-bar targeting via display tags` iter).
 
 Phase 1 scope is intentionally minimal (single widget, read-only). See the
 Notion decision `Decide CROWDAQ plugin phase-1 scope [DECIDED]`.
+
+---
+
+## Widget properties
+
+Operators configure the widget instance via the standard Xibo property
+panel. The manifest exposes:
+
+| Property | Type | Default | Purpose |
+|---|---|---|---|
+| `eventId` | text | _(empty)_ | Pin to a specific CROWDAQ event. Empty ⇒ backend picks the best live event for the display. |
+| `refreshInterval` | number | `30` (seconds) | Fallback polling cadence when SSE is unavailable. Minimum 5. |
+| `theme` | dropdown (`dark` / `light`) | `dark` | Colour palette. |
+| `showTeamLogos` | checkbox | `true` | Render team crest images when `logo_url` is present in the feed. |
+| `showLastMoment` | checkbox | `true` | Show the most recent notable moment text. |
+| `maxMomentLength` | number | `80` | Character cap for the last-moment text. Only shown when `showLastMoment` is on. |
+
+Changing a property requires no CMS restart — Xibo picks up widget-level
+changes on the next layout publish.
 
 ---
 
@@ -52,21 +81,23 @@ Notion decision `Decide CROWDAQ plugin phase-1 scope [DECIDED]`.
 
 ```
 xibo-plugin/
-├── README.md               This file.
-├── LICENSE                 AGPL-3.0 (matches Xibo CMS).
+├── README.md                      This file.
+├── LICENSE                        AGPL-3.0 (matches Xibo CMS).
 ├── .gitignore
 ├── .editorconfig
-├── .github/workflows/      CI placeholder (PHP lint, composer validate, release zip).
-├── composer.json           Autoload + dev tooling.
+├── .github/workflows/ci.yml       PHP lint, composer validate, release zip.
+├── composer.json                  Autoload + dev tooling.
 ├── modules/
-│   └── crowdaq-widget.xml  Xibo module manifest (stub).
+│   └── crowdaq-widget.xml         Xibo 4.4.2 module manifest + inline stencil.
 ├── stencils/
-│   └── crowdaq-widget.twig Xibo render template (stub).
-├── src/Widget/
-│   └── CrowdaqWidget.php   Optional PHP data-provider class (stub).
+│   └── crowdaq-widget.twig        IDE-friendly mirror of the inline stencil.
+├── datatypes/
+│   └── crowdaq-event.xml          Data-provider field registry for the widget.
+├── src/
+│   └── README.md                  Why this directory is empty in phase 1.
 ├── docs/
-│   └── ARCHITECTURE.md     High-level data flow.
-└── dist/                   Release artifacts (gitignored).
+│   └── ARCHITECTURE.md            Data flow + data-contract fields + property table.
+└── dist/                          Release artifacts (gitignored).
 ```
 
 ## Install (development CMS)
@@ -100,7 +131,7 @@ reload the CMS.
 ## Test
 
 ```
-composer run lint      # php -l on all php files
+composer run lint      # php -l on all php files (no-op on an empty src/)
 composer run analyse   # phpstan
 composer run cs        # php-cs-fixer dry-run
 ```
@@ -110,10 +141,11 @@ every push and pull request.
 
 ## Release
 
-`composer run package` builds `dist/crowdaq-xibo-plugin-<version>.zip` with
-the module layout Xibo expects (the contents of `modules/`, `stencils/`,
-and `src/` — no dev files). This script is **not yet implemented** — see
-the CI workflow for the intended layout.
+`composer run package` is intended to build
+`dist/crowdaq-xibo-plugin-<version>.zip` with the module layout Xibo expects
+(the contents of `modules/`, `stencils/`, `datatypes/`, and `src/` — no dev
+files). This script is **not yet implemented** — see the CI workflow for
+the intended layout.
 
 ## License
 

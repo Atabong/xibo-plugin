@@ -62,7 +62,7 @@ jobs:
         run: |
           mkdir -p dist
           VERSION=$(git describe --tags --always)
-          zip -r "dist/crowdaq-xibo-plugin-${VERSION}.zip" modules stencils src composer.json README.md LICENSE -x '*/.*'
+          zip -r "dist/crowdaq-xibo-plugin-${VERSION}.zip" modules stencils datatypes src composer.json README.md LICENSE -x '*/.*'
           ls -la dist/
 
       - name: Upload dist artifact
