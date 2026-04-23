@@ -49,8 +49,11 @@ a Xibo region. The widget:
    [`modules/crowdaq-widget.xml`](modules/crowdaq-widget.xml). The
    earlier IDE-friendly mirror under `stencils/` was removed in the
    MVP-widget iter; the inline copy is the sole source of truth.
-3. Supports Xibo's **display tags** so operators can target specific bars
-   (see the `Multi-bar targeting via display tags` iter).
+3. Resolves per-bar values (CROWDAQ event id, backend URL) from the
+   Xibo Player's local `xiboIC.info()` response so one layout can
+   serve many bars. See [**Multi-bar targeting**](#multi-bar-targeting)
+   below and [`docs/TARGETING.md`](docs/TARGETING.md) for the full
+   walkthrough.
 
 Phase 1 scope is intentionally minimal (single widget, read-only). See the
 Notion decision `Decide CROWDAQ plugin phase-1 scope [DECIDED]`.
@@ -114,8 +117,8 @@ panel. The manifest exposes:
 
 | Property | Type | Default | Purpose |
 |---|---|---|---|
-| `apiBaseUrl` | text | _(empty)_ | CROWDAQ backend base URL. Used as `<apiBaseUrl>/events/<eventId>/stream`. Validated against `^$|^https://.*`. Falls back to `window.crowdaqBackendBase` when empty. |
-| `eventId` | text | _(empty)_ | Pin to a specific CROWDAQ event. Empty ⇒ the widget uses the literal `default` in the path and the backend picks the best live event for the display. |
+| `apiBaseUrl` | text | _(empty)_ | CROWDAQ backend base URL. Used as `<apiBaseUrl>/events/<eventId>/stream`. Accepts a literal `https://…` URL, `display:<field>` (resolved at render time against `xiboIC.info()` — see [Multi-bar targeting](#multi-bar-targeting)), or empty. Validated against `^$\|^https://.*\|^display:[a-zA-Z][a-zA-Z0-9_]*$`. Falls back to `window.crowdaqBackendBase` when empty. |
+| `eventId` | text | _(empty)_ | CROWDAQ event / match identifier. Accepts a literal event id, `display:<field>` for per-bar targeting, or empty (widget uses `default` in the path and the backend picks the best live event for the display). |
 | `refreshInterval` | number | `30` (seconds) | Stale-detector interval. The widget flips to a `stale` pill if no event (including `heartbeat`) arrives within `2 * refreshInterval`. Minimum 5. |
 | `theme` | dropdown (`dark` / `light`) | `dark` | Colour palette. |
 | `showTeamLogos` | checkbox | `true` | Render team crest images when `logo_url` is present in the feed. Falls back to the team abbreviation on `onerror`. |
@@ -124,6 +127,31 @@ panel. The manifest exposes:
 
 Changing a property requires no CMS restart — Xibo picks up widget-level
 changes on the next layout publish.
+
+## Multi-bar targeting
+
+A single CROWDAQ layout can serve many bars without duplication. The
+widget resolves any property value that starts with `display:<field>`
+at render time, substituting the field from the player's
+`xiboIC.info()` response. Recommended field: `displayName` — it is
+operator-friendly and lives in every Xibo display record.
+
+```text
+# Per-bar config (set in each bar's Xibo display record):
+The Anchor Pub   displayName = nfl-bills-chiefs-2026w8
+Red Lion         displayName = mls-toronto-miami-2026-final
+Ocean View       displayName = epl-liverpool-arsenal-2026w14
+
+# Per-layout config (one widget, published to all three bars):
+apiBaseUrl = https://crowdaq.tenant-a.tailnet
+eventId    = display:displayName
+```
+
+See [`docs/TARGETING.md`](docs/TARGETING.md) for the full walkthrough,
+the complete list of supported `display:<field>` values, bulk setup via
+the Xibo CMS REST API, and the upstream evidence for why client-side
+substitution (not a CMS-side `%displayTag(...)%` macro) is the right
+approach against Xibo CMS 4.4.2.
 
 ### Troubleshooting
 
@@ -135,6 +163,7 @@ changes on the next layout publish.
 | Red error pill with a `code` / `message` | Server emitted an `error` event on the stream. | Look at the code (`unauthorized`, `rate_limited`, `backend_restart`, …); the widget auto-reconnects with backoff. |
 | Theme not changing | Property cached on the player. | Publish the layout again from the CMS. |
 | Team logos not showing | `logo_url` empty in the feed, `showTeamLogos` off, or image 404. | The widget falls back to the team abbreviation in all three cases — check the feed payload or the flag. |
+| Widget streams `/events/default/stream` on a bar configured with `eventId = display:displayName` | `displayName` is blank on that display's Xibo record, or the player's `/info` endpoint is unreachable. | Check the display record in the CMS; inspect the hidden `data-crowdaq-resolved-event-id` attribute in the widget's DOM via DevTools — see [`docs/TARGETING.md`](docs/TARGETING.md#inspecting-what-a-bar-actually-rendered). |
 
 ---
 

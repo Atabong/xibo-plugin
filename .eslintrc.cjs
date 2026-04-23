@@ -28,6 +28,12 @@ module.exports = {
         items: 'readonly',
         properties: 'readonly',
         $: 'readonly',
+        // xiboIC is the Xibo Interactive Control global exposed by the
+        // player's Chromium runtime (from the `xibo-interactive-control`
+        // npm package, bundled by Xibo into modules/src/player_bundle.js).
+        // Used here to call xiboIC.info() for multi-bar targeting via
+        // display:<field> property resolution — see docs/TARGETING.md.
+        xiboIC: 'readonly',
     },
     rules: {
         'no-unused-vars': ['error', { args: 'none' }],
