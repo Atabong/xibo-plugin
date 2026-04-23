@@ -46,10 +46,9 @@ a Xibo region. The widget:
    [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) and declared to Xibo as
    the `crowdaq-event` datatype in [`datatypes/crowdaq-event.xml`](datatypes/crowdaq-event.xml).
 2. Renders the payload through an inline Twig stencil in
-   [`modules/crowdaq-widget.xml`](modules/crowdaq-widget.xml). A mirror of
-   just the Twig body is also kept at
-   [`stencils/crowdaq-widget.twig`](stencils/crowdaq-widget.twig) for
-   IDE-friendly editing — the inline copy is the one the CMS reads.
+   [`modules/crowdaq-widget.xml`](modules/crowdaq-widget.xml). The
+   earlier IDE-friendly mirror under `stencils/` was removed in the
+   MVP-widget iter; the inline copy is the sole source of truth.
 3. Supports Xibo's **display tags** so operators can target specific bars
    (see the `Multi-bar targeting via display tags` iter).
 
@@ -91,10 +90,22 @@ Anywhere docs disagree with the formal spec, the formal spec wins. CI
 
 The OpenAPI `servers[0].url` is the placeholder
 `https://api.crowdaq.example/v1`. The real hostname is tailnet-only and
-is not committed. At deploy time the Xibo Player reads the backend base
-URL from a browser global injected by the bar-PC bootstrap (see the
-`xibo` repo, `infra/bar-pc/`): `window.crowdaqBackendBase`. The widget's
-`eventId` property is appended verbatim to produce the full stream URL.
+is not committed. Two hooks let an operator point a widget at the
+right backend without changing code:
+
+1. **Per-widget `apiBaseUrl` property.** Recommended for the common
+   case. Set the backend base URL in the widget's property panel
+   (regex-validated `^$|^https://.*`). Example:
+   `https://crowdaq.stadium-1.tailnet`.
+2. **Bar-wide `window.crowdaqBackendBase` global.** Set from the
+   bar-player bootstrap (see the `xibo` repo, `infra/bar-pc/`). Used as
+   a fallback when the per-widget `apiBaseUrl` is empty. Lets an
+   operator move a whole bar to a different backend without touching
+   every widget.
+
+The widget appends `/events/<eventId>/stream` to whichever base it
+picks. When both are empty, the widget shows a "Configure apiBaseUrl"
+lifecycle banner and does not open a connection.
 
 ## Widget properties
 
@@ -103,15 +114,27 @@ panel. The manifest exposes:
 
 | Property | Type | Default | Purpose |
 |---|---|---|---|
-| `eventId` | text | _(empty)_ | Pin to a specific CROWDAQ event. Empty ⇒ backend picks the best live event for the display. |
-| `refreshInterval` | number | `30` (seconds) | Fallback polling cadence when SSE is unavailable. Minimum 5. |
+| `apiBaseUrl` | text | _(empty)_ | CROWDAQ backend base URL. Used as `<apiBaseUrl>/events/<eventId>/stream`. Validated against `^$|^https://.*`. Falls back to `window.crowdaqBackendBase` when empty. |
+| `eventId` | text | _(empty)_ | Pin to a specific CROWDAQ event. Empty ⇒ the widget uses the literal `default` in the path and the backend picks the best live event for the display. |
+| `refreshInterval` | number | `30` (seconds) | Stale-detector interval. The widget flips to a `stale` pill if no event (including `heartbeat`) arrives within `2 * refreshInterval`. Minimum 5. |
 | `theme` | dropdown (`dark` / `light`) | `dark` | Colour palette. |
-| `showTeamLogos` | checkbox | `true` | Render team crest images when `logo_url` is present in the feed. |
+| `showTeamLogos` | checkbox | `true` | Render team crest images when `logo_url` is present in the feed. Falls back to the team abbreviation on `onerror`. |
 | `showLastMoment` | checkbox | `true` | Show the most recent notable moment text. |
 | `maxMomentLength` | number | `80` | Character cap for the last-moment text. Only shown when `showLastMoment` is on. |
 
 Changing a property requires no CMS restart — Xibo picks up widget-level
 changes on the next layout publish.
+
+### Troubleshooting
+
+| Symptom | Likely cause | Fix |
+|---|---|---|
+| `Configure apiBaseUrl` banner + widget static | `apiBaseUrl` empty AND no `window.crowdaqBackendBase` | Set the `apiBaseUrl` property in the widget, or set the global in the bar-PC bootstrap. |
+| Status pill stuck on `connecting` / `reconnecting` | Network failure reaching the CROWDAQ backend (tailnet down, wrong URL, backend pod not ready). | Check `tailscale status`, confirm the URL opens in a browser, check the backend pod. After 5 failed attempts the widget stops retrying and shows `offline`. |
+| Stale overlay fades in during a live match | No event for `2 * refreshInterval` seconds — backend stopped heartbeats. | Check the backend `heartbeat` cadence; a new event clears the overlay automatically. |
+| Red error pill with a `code` / `message` | Server emitted an `error` event on the stream. | Look at the code (`unauthorized`, `rate_limited`, `backend_restart`, …); the widget auto-reconnects with backoff. |
+| Theme not changing | Property cached on the player. | Publish the layout again from the CMS. |
+| Team logos not showing | `logo_url` empty in the feed, `showTeamLogos` off, or image 404. | The widget falls back to the team abbreviation in all three cases — check the feed payload or the flag. |
 
 ---
 
@@ -123,18 +146,19 @@ xibo-plugin/
 ├── LICENSE                        AGPL-3.0 (matches Xibo CMS).
 ├── .gitignore
 ├── .editorconfig
-├── .github/workflows/ci.yml       PHP lint, composer validate, release zip.
+├── .eslintrc.cjs                  ESLint rules for the extracted onRender JS.
+├── .github/workflows/ci.yml       PHP lint, onRender lint, contract, release zip.
 ├── composer.json                  Autoload + dev tooling.
+├── scripts/
+│   └── extract-onrender.mjs       Pulls <onRender> CDATA out of the XML for lint.
 ├── modules/
-│   └── crowdaq-widget.xml         Xibo 4.4.2 module manifest + inline stencil.
-├── stencils/
-│   └── crowdaq-widget.twig        IDE-friendly mirror of the inline stencil.
+│   └── crowdaq-widget.xml         Xibo 4.4.2 module manifest + inline stencil + onRender JS.
 ├── datatypes/
 │   └── crowdaq-event.xml          Data-provider field registry for the widget.
 ├── src/
 │   └── README.md                  Why this directory is empty in phase 1.
 ├── docs/
-│   ├── ARCHITECTURE.md            Data flow + property table; links into contract/.
+│   ├── ARCHITECTURE.md            Data flow + render loop + property table; links into contract/.
 │   └── contract/
 │       ├── openapi.yaml           OpenAPI 3.1 spec for the SSE endpoint.
 │       └── events/

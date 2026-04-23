@@ -32,25 +32,32 @@
   datatypes/crowdaq-event.xml and documented in docs/ARCHITECTURE.md
   (Event schema — per SSE event).
 
-  Phase-1 rendering strategy (see 'Decide CROWDAQ plugin phase-1 scope'
-  in Notion):
+  Rendering strategy (MVP-widget iter):
     * The widget is region-specific HTML rendered by the Xibo Player's
       Chromium runtime.
     * The player opens an SSE stream to the CROWDAQ backend
-      (GET /stream?display_id=<xibo_display_id>) from JS in <onRender>.
+      (GET <apiBaseUrl>/events/<eventId>/stream) from JS in <onRender>.
     * While waiting for the first event OR in CMS-editor preview mode,
       the <sampleData> block keeps the <stencil> template renderable.
     * No PHP server-side data provider is needed: the <class> element is
       intentionally empty, same as countdown-text.xml / text.xml /
-      embedded.xml. The MVP-widget iter will revisit this if the player
-      cannot reach the backend directly (e.g. if we move from tailnet
-      auth to a signed token minted by the CMS).
+      embedded.xml.
+
+  Source of truth for the event contract is docs/contract/openapi.yaml
+  and the per-event schemas under docs/contract/events/. The onRender
+  JS below dispatches the five SSE event names emitted on the stream:
+  score-update, moment, status, heartbeat, error.
+
+  Stencil parity note:
+    The IDE-friendly mirror at stencils/crowdaq-widget.twig was dropped
+    in iter16 (flagged as a parity risk in iter14). The inline <twig>
+    block below is the sole source of truth.
 -->
 <module>
     <id>crowdaq-widget</id>
     <name>CROWDAQ</name>
     <author>CROWDAQ</author>
-    <description>Renders a live CROWDAQ sports-excitement feed on a Xibo display (score, excitement meter, last notable moment).</description>
+    <description>Renders a live CROWDAQ sports-excitement feed on a Xibo display (score, excitement meter, last notable moment) over Server-Sent Events.</description>
     <icon>fa fa-bolt</icon>
 
     <!-- Xibo 4.x custom modules are XML-first. An empty <class> is the
@@ -78,7 +85,7 @@
 
     <!-- 60s per region appearance. Long enough for a goal card to
          breathe on screen; short enough to cycle through other regions
-         in the layout. Re-tune in the MVP-widget iter with real content. -->
+         in the layout. -->
     <defaultDuration>60</defaultDuration>
 
     <startWidth>640</startWidth>
@@ -87,6 +94,16 @@
     <settings></settings>
 
     <properties>
+        <property id="apiBaseUrl" type="text">
+            <title>CROWDAQ API base URL</title>
+            <helpText>Base URL of the CROWDAQ backend (e.g. https://crowdaq.bar-pc.tailnet). Appended with /events/&lt;eventId&gt;/stream at runtime. Leave blank to fall back to window.crowdaqBackendBase (set by the bar-PC bootstrap). When both are empty the widget shows a "Configure apiBaseUrl" placeholder.</helpText>
+            <default></default>
+            <rule>
+                <test message="apiBaseUrl must be empty or an https:// URL.">
+                    <condition type="matches">^$|^https://.*</condition>
+                </test>
+            </rule>
+        </property>
         <property id="eventId" type="text">
             <title>Event ID</title>
             <helpText>CROWDAQ event / match identifier (e.g. worldcup-2026-semi-br-ar). If left blank the backend resolves the best available live event for this display.</helpText>
@@ -94,7 +111,7 @@
         </property>
         <property id="refreshInterval" type="number">
             <title>Refresh Interval (seconds)</title>
-            <helpText>Minimum seconds between backend pulls when the SSE stream is unavailable. SSE itself pushes in real time; this is only the fallback-polling cadence.</helpText>
+            <helpText>Used by the stale detector: if no SSE event (including heartbeat) arrives within 2 * this value, the widget fades to a "stale" pill. Minimum 5.</helpText>
             <default>30</default>
             <rule>
                 <test>
@@ -116,7 +133,7 @@
         </property>
         <property id="showTeamLogos" type="checkbox">
             <title>Show team logos</title>
-            <helpText>Show team crest images when the feed supplies them. Unchecked renders team abbreviations only.</helpText>
+            <helpText>Show team crest images when the feed supplies them. When a logo_url fails to load, the widget falls back to the team abbreviation.</helpText>
             <default>1</default>
         </property>
         <property id="showLastMoment" type="checkbox">
@@ -144,59 +161,67 @@
     <preview></preview>
 
     <!--
-      Inline stencil follows the upstream embedded.xml / text.xml pattern
-      (a separate, IDE-friendly copy of just the <twig> body is mirrored
-      at stencils/crowdaq-widget.twig — keep the two in sync when
-      editing; the inline copy here is the one Xibo CMS reads).
-
+      Inline stencil follows the upstream embedded.xml / text.xml pattern.
       The <twig> block consumes widget properties (eventId, theme, flags)
-      as Twig variables and emits a placeholder render tree. Live data
-      from the SSE stream is applied in <onRender> below, which rewrites
-      the DOM with the payload's shape (see datatypes/crowdaq-event.xml).
+      as Twig variables and emits a placeholder render tree populated
+      with stable data-crowdaq-* attributes. Live data from the SSE
+      stream is applied in <onRender> below, which selects elements
+      exclusively via those attributes.
     -->
     <stencil>
         <twig><![CDATA[
 <div
     class="crowdaq-widget crowdaq-theme-{{ theme|default('dark') }}"
+    data-crowdaq-root="1"
+    data-crowdaq-api-base-url="{{ apiBaseUrl|default('') }}"
     data-crowdaq-event-id="{{ eventId|default('') }}"
     data-crowdaq-refresh-interval="{{ refreshInterval|default(30) }}"
     data-crowdaq-show-team-logos="{{ showTeamLogos|default(1) }}"
     data-crowdaq-show-last-moment="{{ showLastMoment|default(1) }}"
     data-crowdaq-max-moment-length="{{ maxMomentLength|default(80) }}">
 
-    <div class="crowdaq-row crowdaq-row-score">
-        {% if showTeamLogos %}
-        <img class="crowdaq-team-logo crowdaq-team-logo-home" src="" alt="" />
-        {% endif %}
-        <span class="crowdaq-team-name crowdaq-team-name-home">Home</span>
-        <span class="crowdaq-score crowdaq-score-home">0</span>
+    <div class="crowdaq-status-overlay" data-crowdaq-status-overlay hidden>
+        <span class="crowdaq-status-overlay-text" data-crowdaq-status-overlay-text></span>
+    </div>
+
+    <div class="crowdaq-row crowdaq-row-score" data-crowdaq-score-row>
+        <div class="crowdaq-team crowdaq-team-home" data-crowdaq-team="home">
+            <img class="crowdaq-team-logo" data-crowdaq-team-a-logo src="" alt="" {% if not showTeamLogos %}hidden{% endif %} />
+            <span class="crowdaq-team-name" data-crowdaq-team-a>Home</span>
+        </div>
+        <span class="crowdaq-score" data-crowdaq-team-a-score>0</span>
         <span class="crowdaq-score-divider">&ndash;</span>
-        <span class="crowdaq-score crowdaq-score-away">0</span>
-        <span class="crowdaq-team-name crowdaq-team-name-away">Away</span>
-        {% if showTeamLogos %}
-        <img class="crowdaq-team-logo crowdaq-team-logo-away" src="" alt="" />
-        {% endif %}
+        <span class="crowdaq-score" data-crowdaq-team-b-score>0</span>
+        <div class="crowdaq-team crowdaq-team-away" data-crowdaq-team="away">
+            <span class="crowdaq-team-name" data-crowdaq-team-b>Away</span>
+            <img class="crowdaq-team-logo" data-crowdaq-team-b-logo src="" alt="" {% if not showTeamLogos %}hidden{% endif %} />
+        </div>
     </div>
 
     <div class="crowdaq-row crowdaq-row-excitement">
-        <div class="crowdaq-excitement-meter" role="progressbar" aria-valuemin="0" aria-valuemax="10" aria-valuenow="0">
-            <div class="crowdaq-excitement-fill" style="width: 0%"></div>
+        <div class="crowdaq-excitement-meter" role="progressbar" aria-valuemin="0" aria-valuemax="10" aria-valuenow="0" data-crowdaq-excitement>
+            <div class="crowdaq-excitement-fill" data-crowdaq-excitement-fill style="width: 0%"></div>
         </div>
-        <span class="crowdaq-excitement-value">0.0</span>
-        <span class="crowdaq-excitement-trend" data-trend="flat">&bull;</span>
+        <span class="crowdaq-excitement-value" data-crowdaq-excitement-value>0.0</span>
+        <span class="crowdaq-excitement-trend" data-crowdaq-excitement-trend data-trend="flat">&bull;</span>
     </div>
 
-    {% if showLastMoment %}
-    <div class="crowdaq-row crowdaq-row-moment">
-        <span class="crowdaq-moment-text">Waiting for CROWDAQ feed&hellip;</span>
+    <div class="crowdaq-row crowdaq-row-moment" data-crowdaq-moment {% if not showLastMoment %}hidden{% endif %}>
+        <span class="crowdaq-moment-text" data-crowdaq-moment-text>Waiting for CROWDAQ feed&hellip;</span>
     </div>
-    {% endif %}
 
-    <div class="crowdaq-status" data-state="connecting" aria-live="polite">connecting</div>
+    <div class="crowdaq-pill-row">
+        <span class="crowdaq-status" data-crowdaq-status data-state="connecting" aria-live="polite">connecting</span>
+        <span class="crowdaq-error-pill" data-crowdaq-error-pill hidden></span>
+    </div>
+
+    <div class="crowdaq-stale-overlay" data-crowdaq-stale-overlay hidden>
+        <span>stale</span>
+    </div>
 </div>
         ]]></twig>
         <style><![CDATA[
-/* CROWDAQ widget — phase-1 inline style. Signage displays often run
+/* CROWDAQ widget — MVP inline style. Signage displays often run
    no-JS / strict-CSP profiles so we keep everything self-contained and
    avoid web-font loads. */
 body {
@@ -204,6 +229,7 @@ body {
     padding: 0;
 }
 .crowdaq-widget {
+    position: relative;
     width: 100%;
     height: 100%;
     box-sizing: border-box;
@@ -227,19 +253,30 @@ body {
     font-size: 2.4em;
     font-weight: 700;
 }
+.crowdaq-team {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 0.4em;
+}
 .crowdaq-team-logo {
     height: 1.5em;
     width: auto;
     object-fit: contain;
 }
+.crowdaq-team-logo[hidden] { display: none !important; }
 .crowdaq-team-name {
-    font-size: 0.6em;
     font-weight: 500;
     text-transform: uppercase;
     letter-spacing: 0.08em;
     opacity: 0.85;
 }
 .crowdaq-score-divider { opacity: 0.5; }
+.crowdaq-score { transition: color 0.25s ease-out, transform 0.25s ease-out; }
+.crowdaq-score.crowdaq-delta-flash {
+    color: #3ad29f;
+    transform: scale(1.15);
+}
 
 .crowdaq-row-excitement {
     font-size: 1em;
@@ -277,6 +314,7 @@ body {
     text-align: center;
     padding: 0 4px;
 }
+.crowdaq-row-moment[hidden] { display: none !important; }
 .crowdaq-moment-text {
     display: -webkit-box;
     -webkit-line-clamp: 2;
@@ -284,16 +322,66 @@ body {
     overflow: hidden;
 }
 
-.crowdaq-status {
+.crowdaq-pill-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
     font-size: 0.7em;
     text-transform: uppercase;
     letter-spacing: 0.1em;
-    opacity: 0.4;
-    text-align: right;
 }
+.crowdaq-status { opacity: 0.4; text-align: right; }
 .crowdaq-status[data-state="live"]         { color: #3ad29f; opacity: 0.8; }
 .crowdaq-status[data-state="stale"]        { color: #f5c542; opacity: 0.8; }
 .crowdaq-status[data-state="disconnected"] { color: #ff4d6d; opacity: 0.8; }
+.crowdaq-status[data-state="connecting"]   { opacity: 0.5; }
+
+.crowdaq-error-pill {
+    background: rgba(255, 77, 109, 0.18);
+    color: #ff4d6d;
+    padding: 2px 8px;
+    border-radius: 999px;
+    max-width: 60%;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+.crowdaq-error-pill[hidden] { display: none !important; }
+
+.crowdaq-status-overlay {
+    position: absolute;
+    top: 0; left: 0; right: 0;
+    background: rgba(0, 0, 0, 0.55);
+    color: #f5f7fa;
+    text-align: center;
+    padding: 6px 8px;
+    font-size: 0.9em;
+    text-transform: uppercase;
+    letter-spacing: 0.14em;
+    z-index: 3;
+}
+.crowdaq-status-overlay[hidden] { display: none !important; }
+.crowdaq-theme-light .crowdaq-status-overlay { background: rgba(255, 255, 255, 0.85); color: #0b0f16; }
+
+.crowdaq-stale-overlay {
+    position: absolute;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.35);
+    color: #f5c542;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 1.6em;
+    font-weight: 700;
+    letter-spacing: 0.25em;
+    text-transform: uppercase;
+    z-index: 2;
+    pointer-events: none;
+    transition: opacity 0.6s ease-in-out;
+}
+.crowdaq-stale-overlay[hidden] { display: none !important; }
+.crowdaq-widget.crowdaq-stale .crowdaq-stale-overlay { display: flex; }
         ]]></style>
     </stencil>
 
@@ -325,115 +413,362 @@ body {
     ]]></sampleData>
 
     <!--
-      onRender runs on every player paint. It (a) applies the current
-      payload to the DOM and (b) opens an SSE stream to the CROWDAQ
-      backend resolved from the display's tailnet-reachable service.
-      The real backend URL will be injected in the MVP-widget iter —
-      this block is the wire-up surface, not the final fetch glue.
+      onRender runs on every player paint. It:
+        (a) applies any cached/sample payload to the DOM so there's
+            always something on screen while we wait for the stream;
+        (b) opens an EventSource to <apiBaseUrl>/events/<eventId>/stream;
+        (c) dispatches the five SSE event names (score-update, moment,
+            status, heartbeat, error) to DOM-mutation functions that
+            select by stable data-crowdaq-* attributes;
+        (d) manages a bounded exponential reconnect (1/2/5/15/30s cap,
+            max 5 attempts) and a stale detector (no event within
+            2 * refreshInterval seconds flips the stale class on root);
+        (e) cleans up its EventSource + timers when the widget unloads.
+
+      Xibo 4.x exposes jQuery to the player's Chromium at render time;
+      the xiboIC global is present when the payload is mounted inside a
+      real player (absent in the CMS layout editor). Code here degrades
+      gracefully in both environments.
     -->
     <onRender><![CDATA[
 // Module renderer options
 // id: The id of the widget
 // target: The target element to render
-// items: The items to render (one CROWDAQ event object per tick; phase-1 expects length 1)
+// items: Preview / cached payload (phase-1 expects length 1 in preview mode)
 // properties: The properties for the widget
 
 (function () {
-    var $root = $(target).find('.crowdaq-widget');
-    if ($root.length === 0) { return; }
+    'use strict';
 
-    // Truncation helper — caps last-moment text to maxMomentLength.
-    function truncateText(text, maxLen) {
+    var $target = (typeof $ === 'function') ? $(target) : null;
+    var $root = $target ? $target.find('[data-crowdaq-root]') : null;
+    if (!$root || $root.length === 0) { return; }
+    var rootEl = $root.get(0);
+
+    var props = properties || {};
+    var refreshInterval = parseInt(props.refreshInterval, 10);
+    if (isNaN(refreshInterval) || refreshInterval < 5) { refreshInterval = 30; }
+    var showTeamLogos = !!props.showTeamLogos;
+    var showLastMoment = !!props.showLastMoment;
+    var maxMomentLength = parseInt(props.maxMomentLength, 10);
+    if (isNaN(maxMomentLength) || maxMomentLength <= 0) { maxMomentLength = 80; }
+
+    // Resolve the API base URL: explicit property first, then the
+    // bar-player bootstrap global. Per-widget settings win so an
+    // operator can point a single bar at a different backend.
+    var apiBaseUrl = (typeof props.apiBaseUrl === 'string' ? props.apiBaseUrl : '').trim();
+    if (!apiBaseUrl && typeof window !== 'undefined' && window.crowdaqBackendBase) {
+        apiBaseUrl = String(window.crowdaqBackendBase);
+    }
+    apiBaseUrl = apiBaseUrl.replace(/\/+$/, '');
+
+    var eventId = (typeof props.eventId === 'string' ? props.eventId : '').trim();
+
+    // --- DOM helpers: selectors are data-attr based so Twig can rename
+    //     classes without breaking the JS. ---
+    function q(sel) { return rootEl.querySelector(sel); }
+    function setText(sel, text) {
+        var el = q(sel);
+        if (el) { el.textContent = (text == null ? '' : String(text)); }
+    }
+    function setAttr(sel, attr, value) {
+        var el = q(sel);
+        if (el) { el.setAttribute(attr, value); }
+    }
+    function show(sel, visible) {
+        var el = q(sel);
+        if (!el) { return; }
+        if (visible) { el.removeAttribute('hidden'); }
+        else { el.setAttribute('hidden', ''); }
+    }
+    function truncate(text, maxLen) {
         if (typeof text !== 'string') { return ''; }
-        var limit = parseInt(maxLen, 10);
-        if (isNaN(limit) || limit <= 0 || text.length <= limit) { return text; }
-        return text.slice(0, limit - 1) + '…';
+        if (text.length <= maxLen) { return text; }
+        return text.slice(0, maxLen - 1) + '…';
     }
 
-    // Apply one CROWDAQ event payload to the DOM tree rendered by the stencil.
-    function applyEvent(evt) {
-        if (!evt || typeof evt !== 'object') { return; }
-
-        var teams = evt.teams || {};
-        var score = evt.score || {};
-        var excitement = evt.excitement || {};
-        var moment = evt.last_moment || {};
-
-        // Score / team labels.
-        $root.find('.crowdaq-team-name-home').text((teams.home && teams.home.abbreviation) || (teams.home && teams.home.name) || 'Home');
-        $root.find('.crowdaq-team-name-away').text((teams.away && teams.away.abbreviation) || (teams.away && teams.away.name) || 'Away');
-        $root.find('.crowdaq-score-home').text(score.home != null ? score.home : 0);
-        $root.find('.crowdaq-score-away').text(score.away != null ? score.away : 0);
-
-        // Team logos (best-effort — swap src only when we have a URL).
-        if (properties.showTeamLogos && teams.home && teams.home.logo_url) {
-            $root.find('.crowdaq-team-logo-home').attr('src', teams.home.logo_url).attr('alt', teams.home.name || '');
+    // --- Status pill + error pill + stale overlay + lifecycle banner ---
+    function setStatus(state, label) {
+        setAttr('[data-crowdaq-status]', 'data-state', state);
+        setText('[data-crowdaq-status]', label || state);
+    }
+    function showErrorPill(message) {
+        var el = q('[data-crowdaq-error-pill]');
+        if (!el) { return; }
+        if (!message) {
+            el.setAttribute('hidden', '');
+            el.textContent = '';
+            return;
         }
-        if (properties.showTeamLogos && teams.away && teams.away.logo_url) {
-            $root.find('.crowdaq-team-logo-away').attr('src', teams.away.logo_url).attr('alt', teams.away.name || '');
-        }
+        el.textContent = message;
+        el.removeAttribute('hidden');
+    }
+    function showStale(isStale) {
+        if (isStale) { rootEl.classList.add('crowdaq-stale'); }
+        else { rootEl.classList.remove('crowdaq-stale'); }
+        show('[data-crowdaq-stale-overlay]', isStale);
+    }
+    function showLifecycleBanner(label) {
+        show('[data-crowdaq-status-overlay]', !!label);
+        setText('[data-crowdaq-status-overlay-text]', label || '');
+    }
 
-        // Excitement meter — level is 0..1, display as 0.0..10.0.
+    // --- Team-logo handling with abbreviation fallback ---
+    function setTeamLogo(selector, nameSelector, src, nameText, abbreviation) {
+        var img = q(selector);
+        if (!img) { return; }
+        if (!showTeamLogos || !src) {
+            img.setAttribute('hidden', '');
+            img.removeAttribute('src');
+            // Fallback to abbreviation when logos are disabled OR no url.
+            setText(nameSelector, abbreviation || nameText || '');
+            return;
+        }
+        img.onerror = function () {
+            img.setAttribute('hidden', '');
+            setText(nameSelector, abbreviation || nameText || '');
+        };
+        img.setAttribute('alt', nameText || '');
+        img.setAttribute('src', src);
+        img.removeAttribute('hidden');
+        setText(nameSelector, abbreviation || nameText || '');
+    }
+
+    // --- score-update handler: full snapshot -> DOM ---
+    var lastScore = { home: null, away: null };
+    function onScoreUpdate(payload) {
+        if (!payload || typeof payload !== 'object') { return; }
+        var teams = payload.teams || {};
+        var score = payload.score || {};
+        var excitement = payload.excitement || {};
+        var lastMoment = payload.last_moment || {};
+
+        var homeTeam = teams.home || {};
+        var awayTeam = teams.away || {};
+
+        setTeamLogo(
+            '[data-crowdaq-team-a-logo]',
+            '[data-crowdaq-team-a]',
+            homeTeam.logo_url,
+            homeTeam.name,
+            homeTeam.abbreviation
+        );
+        setTeamLogo(
+            '[data-crowdaq-team-b-logo]',
+            '[data-crowdaq-team-b]',
+            awayTeam.logo_url,
+            awayTeam.name,
+            awayTeam.abbreviation
+        );
+
+        // deltaSinceLast flash for score changes.
+        var newHome = (score.home != null) ? score.home : 0;
+        var newAway = (score.away != null) ? score.away : 0;
+        if (lastScore.home !== null && newHome > lastScore.home) {
+            flash('[data-crowdaq-team-a-score]');
+        }
+        if (lastScore.away !== null && newAway > lastScore.away) {
+            flash('[data-crowdaq-team-b-score]');
+        }
+        lastScore.home = newHome;
+        lastScore.away = newAway;
+        setText('[data-crowdaq-team-a-score]', newHome);
+        setText('[data-crowdaq-team-b-score]', newAway);
+
+        // Excitement meter (level is 0..1 per contract).
         var level = parseFloat(excitement.level);
         if (isNaN(level)) { level = 0; }
-        var pct = Math.max(0, Math.min(1, level)) * 100;
-        $root.find('.crowdaq-excitement-fill').css('width', pct + '%');
-        $root.find('.crowdaq-excitement-value').text((level * 10).toFixed(1));
-        $root.find('.crowdaq-excitement-meter').attr('aria-valuenow', (level * 10).toFixed(1));
+        var clamped = Math.max(0, Math.min(1, level));
+        var meterEl = q('[data-crowdaq-excitement-fill]');
+        if (meterEl) { meterEl.style.width = (clamped * 100) + '%'; }
+        setText('[data-crowdaq-excitement-value]', (clamped * 10).toFixed(1));
+        setAttr('[data-crowdaq-excitement]', 'aria-valuenow', (clamped * 10).toFixed(1));
         var trend = excitement.trend || 'flat';
-        $root.find('.crowdaq-excitement-trend')
-            .attr('data-trend', trend)
-            .html(trend === 'rising' ? '&#9650;' : trend === 'falling' ? '&#9660;' : '&bull;');
+        var trendEl = q('[data-crowdaq-excitement-trend]');
+        if (trendEl) {
+            trendEl.setAttribute('data-trend', trend);
+            trendEl.innerHTML = (trend === 'rising')
+                ? '&#9650;'
+                : (trend === 'falling' ? '&#9660;' : '&bull;');
+        }
 
-        // Last notable moment (respect showLastMoment + maxMomentLength).
-        if (properties.showLastMoment) {
-            var momentText = moment.text || '';
-            $root.find('.crowdaq-moment-text').text(truncateText(momentText, properties.maxMomentLength));
+        // Last moment row — score-update carries the current summary.
+        if (showLastMoment && lastMoment && typeof lastMoment.text === 'string') {
+            setText('[data-crowdaq-moment-text]', truncate(lastMoment.text, maxMomentLength));
         }
     }
-
-    // Apply any preview / cached data first so there's always *something*
-    // on screen while we wait for the SSE stream to send the first event.
-    if (Array.isArray(items) && items.length > 0) {
-        applyEvent(items[0]);
-        $root.find('.crowdaq-status').attr('data-state', 'stale').text('cached');
+    function flash(selector) {
+        var el = q(selector);
+        if (!el) { return; }
+        el.classList.add('crowdaq-delta-flash');
+        setTimeout(function () {
+            if (el && el.classList) { el.classList.remove('crowdaq-delta-flash'); }
+        }, 600);
     }
 
-    // Open the SSE stream to the CROWDAQ backend. The actual base URL
-    // will be injected by the MVP-widget iter (likely via a module
-    // setting or a global exposed by the player); for now we fall back
-    // to the sampleData path if no URL is available, which is enough
-    // for visual preview in the CMS layout editor.
-    var streamBase = (window && window.crowdaqBackendBase) ? window.crowdaqBackendBase : null;
-    if (!streamBase || typeof EventSource === 'undefined') {
-        $root.find('.crowdaq-status').attr('data-state', 'stale').text('preview');
+    // --- moment handler: standalone notable-moment text line ---
+    function onMoment(payload) {
+        if (!showLastMoment || !payload || typeof payload.description !== 'string') {
+            return;
+        }
+        setText('[data-crowdaq-moment-text]', truncate(payload.description, maxMomentLength));
+    }
+
+    // --- status handler: lifecycle state banner ---
+    function onStatus(payload) {
+        if (!payload || typeof payload.state !== 'string') { return; }
+        var state = payload.state;
+        var label = '';
+        switch (state) {
+            case 'pre_game':         label = 'pre-game'; break;
+            case 'halftime':         label = 'halftime'; break;
+            case 'extra_time':       label = 'extra time'; break;
+            case 'penalty_shootout': label = 'penalties'; break;
+            case 'final':            label = 'final'; break;
+            case 'cancelled':        label = 'cancelled'; break;
+            case 'postponed':        label = 'postponed'; break;
+            case 'live':             label = ''; break;  // no banner when live
+            default:                 label = state;
+        }
+        showLifecycleBanner(label);
+    }
+
+    // --- heartbeat handler: reset stale indicator only ---
+    function onHeartbeat() {
+        // Handled uniformly by resetStaleTimer() in the SSE dispatcher.
+    }
+
+    // --- error handler: show error pill + trigger reconnect ---
+    function onStreamError(payload) {
+        var msg = (payload && typeof payload.message === 'string')
+            ? payload.message
+            : (payload && payload.code ? String(payload.code) : 'stream error');
+        showErrorPill(truncate(msg, 60));
+        scheduleReconnect();
+    }
+
+    // --- Stale timer ---
+    var staleTimer = null;
+    function resetStaleTimer() {
+        if (staleTimer) { clearTimeout(staleTimer); }
+        showStale(false);
+        staleTimer = setTimeout(function () {
+            showStale(true);
+            setStatus('stale', 'stale');
+        }, Math.max(10, refreshInterval * 2) * 1000);
+    }
+
+    // --- Paint any preview / cached payload first. ---
+    if (Array.isArray(items) && items.length > 0) {
+        onScoreUpdate(items[0]);
+        setStatus('stale', 'cached');
+    }
+
+    // --- Bail out cleanly when we have nothing to connect to. ---
+    if (!apiBaseUrl) {
+        showLifecycleBanner('Configure apiBaseUrl');
+        setStatus('disconnected', 'not configured');
+        return;
+    }
+    if (typeof EventSource === 'undefined') {
+        setStatus('disconnected', 'no EventSource');
+        showErrorPill('EventSource unsupported');
         return;
     }
 
-    var displayId = (typeof xiboIC !== 'undefined' && xiboIC.get) ? xiboIC.get(id, 'displayId') : '';
-    var url = streamBase.replace(/\/+$/, '')
-        + '/stream?display_id=' + encodeURIComponent(displayId || '')
-        + (properties.eventId ? '&event_id=' + encodeURIComponent(properties.eventId) : '');
+    // Build stream URL. eventId is optional; when empty the backend
+    // picks the best live event for the display.
+    var streamEventId = eventId || 'default';
+    var url = apiBaseUrl + '/events/' + encodeURIComponent(streamEventId) + '/stream';
 
-    try {
-        var es = new EventSource(url);
-        es.onopen = function () {
-            $root.find('.crowdaq-status').attr('data-state', 'live').text('live');
-        };
-        es.onmessage = function (msg) {
-            try {
-                var payload = JSON.parse(msg.data);
-                applyEvent(payload);
-            } catch (err) {
-                // ignore malformed tick; keep last good render
-            }
-        };
-        es.onerror = function () {
-            $root.find('.crowdaq-status').attr('data-state', 'disconnected').text('reconnecting');
-        };
-    } catch (err) {
-        $root.find('.crowdaq-status').attr('data-state', 'disconnected').text('offline');
+    // --- Reconnect state ---
+    var backoffSchedule = [1000, 2000, 5000, 15000, 30000];
+    var attempt = 0;
+    var MAX_ATTEMPTS = 5;
+    var reconnectTimer = null;
+    var source = null;
+    var cleanedUp = false;
+
+    function closeSource() {
+        if (source) {
+            try { source.close(); } catch (e) { /* ignore */ }
+            source = null;
+        }
     }
+    function scheduleReconnect() {
+        closeSource();
+        if (cleanedUp) { return; }
+        if (attempt >= MAX_ATTEMPTS) {
+            setStatus('disconnected', 'offline');
+            showStale(true);
+            return;
+        }
+        var delay = backoffSchedule[Math.min(attempt, backoffSchedule.length - 1)];
+        attempt += 1;
+        setStatus('disconnected', 'reconnecting');
+        reconnectTimer = setTimeout(openStream, delay);
+    }
+
+    function openStream() {
+        if (cleanedUp) { return; }
+        setStatus('connecting', 'connecting');
+        try {
+            source = new EventSource(url);
+        } catch (err) {
+            setStatus('disconnected', 'offline');
+            showErrorPill('open failed');
+            scheduleReconnect();
+            return;
+        }
+
+        source.onopen = function () {
+            attempt = 0;  // reset backoff on successful (re)connect
+            setStatus('live', 'live');
+            showErrorPill('');
+            resetStaleTimer();
+        };
+
+        // Generic onerror: browser tried to reconnect natively; we take
+        // over with bounded backoff so the widget stops thrashing after
+        // MAX_ATTEMPTS.
+        source.onerror = function () {
+            scheduleReconnect();
+        };
+
+        function listen(name, handler) {
+            source.addEventListener(name, function (msg) {
+                resetStaleTimer();
+                setStatus('live', 'live');
+                showErrorPill('');
+                var data = null;
+                if (msg && typeof msg.data === 'string' && msg.data.length > 0) {
+                    try { data = JSON.parse(msg.data); }
+                    catch (err) { return; }
+                }
+                try { handler(data); } catch (err) { /* never let a handler kill the stream */ }
+            });
+        }
+
+        listen('score-update', onScoreUpdate);
+        listen('moment', onMoment);
+        listen('status', onStatus);
+        listen('heartbeat', onHeartbeat);
+        listen('error', onStreamError);
+    }
+
+    // --- Cleanup on unload / widget replacement ---
+    function cleanup() {
+        cleanedUp = true;
+        if (reconnectTimer) { clearTimeout(reconnectTimer); reconnectTimer = null; }
+        if (staleTimer) { clearTimeout(staleTimer); staleTimer = null; }
+        closeSource();
+    }
+    if (typeof window !== 'undefined' && typeof window.addEventListener === 'function') {
+        window.addEventListener('beforeunload', cleanup);
+        window.addEventListener('pagehide', cleanup);
+    }
+
+    openStream();
 })();
     ]]></onRender>
 </module>
