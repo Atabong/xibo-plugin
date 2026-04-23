@@ -1,0 +1,72 @@
+<!--
+  ~ Copyright (C) 2026 CROWDAQ
+  ~
+  ~ This file is part of the CROWDAQ Xibo Plugin.
+  ~
+  ~ The CROWDAQ Xibo Plugin is free software: you can redistribute it
+  ~ and/or modify it under the terms of the GNU Affero General Public
+  ~ License as published by the Free Software Foundation, either
+  ~ version 3 of the License, or (at your option) any later version.
+  -->
+<!--
+  TODO (iter: "Author CROWDAQ module manifest + stencil"):
+  Fill in the real manifest. This stub follows the Xibo 4.4.x `<module>`
+  schema as observed in upstream `xibo-cms/modules/clock-analogue.xml`
+  and `modules/canvas.xml`. Fields left empty here are intentionally
+  empty until the author-manifest iteration fills them in — do not
+  invent values that would make the manifest parse-valid but
+  semantically wrong.
+
+  Known shape (xibo-cms 4.4.2):
+    <module>
+      <id>…</id>                  required, globally unique
+      <name>…</name>              human label
+      <author>…</author>
+      <description>…</description>
+      <icon>…</icon>              fontawesome class
+      <class></class>             optional PHP class (v4 is XML-first)
+      <type>…</type>              machine name, dashes
+      <dataType>…</dataType>      optional: links to a data provider
+      <schemaVersion>1</schemaVersion>
+      <assignable>1</assignable>
+      <regionSpecific>1</regionSpecific>
+      <renderAs>html</renderAs>
+      <defaultDuration>…</defaultDuration>
+      <thumbnail>…</thumbnail>
+      <settings>…</settings>      CMS-level config
+      <properties>…</properties>  widget-level config (dropdowns, text…)
+      <stencil>…</stencil>        inline Twig OR reference to file
+    </module>
+-->
+<module>
+    <id>crowdaq-widget</id>
+    <name>CROWDAQ</name>
+    <author>CROWDAQ</author>
+    <description>Renders a CROWDAQ sports-excitement feed on the display.</description>
+    <icon>fa fa-bolt</icon>
+
+    <!-- Xibo 4 is XML-first; a PHP class is optional. Left empty for the
+         first iter; the MVP-widget iter may set this to
+         \CROWDAQ\Xibo\Widget\CrowdaqWidget if a PHP data path is needed. -->
+    <class></class>
+
+    <type>crowdaq-widget</type>
+    <dataType></dataType>
+    <schemaVersion>1</schemaVersion>
+    <assignable>1</assignable>
+    <regionSpecific>1</regionSpecific>
+    <renderAs>html</renderAs>
+
+    <!-- 60s: long enough for a short CROWDAQ clip or highlight card to
+         breathe on-screen without blocking the rest of a layout for too
+         long. Re-tune once real feeds are running. -->
+    <defaultDuration>60</defaultDuration>
+
+    <settings></settings>
+    <properties></properties>
+
+    <!-- TODO: replace with the real Twig stencil. Keeping the inline
+         reference commented out so validators don't try to load the
+         placeholder file from the CMS tree. -->
+    <!-- <stencil><file>stencils/crowdaq-widget.twig</file></stencil> -->
+</module>

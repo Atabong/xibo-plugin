@@ -1,0 +1,40 @@
+{
+    "name": "crowdaq/xibo-plugin",
+    "description": "Xibo CMS plugin that renders CROWDAQ sports-excitement content on digital signage displays.",
+    "type": "library",
+    "license": "AGPL-3.0-or-later",
+    "keywords": [
+        "xibo",
+        "digital-signage",
+        "crowdaq",
+        "sports",
+        "plugin"
+    ],
+    "require": {
+        "php": "^8.1"
+    },
+    "require-dev": {
+        "friendsofphp/php-cs-fixer": "^3.50",
+        "phpstan/phpstan": "^1.11"
+    },
+    "autoload": {
+        "psr-4": {
+            "CROWDAQ\\Xibo\\": "src/"
+        }
+    },
+    "scripts": {
+        "lint": "find src -type f -name '*.php' -print0 | xargs -0 -n1 php -l",
+        "cs": "php-cs-fixer fix --dry-run --diff",
+        "analyse": "phpstan analyse --level=1 src",
+        "package": "@php -r \"echo 'TODO: implement dist zip build — see .github/workflows/ci.yml.' . PHP_EOL;\""
+    },
+    "config": {
+        "sort-packages": true
+    },
+    "extra": {
+        "xibo-plugin": {
+            "compatible-cms": "^4.4",
+            "module-id": "crowdaq-widget"
+        }
+    }
+}

@@ -1,0 +1,40 @@
+# Composer
+/vendor/
+# NOTE: composer.lock is INTENTIONALLY committed for this plugin.
+# The plugin is published as a release zip (not as a library that
+# downstream projects require via composer), so pinning the exact
+# dependency tree makes installations reproducible.
+
+# Node (only used for any future stencil-bundling tooling)
+/node_modules/
+npm-debug.log
+yarn-error.log
+
+# Build artifacts
+/dist/*.zip
+/dist/*.tar.gz
+
+# PHP tooling caches
+/.phpunit.cache/
+/.php-cs-fixer.cache
+/.phpstan.cache
+
+# Coverage
+/coverage/
+/clover.xml
+/phpunit.xml
+
+# OS / editor
+.DS_Store
+Thumbs.db
+*.swp
+*.swo
+*~
+.idea/
+.vscode/
+*.log
+
+# Env
+.env
+.env.*
+!.env.example
