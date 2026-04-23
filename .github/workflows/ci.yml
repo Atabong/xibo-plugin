@@ -56,22 +56,27 @@ jobs:
           node-version: '20.17.0'
 
       # @redocly/cli ships `redocly lint` which validates OpenAPI 3.0/3.1
-      # against the JSON Schema and Redocly's rule set. Version pinned
-      # to the iter15-authored version; bump only when the lint output
-      # materially changes.
-      - name: Install Redocly CLI 1.25.5
-        run: npm install --no-save --no-fund --no-audit @redocly/cli@1.25.5
-
-      # ajv-cli 5.x uses ajv v8, which supports draft 2020-12 via the
-      # ajv-formats addon. Pinned to a specific minor; the core ajv runtime
-      # is resolved transitively.
-      - name: Install ajv-cli 5.0.0 + ajv-formats 3.0.1
-        run: npm install --no-save --no-fund --no-audit ajv-cli@5.0.0 ajv-formats@3.0.1
+      # against the JSON Schema and Redocly's rule set. ajv-cli 5.x uses
+      # ajv v8 which supports draft 2020-12 via the ajv-formats addon.
+      # Both installed together into a scratch `ci-contract-tools/`
+      # directory so the repo root stays free of Node build artefacts
+      # (no package.json or package-lock.json is committed). Versions
+      # pinned -- bump explicitly, never float to @latest.
+      - name: Install pinned contract-validation tools
+        run: |
+          set -euxo pipefail
+          mkdir -p ci-contract-tools
+          cd ci-contract-tools
+          npm init -y > /dev/null
+          npm install --no-save --no-fund --no-audit \
+            @redocly/cli@1.25.5 \
+            ajv-cli@5.0.0 \
+            ajv-formats@3.0.1
 
       # Redocly lint: fail on any error; warnings are allowed for now
       # (we can tighten with `--max-problems 0` once the spec stabilises).
       - name: Lint OpenAPI
-        run: npx --no-install redocly lint docs/contract/openapi.yaml
+        run: ./ci-contract-tools/node_modules/.bin/redocly lint docs/contract/openapi.yaml
 
       # Each JSON Schema file must itself be a valid Draft 2020-12
       # document (meta-validation). ajv-cli's `compile` mode compiles
@@ -81,7 +86,7 @@ jobs:
         run: |
           set -euxo pipefail
           for f in docs/contract/events/*.json; do
-            npx --no-install ajv compile \
+            ./ci-contract-tools/node_modules/.bin/ajv compile \
               --spec=draft2020 \
               -c ajv-formats \
               -s "$f"
@@ -108,7 +113,7 @@ jobs:
           pathlib.Path('sampleData.json').write_text(
               json.dumps(payload[0], indent=2), encoding='utf-8')
           PY
-          npx --no-install ajv validate \
+          ./ci-contract-tools/node_modules/.bin/ajv validate \
             --spec=draft2020 \
             -c ajv-formats \
             -s docs/contract/events/score-update.json \
