@@ -7,66 +7,433 @@
   ~ and/or modify it under the terms of the GNU Affero General Public
   ~ License as published by the Free Software Foundation, either
   ~ version 3 of the License, or (at your option) any later version.
+  ~
+  ~ See the LICENSE file at the repo root for the full text.
   -->
 <!--
-  TODO (iter: "Author CROWDAQ module manifest + stencil"):
-  Fill in the real manifest. This stub follows the Xibo 4.4.x `<module>`
-  schema as observed in upstream `xibo-cms/modules/clock-analogue.xml`
-  and `modules/canvas.xml`. Fields left empty here are intentionally
-  empty until the author-manifest iteration fills them in — do not
-  invent values that would make the manifest parse-valid but
-  semantically wrong.
+  CROWDAQ widget module manifest.
 
-  Known shape (xibo-cms 4.4.2):
-    <module>
-      <id>…</id>                  required, globally unique
-      <name>…</name>              human label
-      <author>…</author>
-      <description>…</description>
-      <icon>…</icon>              fontawesome class
-      <class></class>             optional PHP class (v4 is XML-first)
-      <type>…</type>              machine name, dashes
-      <dataType>…</dataType>      optional: links to a data provider
-      <schemaVersion>1</schemaVersion>
-      <assignable>1</assignable>
-      <regionSpecific>1</regionSpecific>
-      <renderAs>html</renderAs>
-      <defaultDuration>…</defaultDuration>
-      <thumbnail>…</thumbnail>
-      <settings>…</settings>      CMS-level config
-      <properties>…</properties>  widget-level config (dropdowns, text…)
-      <stencil>…</stencil>        inline Twig OR reference to file
-    </module>
+  Target: Xibo CMS 4.4.2. Authored against the upstream module reference
+  at https://github.com/xibosignage/xibo-cms/tree/4.4.2/modules — no
+  official XSD is published, so structure and element ordering mirror
+  upstream modules as follows:
+
+    * countdown-text.xml   top-level element order, <class> empty, <stencil>
+                           with <twig> + <style> + <onRender> JS.
+    * rss-ticker.xml       <dataType> + <dataCacheKey> + <fallbackData>
+                           pattern for a data-driven widget; <sampleData>
+                           block for the in-CMS layout preview.
+    * embedded.xml         <stencil>/<twig> + <stencil>/<style> split with
+                           raw-escaped property injection.
+    * currencies.xml       <dataType> linked to an external datatype id
+                           (see datatypes/ in this repo).
+
+  Data shape consumed by this widget is defined in
+  datatypes/crowdaq-event.xml and documented in docs/ARCHITECTURE.md
+  (Event schema — per SSE event).
+
+  Phase-1 rendering strategy (see 'Decide CROWDAQ plugin phase-1 scope'
+  in Notion):
+    * The widget is region-specific HTML rendered by the Xibo Player's
+      Chromium runtime.
+    * The player opens an SSE stream to the CROWDAQ backend
+      (GET /stream?display_id=<xibo_display_id>) from JS in <onRender>.
+    * While waiting for the first event OR in CMS-editor preview mode,
+      the <sampleData> block keeps the <stencil> template renderable.
+    * No PHP server-side data provider is needed: the <class> element is
+      intentionally empty, same as countdown-text.xml / text.xml /
+      embedded.xml. The MVP-widget iter will revisit this if the player
+      cannot reach the backend directly (e.g. if we move from tailnet
+      auth to a signed token minted by the CMS).
 -->
 <module>
     <id>crowdaq-widget</id>
     <name>CROWDAQ</name>
     <author>CROWDAQ</author>
-    <description>Renders a CROWDAQ sports-excitement feed on the display.</description>
+    <description>Renders a live CROWDAQ sports-excitement feed on a Xibo display (score, excitement meter, last notable moment).</description>
     <icon>fa fa-bolt</icon>
 
-    <!-- Xibo 4 is XML-first; a PHP class is optional. Left empty for the
-         first iter; the MVP-widget iter may set this to
-         \CROWDAQ\Xibo\Widget\CrowdaqWidget if a PHP data path is needed. -->
+    <!-- Xibo 4.x custom modules are XML-first. An empty <class> is the
+         documented pattern for widgets that do not need a server-side
+         PHP data-provider (see upstream text.xml, countdown-text.xml,
+         embedded.xml). CROWDAQ opens the SSE stream from the player's
+         browser runtime inside <onRender>. -->
     <class></class>
 
     <type>crowdaq-widget</type>
-    <dataType></dataType>
+    <dataType>crowdaq-event</dataType>
+
+    <!-- Cache key tracks the widget-level config that changes the feed
+         shape. eventId switches the match; theme / flags change render
+         only, not the upstream payload — excluded from the key. -->
+    <dataCacheKey>%eventId%</dataCacheKey>
+
+    <!-- Keep the last-known payload available when the backend blips. -->
+    <fallbackData>1</fallbackData>
+
     <schemaVersion>1</schemaVersion>
     <assignable>1</assignable>
     <regionSpecific>1</regionSpecific>
     <renderAs>html</renderAs>
 
-    <!-- 60s: long enough for a short CROWDAQ clip or highlight card to
-         breathe on-screen without blocking the rest of a layout for too
-         long. Re-tune once real feeds are running. -->
+    <!-- 60s per region appearance. Long enough for a goal card to
+         breathe on screen; short enough to cycle through other regions
+         in the layout. Re-tune in the MVP-widget iter with real content. -->
     <defaultDuration>60</defaultDuration>
 
-    <settings></settings>
-    <properties></properties>
+    <startWidth>640</startWidth>
+    <startHeight>360</startHeight>
 
-    <!-- TODO: replace with the real Twig stencil. Keeping the inline
-         reference commented out so validators don't try to load the
-         placeholder file from the CMS tree. -->
-    <!-- <stencil><file>stencils/crowdaq-widget.twig</file></stencil> -->
+    <settings></settings>
+
+    <properties>
+        <property id="eventId" type="text">
+            <title>Event ID</title>
+            <helpText>CROWDAQ event / match identifier (e.g. worldcup-2026-semi-br-ar). If left blank the backend resolves the best available live event for this display.</helpText>
+            <default></default>
+        </property>
+        <property id="refreshInterval" type="number">
+            <title>Refresh Interval (seconds)</title>
+            <helpText>Minimum seconds between backend pulls when the SSE stream is unavailable. SSE itself pushes in real time; this is only the fallback-polling cadence.</helpText>
+            <default>30</default>
+            <rule>
+                <test>
+                    <condition type="required"></condition>
+                </test>
+                <test message="Refresh interval must be at least 5 seconds.">
+                    <condition type="gte">5</condition>
+                </test>
+            </rule>
+        </property>
+        <property id="theme" type="dropdown" mode="single">
+            <title>Theme</title>
+            <helpText>Colour scheme for the widget.</helpText>
+            <default>dark</default>
+            <options>
+                <option name="dark">Dark</option>
+                <option name="light">Light</option>
+            </options>
+        </property>
+        <property id="showTeamLogos" type="checkbox">
+            <title>Show team logos</title>
+            <helpText>Show team crest images when the feed supplies them. Unchecked renders team abbreviations only.</helpText>
+            <default>1</default>
+        </property>
+        <property id="showLastMoment" type="checkbox">
+            <title>Show last notable moment</title>
+            <helpText>Show the most recent notable moment text (goal, red card, VAR check, etc.) below the score line.</helpText>
+            <default>1</default>
+        </property>
+        <property id="maxMomentLength" type="number">
+            <title>Moment text length (chars)</title>
+            <helpText>Maximum number of characters to render from the last-moment text. Longer strings are truncated with a trailing ellipsis.</helpText>
+            <default>80</default>
+            <visibility>
+                <test>
+                    <condition field="showLastMoment" type="eq">1</condition>
+                </test>
+            </visibility>
+            <rule>
+                <test message="Moment length must be a positive number.">
+                    <condition type="gt">0</condition>
+                </test>
+            </rule>
+        </property>
+    </properties>
+
+    <preview></preview>
+
+    <!--
+      Inline stencil follows the upstream embedded.xml / text.xml pattern
+      (a separate, IDE-friendly copy of just the <twig> body is mirrored
+      at stencils/crowdaq-widget.twig — keep the two in sync when
+      editing; the inline copy here is the one Xibo CMS reads).
+
+      The <twig> block consumes widget properties (eventId, theme, flags)
+      as Twig variables and emits a placeholder render tree. Live data
+      from the SSE stream is applied in <onRender> below, which rewrites
+      the DOM with the payload's shape (see datatypes/crowdaq-event.xml).
+    -->
+    <stencil>
+        <twig><![CDATA[
+<div
+    class="crowdaq-widget crowdaq-theme-{{ theme|default('dark') }}"
+    data-crowdaq-event-id="{{ eventId|default('') }}"
+    data-crowdaq-refresh-interval="{{ refreshInterval|default(30) }}"
+    data-crowdaq-show-team-logos="{{ showTeamLogos|default(1) }}"
+    data-crowdaq-show-last-moment="{{ showLastMoment|default(1) }}"
+    data-crowdaq-max-moment-length="{{ maxMomentLength|default(80) }}">
+
+    <div class="crowdaq-row crowdaq-row-score">
+        {% if showTeamLogos %}
+        <img class="crowdaq-team-logo crowdaq-team-logo-home" src="" alt="" />
+        {% endif %}
+        <span class="crowdaq-team-name crowdaq-team-name-home">Home</span>
+        <span class="crowdaq-score crowdaq-score-home">0</span>
+        <span class="crowdaq-score-divider">&ndash;</span>
+        <span class="crowdaq-score crowdaq-score-away">0</span>
+        <span class="crowdaq-team-name crowdaq-team-name-away">Away</span>
+        {% if showTeamLogos %}
+        <img class="crowdaq-team-logo crowdaq-team-logo-away" src="" alt="" />
+        {% endif %}
+    </div>
+
+    <div class="crowdaq-row crowdaq-row-excitement">
+        <div class="crowdaq-excitement-meter" role="progressbar" aria-valuemin="0" aria-valuemax="10" aria-valuenow="0">
+            <div class="crowdaq-excitement-fill" style="width: 0%"></div>
+        </div>
+        <span class="crowdaq-excitement-value">0.0</span>
+        <span class="crowdaq-excitement-trend" data-trend="flat">&bull;</span>
+    </div>
+
+    {% if showLastMoment %}
+    <div class="crowdaq-row crowdaq-row-moment">
+        <span class="crowdaq-moment-text">Waiting for CROWDAQ feed&hellip;</span>
+    </div>
+    {% endif %}
+
+    <div class="crowdaq-status" data-state="connecting" aria-live="polite">connecting</div>
+</div>
+        ]]></twig>
+        <style><![CDATA[
+/* CROWDAQ widget — phase-1 inline style. Signage displays often run
+   no-JS / strict-CSP profiles so we keep everything self-contained and
+   avoid web-font loads. */
+body {
+    margin: 0;
+    padding: 0;
+}
+.crowdaq-widget {
+    width: 100%;
+    height: 100%;
+    box-sizing: border-box;
+    padding: 16px;
+    font-family: "Helvetica Neue", Arial, sans-serif;
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+    overflow: hidden;
+}
+.crowdaq-theme-dark  { background: #0b0f16; color: #f5f7fa; }
+.crowdaq-theme-light { background: #f5f7fa; color: #0b0f16; }
+
+.crowdaq-row {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 12px;
+}
+.crowdaq-row-score {
+    font-size: 2.4em;
+    font-weight: 700;
+}
+.crowdaq-team-logo {
+    height: 1.5em;
+    width: auto;
+    object-fit: contain;
+}
+.crowdaq-team-name {
+    font-size: 0.6em;
+    font-weight: 500;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    opacity: 0.85;
+}
+.crowdaq-score-divider { opacity: 0.5; }
+
+.crowdaq-row-excitement {
+    font-size: 1em;
+    margin: 12px 0;
+}
+.crowdaq-excitement-meter {
+    flex: 1;
+    height: 10px;
+    border-radius: 5px;
+    background: rgba(255, 255, 255, 0.15);
+    overflow: hidden;
+}
+.crowdaq-theme-light .crowdaq-excitement-meter {
+    background: rgba(0, 0, 0, 0.10);
+}
+.crowdaq-excitement-fill {
+    height: 100%;
+    width: 0%;
+    background: linear-gradient(90deg, #3ad29f 0%, #f5c542 60%, #ff4d6d 100%);
+    transition: width 0.6s ease-out;
+}
+.crowdaq-excitement-value {
+    min-width: 3ch;
+    text-align: right;
+    font-variant-numeric: tabular-nums;
+}
+.crowdaq-excitement-trend[data-trend="rising"]  { color: #3ad29f; }
+.crowdaq-excitement-trend[data-trend="falling"] { color: #ff4d6d; }
+.crowdaq-excitement-trend[data-trend="flat"]    { opacity: 0.5; }
+
+.crowdaq-row-moment {
+    font-size: 1em;
+    line-height: 1.3;
+    opacity: 0.95;
+    text-align: center;
+    padding: 0 4px;
+}
+.crowdaq-moment-text {
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+}
+
+.crowdaq-status {
+    font-size: 0.7em;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    opacity: 0.4;
+    text-align: right;
+}
+.crowdaq-status[data-state="live"]         { color: #3ad29f; opacity: 0.8; }
+.crowdaq-status[data-state="stale"]        { color: #f5c542; opacity: 0.8; }
+.crowdaq-status[data-state="disconnected"] { color: #ff4d6d; opacity: 0.8; }
+        ]]></style>
+    </stencil>
+
+    <!--
+      Sample data used by the CMS layout editor to render a preview card
+      before any real feed is connected. Shape mirrors
+      datatypes/crowdaq-event.xml exactly so the stencil's <onRender> JS
+      treats preview and production identically.
+    -->
+    <sampleData><![CDATA[
+[{
+    "match_id": "sample-match-001",
+    "event_id": "sample-match-001",
+    "clock": {"minute": 78, "stoppage": 2, "period": "2H"},
+    "score": {"home": 1, "away": 1},
+    "teams": {
+        "home": {"name": "Home FC", "abbreviation": "HME", "logo_url": ""},
+        "away": {"name": "Away FC", "abbreviation": "AWY", "logo_url": ""}
+    },
+    "excitement": {"level": 0.82, "trend": "rising"},
+    "last_moment": {
+        "type": "goal",
+        "team": "home",
+        "minute": 78,
+        "text": "Goal! Home FC equalise in the 78th minute — stadium erupts."
+    },
+    "next_update_hint_ms": 500
+}]
+    ]]></sampleData>
+
+    <!--
+      onRender runs on every player paint. It (a) applies the current
+      payload to the DOM and (b) opens an SSE stream to the CROWDAQ
+      backend resolved from the display's tailnet-reachable service.
+      The real backend URL will be injected in the MVP-widget iter —
+      this block is the wire-up surface, not the final fetch glue.
+    -->
+    <onRender><![CDATA[
+// Module renderer options
+// id: The id of the widget
+// target: The target element to render
+// items: The items to render (one CROWDAQ event object per tick; phase-1 expects length 1)
+// properties: The properties for the widget
+
+(function () {
+    var $root = $(target).find('.crowdaq-widget');
+    if ($root.length === 0) { return; }
+
+    // Truncation helper — caps last-moment text to maxMomentLength.
+    function truncateText(text, maxLen) {
+        if (typeof text !== 'string') { return ''; }
+        var limit = parseInt(maxLen, 10);
+        if (isNaN(limit) || limit <= 0 || text.length <= limit) { return text; }
+        return text.slice(0, limit - 1) + '…';
+    }
+
+    // Apply one CROWDAQ event payload to the DOM tree rendered by the stencil.
+    function applyEvent(evt) {
+        if (!evt || typeof evt !== 'object') { return; }
+
+        var teams = evt.teams || {};
+        var score = evt.score || {};
+        var excitement = evt.excitement || {};
+        var moment = evt.last_moment || {};
+
+        // Score / team labels.
+        $root.find('.crowdaq-team-name-home').text((teams.home && teams.home.abbreviation) || (teams.home && teams.home.name) || 'Home');
+        $root.find('.crowdaq-team-name-away').text((teams.away && teams.away.abbreviation) || (teams.away && teams.away.name) || 'Away');
+        $root.find('.crowdaq-score-home').text(score.home != null ? score.home : 0);
+        $root.find('.crowdaq-score-away').text(score.away != null ? score.away : 0);
+
+        // Team logos (best-effort — swap src only when we have a URL).
+        if (properties.showTeamLogos && teams.home && teams.home.logo_url) {
+            $root.find('.crowdaq-team-logo-home').attr('src', teams.home.logo_url).attr('alt', teams.home.name || '');
+        }
+        if (properties.showTeamLogos && teams.away && teams.away.logo_url) {
+            $root.find('.crowdaq-team-logo-away').attr('src', teams.away.logo_url).attr('alt', teams.away.name || '');
+        }
+
+        // Excitement meter — level is 0..1, display as 0.0..10.0.
+        var level = parseFloat(excitement.level);
+        if (isNaN(level)) { level = 0; }
+        var pct = Math.max(0, Math.min(1, level)) * 100;
+        $root.find('.crowdaq-excitement-fill').css('width', pct + '%');
+        $root.find('.crowdaq-excitement-value').text((level * 10).toFixed(1));
+        $root.find('.crowdaq-excitement-meter').attr('aria-valuenow', (level * 10).toFixed(1));
+        var trend = excitement.trend || 'flat';
+        $root.find('.crowdaq-excitement-trend')
+            .attr('data-trend', trend)
+            .html(trend === 'rising' ? '&#9650;' : trend === 'falling' ? '&#9660;' : '&bull;');
+
+        // Last notable moment (respect showLastMoment + maxMomentLength).
+        if (properties.showLastMoment) {
+            var momentText = moment.text || '';
+            $root.find('.crowdaq-moment-text').text(truncateText(momentText, properties.maxMomentLength));
+        }
+    }
+
+    // Apply any preview / cached data first so there's always *something*
+    // on screen while we wait for the SSE stream to send the first event.
+    if (Array.isArray(items) && items.length > 0) {
+        applyEvent(items[0]);
+        $root.find('.crowdaq-status').attr('data-state', 'stale').text('cached');
+    }
+
+    // Open the SSE stream to the CROWDAQ backend. The actual base URL
+    // will be injected by the MVP-widget iter (likely via a module
+    // setting or a global exposed by the player); for now we fall back
+    // to the sampleData path if no URL is available, which is enough
+    // for visual preview in the CMS layout editor.
+    var streamBase = (window && window.crowdaqBackendBase) ? window.crowdaqBackendBase : null;
+    if (!streamBase || typeof EventSource === 'undefined') {
+        $root.find('.crowdaq-status').attr('data-state', 'stale').text('preview');
+        return;
+    }
+
+    var displayId = (typeof xiboIC !== 'undefined' && xiboIC.get) ? xiboIC.get(id, 'displayId') : '';
+    var url = streamBase.replace(/\/+$/, '')
+        + '/stream?display_id=' + encodeURIComponent(displayId || '')
+        + (properties.eventId ? '&event_id=' + encodeURIComponent(properties.eventId) : '');
+
+    try {
+        var es = new EventSource(url);
+        es.onopen = function () {
+            $root.find('.crowdaq-status').attr('data-state', 'live').text('live');
+        };
+        es.onmessage = function (msg) {
+            try {
+                var payload = JSON.parse(msg.data);
+                applyEvent(payload);
+            } catch (err) {
+                // ignore malformed tick; keep last good render
+            }
+        };
+        es.onerror = function () {
+            $root.find('.crowdaq-status').attr('data-state', 'disconnected').text('reconnecting');
+        };
+    } catch (err) {
+        $root.find('.crowdaq-status').attr('data-state', 'disconnected').text('offline');
+    }
+})();
+    ]]></onRender>
 </module>
