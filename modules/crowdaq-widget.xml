@@ -96,18 +96,23 @@
     <properties>
         <property id="apiBaseUrl" type="text">
             <title>CROWDAQ API base URL</title>
-            <helpText>Base URL of the CROWDAQ backend (e.g. https://crowdaq.bar-pc.tailnet). Appended with /events/&lt;eventId&gt;/stream at runtime. Leave blank to fall back to window.crowdaqBackendBase (set by the bar-PC bootstrap). When both are empty the widget shows a "Configure apiBaseUrl" placeholder.</helpText>
+            <helpText>Base URL of the CROWDAQ backend (e.g. https://crowdaq.bar-pc.tailnet). Appended with /events/&lt;eventId&gt;/stream at runtime. Leave blank to fall back to window.crowdaqBackendBase (set by the bar-PC bootstrap). When both are empty the widget shows a "Configure apiBaseUrl" placeholder. Multi-bar targeting: a value of the form display:&lt;field&gt; (e.g. display:displayName) is resolved at render time against the player's xiboIC.info() response — see docs/TARGETING.md for the supported fields.</helpText>
             <default></default>
             <rule>
-                <test message="apiBaseUrl must be empty or an https:// URL.">
-                    <condition type="matches">^$|^https://.*</condition>
+                <test message="apiBaseUrl must be empty, an https:// URL, or a display:&lt;field&gt; placeholder.">
+                    <condition type="matches">^$|^https://.*|^display:[a-zA-Z][a-zA-Z0-9_]*$</condition>
                 </test>
             </rule>
         </property>
         <property id="eventId" type="text">
             <title>Event ID</title>
-            <helpText>CROWDAQ event / match identifier (e.g. worldcup-2026-semi-br-ar). If left blank the backend resolves the best available live event for this display.</helpText>
+            <helpText>CROWDAQ event / match identifier (e.g. worldcup-2026-semi-br-ar). If left blank the backend resolves the best available live event for this display. Multi-bar targeting: a value of the form display:&lt;field&gt; (e.g. display:displayName) is resolved at render time against the player's xiboIC.info() response so a single layout can serve many bars — see docs/TARGETING.md.</helpText>
             <default></default>
+            <rule>
+                <test message="eventId must be empty, a literal id, or a display:&lt;field&gt; placeholder.">
+                    <condition type="matches">^$|^display:[a-zA-Z][a-zA-Z0-9_]*$|^[A-Za-z0-9][A-Za-z0-9._:-]*$</condition>
+                </test>
+            </rule>
         </property>
         <property id="refreshInterval" type="number">
             <title>Refresh Interval (seconds)</title>
@@ -218,6 +223,13 @@
     <div class="crowdaq-stale-overlay" data-crowdaq-stale-overlay hidden>
         <span>stale</span>
     </div>
+
+    <!-- Debug-only: resolved values populated by onRender once the
+         display:<field> placeholders (if any) are substituted from
+         xiboIC.info(). Hidden from the signage render but readable with
+         DevTools / a headless playwright probe. See docs/TARGETING.md. -->
+    <span hidden data-crowdaq-resolved-event-id="{{ eventId|default('') }}"></span>
+    <span hidden data-crowdaq-resolved-api-base-url="{{ apiBaseUrl|default('') }}"></span>
 </div>
         ]]></twig>
         <style><![CDATA[
@@ -456,13 +468,41 @@ body {
     // Resolve the API base URL: explicit property first, then the
     // bar-player bootstrap global. Per-widget settings win so an
     // operator can point a single bar at a different backend.
-    var apiBaseUrl = (typeof props.apiBaseUrl === 'string' ? props.apiBaseUrl : '').trim();
-    if (!apiBaseUrl && typeof window !== 'undefined' && window.crowdaqBackendBase) {
-        apiBaseUrl = String(window.crowdaqBackendBase);
-    }
-    apiBaseUrl = apiBaseUrl.replace(/\/+$/, '');
+    var apiBaseUrlRaw = (typeof props.apiBaseUrl === 'string' ? props.apiBaseUrl : '').trim();
+    var eventIdRaw = (typeof props.eventId === 'string' ? props.eventId : '').trim();
 
-    var eventId = (typeof props.eventId === 'string' ? props.eventId : '').trim();
+    // Multi-bar targeting: values of the form "display:<field>" are
+    // resolved at render time against the player's xiboIC.info()
+    // response. Supported fields (4.4.2): hardwareKey, displayName,
+    // timeZone, latitude, longitude. See docs/TARGETING.md.
+    // Xibo 4.4.2 does NOT expose the display's tag list to widgets
+    // (xiboIC has no getDisplayTags and /info does not return tags —
+    // see xibosignage/xibo-interactive-control README); the stable
+    // primitive operators get is displayName. Encode the CROWDAQ event
+    // id in displayName when you want one layout to serve many bars.
+    var DISPLAY_FIELD_ALLOWLIST = {
+        hardwareKey: 1,
+        displayName: 1,
+        timeZone: 1,
+        latitude: 1,
+        longitude: 1
+    };
+    var DISPLAY_PREFIX = 'display:';
+    function needsDisplayResolution(value) {
+        return typeof value === 'string' && value.indexOf(DISPLAY_PREFIX) === 0;
+    }
+    function parseDisplayField(value) {
+        return value.slice(DISPLAY_PREFIX.length);
+    }
+    function resolveFromInfo(value, info) {
+        if (!needsDisplayResolution(value)) { return value; }
+        var field = parseDisplayField(value);
+        if (!DISPLAY_FIELD_ALLOWLIST[field]) { return ''; }
+        if (!info || typeof info !== 'object') { return ''; }
+        var raw = info[field];
+        if (raw == null) { return ''; }
+        return String(raw);
+    }
 
     // --- DOM helpers: selectors are data-attr based so Twig can rename
     //     classes without breaking the JS. ---
@@ -664,22 +704,91 @@ body {
         setStatus('stale', 'cached');
     }
 
-    // --- Bail out cleanly when we have nothing to connect to. ---
-    if (!apiBaseUrl) {
-        showLifecycleBanner('Configure apiBaseUrl');
-        setStatus('disconnected', 'not configured');
-        return;
-    }
-    if (typeof EventSource === 'undefined') {
-        setStatus('disconnected', 'no EventSource');
-        showErrorPill('EventSource unsupported');
-        return;
+    // --- Resolved values, finalised once xiboIC.info() returns. ---
+    var apiBaseUrl = '';
+    var eventId = '';
+    var url = '';
+
+    function applyResolution(rawApiBaseUrl, rawEventId, info) {
+        // apiBaseUrl: resolve display:<field>, fall back to bootstrap
+        // global, strip trailing slashes.
+        var resolvedApi = needsDisplayResolution(rawApiBaseUrl)
+            ? resolveFromInfo(rawApiBaseUrl, info)
+            : rawApiBaseUrl;
+        if (!resolvedApi && typeof window !== 'undefined' && window.crowdaqBackendBase) {
+            resolvedApi = String(window.crowdaqBackendBase);
+        }
+        resolvedApi = String(resolvedApi || '').replace(/\/+$/, '');
+
+        // eventId: resolve display:<field>, trim.
+        var resolvedEvent = needsDisplayResolution(rawEventId)
+            ? resolveFromInfo(rawEventId, info)
+            : rawEventId;
+        resolvedEvent = String(resolvedEvent || '').trim();
+
+        apiBaseUrl = resolvedApi;
+        eventId = resolvedEvent;
+
+        // Mirror the resolved values onto the hidden debug elements so
+        // operators / headless probes can introspect what a given bar
+        // actually rendered with.
+        setAttr('[data-crowdaq-resolved-api-base-url]', 'data-crowdaq-resolved-api-base-url', apiBaseUrl);
+        setAttr('[data-crowdaq-resolved-event-id]', 'data-crowdaq-resolved-event-id', eventId);
     }
 
-    // Build stream URL. eventId is optional; when empty the backend
-    // picks the best live event for the display.
-    var streamEventId = eventId || 'default';
-    var url = apiBaseUrl + '/events/' + encodeURIComponent(streamEventId) + '/stream';
+    function isPreviewEnv() {
+        if (typeof xiboIC === 'undefined') { return true; }
+        try { return !!xiboIC.checkIsPreview(); }
+        catch (e) { return true; }
+    }
+
+    function resolveProperties(done) {
+        var needsInfo =
+            needsDisplayResolution(apiBaseUrlRaw) ||
+            needsDisplayResolution(eventIdRaw);
+
+        if (!needsInfo || isPreviewEnv() || typeof xiboIC === 'undefined' || typeof xiboIC.info !== 'function') {
+            // Editor / preview / no xiboIC: treat raw values as literals.
+            // (In the CMS editor xiboIC.info would fail anyway; the
+            // widget renders the placeholder stencil which is enough to
+            // preview the layout.)
+            applyResolution(apiBaseUrlRaw, eventIdRaw, null);
+            done();
+            return;
+        }
+
+        // Real player: mirror the canonical upstream pattern used by
+        // modules/googletraffic.xml — xiboIC.info({done, error}) with a
+        // JSON.parse on xhr.responseText.
+        var finished = false;
+        function finish(info) {
+            if (finished) { return; }
+            finished = true;
+            applyResolution(apiBaseUrlRaw, eventIdRaw, info);
+            done();
+        }
+        // Defensive timeout — if the local player server is wedged we
+        // still want to render the placeholder instead of hanging.
+        var safety = setTimeout(function () { finish(null); }, 5000);
+        try {
+            xiboIC.info({
+                done: function (xhr) {
+                    clearTimeout(safety);
+                    var info = null;
+                    try { info = JSON.parse(xhr.responseText); }
+                    catch (e) { info = null; }
+                    finish(info);
+                },
+                error: function () {
+                    clearTimeout(safety);
+                    finish(null);
+                }
+            });
+        } catch (e) {
+            clearTimeout(safety);
+            finish(null);
+        }
+    }
 
     // --- Reconnect state ---
     var backoffSchedule = [1000, 2000, 5000, 15000, 30000];
@@ -768,7 +877,28 @@ body {
         window.addEventListener('pagehide', cleanup);
     }
 
-    openStream();
+    // --- Post-resolution connect step. Runs after resolveProperties()
+    //     has populated apiBaseUrl + eventId (either from xiboIC.info()
+    //     or by falling back to the raw literal). ---
+    function connect() {
+        if (!apiBaseUrl) {
+            showLifecycleBanner('Configure apiBaseUrl');
+            setStatus('disconnected', 'not configured');
+            return;
+        }
+        if (typeof EventSource === 'undefined') {
+            setStatus('disconnected', 'no EventSource');
+            showErrorPill('EventSource unsupported');
+            return;
+        }
+        // Build stream URL. eventId is optional; when empty the backend
+        // picks the best live event for the display.
+        var streamEventId = eventId || 'default';
+        url = apiBaseUrl + '/events/' + encodeURIComponent(streamEventId) + '/stream';
+        openStream();
+    }
+
+    resolveProperties(connect);
 })();
     ]]></onRender>
 </module>
