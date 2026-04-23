@@ -13,7 +13,11 @@ yarn-error.log
 # CI-only scratch dir for the contract-validation job
 # (see .github/workflows/ci.yml -> job "contract"). Must not be committed.
 /ci-contract-tools/
+/ci-lint-tools/
 /sampleData.json
+
+# Build output (onRender extraction target for the JS lint job).
+/build/
 
 # Build artifacts
 /dist/*.zip

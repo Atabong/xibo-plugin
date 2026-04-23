@@ -119,10 +119,45 @@ jobs:
             -s docs/contract/events/score-update.json \
             -d sampleData.json
 
+  js-lint:
+    name: onRender JS lint (ESLint)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # Pinned Node LTS so ESLint install + run resolves the same binary
+      # on every CI run. Same policy as the contract job.
+      - name: Setup Node.js 20.17.0
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20.17.0'
+
+      # ESLint 8.57.1 is the last v8 release on the LTS line; config is
+      # .eslintrc.cjs (flat config didn't land until v9). Keep pinned —
+      # the loop hard-constraint is "no @latest".
+      - name: Install pinned ESLint
+        run: |
+          set -euxo pipefail
+          mkdir -p ci-lint-tools
+          cd ci-lint-tools
+          npm init -y > /dev/null
+          npm install --no-save --no-fund --no-audit \
+            eslint@8.57.1
+
+      # Extract the <onRender> CDATA block from the XML manifest so
+      # ESLint can lint it in isolation (see scripts/extract-onrender.mjs
+      # for the one-page extractor; the CMS still reads the inline copy
+      # in the XML — this is a lint-only round-trip).
+      - name: Extract <onRender> block
+        run: node scripts/extract-onrender.mjs
+
+      - name: Run ESLint on extracted onRender JS
+        run: ./ci-lint-tools/node_modules/.bin/eslint --max-warnings=0 build/onrender.js
+
   package:
     name: Build release zip
     runs-on: ubuntu-latest
-    needs: [lint, contract]
+    needs: [lint, contract, js-lint]
     steps:
       - uses: actions/checkout@v4
 
@@ -141,7 +176,7 @@ jobs:
         run: |
           mkdir -p dist
           VERSION=$(git describe --tags --always)
-          zip -r "dist/crowdaq-xibo-plugin-${VERSION}.zip" modules stencils datatypes src docs/contract composer.json README.md LICENSE -x '*/.*'
+          zip -r "dist/crowdaq-xibo-plugin-${VERSION}.zip" modules datatypes src docs/contract composer.json README.md LICENSE -x '*/.*'
           ls -la dist/
 
       - name: Upload dist artifact

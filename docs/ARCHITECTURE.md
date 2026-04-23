@@ -186,26 +186,96 @@ only (phase 1 has no scrollback / history).
      is never blank. Cached / sample data MUST validate against
      `docs/contract/events/score-update.json`.
    - Open an `EventSource` to
-     `GET /events/<eventId>/stream` (see `docs/contract/openapi.yaml`).
+     `GET <apiBaseUrl>/events/<eventId>/stream` (see
+     `docs/contract/openapi.yaml`). `apiBaseUrl` comes from the
+     per-widget property of the same name; if the property is empty,
+     the widget falls back to `window.crowdaqBackendBase` (set by the
+     bar-PC bootstrap). If both are empty, the widget shows a
+     "Configure apiBaseUrl" lifecycle banner and stops.
    - Route events by their SSE `event:` name to the right handler:
-     - `score-update` → rewrite the score / excitement / last-moment DOM.
-     - `moment` → overlay a celebration card for a few seconds (phase-2
-       polish; MVP widget renders last-moment via `score-update` only).
-     - `status` → swap top-level render mode (pre-game placard, live,
-       final-score card).
-     - `heartbeat` → flip status pill between `live` and `stale`.
-     - `error` → flag `reconnecting` / `disconnected` and let
-       `EventSource`'s native reconnect handle the rest.
-4. On next player refresh, step 2 runs again; JS state is discarded.
+     - `score-update` → rewrite the score / excitement / last-moment
+       DOM. Flash a green scale on the side whose score went up.
+     - `moment` → replace the last-moment text line with the new
+       `description` (truncated by `maxMomentLength`).
+     - `status` → toggle a lifecycle banner overlay (pre-game,
+       halftime, extra time, penalties, final, cancelled, postponed).
+       The banner hides when `state === 'live'`.
+     - `heartbeat` → reset the stale timer only.
+     - `error` → display a small red error pill with the code/message
+       and trigger a bounded reconnect.
+4. On next player refresh, step 2 runs again; JS state (reconnect
+   attempt counter, stale timer, score cache) is discarded.
+
+Reconnect & stale rules:
+
+- EventSource failures schedule a bounded reconnect using the backoff
+  sequence `1s / 2s / 5s / 15s / 30s` (capped). After **5 failed
+  attempts** the widget stops retrying, flips to `offline`, and fades
+  the full-widget stale overlay.
+- A successful reopen resets the attempt counter to 0 and clears any
+  error pill.
+- Stale indicator: any event (including `heartbeat`) resets a timer
+  of `2 * refreshInterval` seconds. When it fires, the widget adds
+  the `crowdaq-stale` class to the root and shows a faded overlay
+  until the next event arrives.
+- Cleanup: the widget listens for `beforeunload` / `pagehide` and
+  closes the `EventSource` plus clears its timers.
 
 Refresh cadence:
 
-- SSE is the primary path — push-driven, no widget-side interval.
-- `refreshInterval` (seconds, widget property, default 30) is only used
-  when SSE is unavailable (disabled runtime, blocked at a firewall,
-  etc.). In that branch the widget will poll `GET /snapshot?...` at the
-  configured cadence. Phase-1 wiring for that fallback lands in the
-  **MVP CROWDAQ widget rendering** iter.
+- SSE is the primary (and only) data path in phase 1. `refreshInterval`
+  is only used as the stale-detection interval (`2 * refreshInterval`).
+- A `/snapshot` fallback endpoint remains in the backlog
+  (`docs/contract/openapi.yaml` documents only the SSE endpoint today);
+  the MVP widget does not poll.
+
+---
+
+## Runtime rendering
+
+The MVP widget keeps the CMS-side work minimal: the inline `<twig>`
+block renders a placeholder DOM populated with **stable
+`data-crowdaq-*` attributes** (not classes), and the `<onRender>` JS
+selects and mutates those elements directly.
+
+```
++---------------------+        CDATA <onRender>  IIFE entry
+|  <twig> DOM          |  -->  (function () { ... })();
+|  data-crowdaq-root   |
+|  data-crowdaq-*      |        Property hydration:
+|   (score, team,      |          apiBaseUrl  ← property → window.crowdaqBackendBase
+|    excitement,       |          eventId     ← property
+|    moment, status,   |          refreshInterval / flags / lengths
+|    error pill, stale |
+|    overlay)          |        Paint sampleData / cached items[0].
++----------+----------+        Open EventSource(url).
+           |
+           v
++----------+----------+        addEventListener(name, handler):
+|  EventSource(url)    |          score-update → onScoreUpdate(payload)
+|  url =               |          moment       → onMoment(payload)
+|  apiBaseUrl          |          status       → onStatus(payload)
+|  + /events/          |          heartbeat    → onHeartbeat()
+|  + eventId           |          error        → onStreamError(payload)
+|  + /stream           |
++----------+----------+        Every event resets resetStaleTimer().
+           |
+           v                   onerror → scheduleReconnect()
++---------------------+          delays [1,2,5,15,30]s, cap 5 attempts
+|  DOM mutations       |
+|  via data-crowdaq-*  |        beforeunload / pagehide → cleanup()
++---------------------+          (close EventSource, clear timers)
+```
+
+Event → selector mapping (what each handler touches):
+
+| Event         | Source schema                              | DOM element(s) (data-crowdaq-*)                                                                                                                                                                                                            |
+|---------------|--------------------------------------------|----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| `score-update` | `docs/contract/events/score-update.json`   | `team-a-logo` / `team-a`, `team-b-logo` / `team-b`, `team-a-score`, `team-b-score` (with `.crowdaq-delta-flash` flash), `excitement-fill`, `excitement-value`, `excitement-trend`, `moment-text` (from `last_moment.text`), `status` pill    |
+| `moment`      | `docs/contract/events/moment.json`         | `moment-text` (from `description`, truncated to `maxMomentLength`)                                                                                                                                                                           |
+| `status`      | `docs/contract/events/status.json`         | `status-overlay` + `status-overlay-text` (banner shown for every state except `live`, which hides the banner)                                                                                                                                 |
+| `heartbeat`   | `docs/contract/events/heartbeat.json`      | None directly — resets the stale timer + keeps `status` on `live`                                                                                                                                                                            |
+| `error`       | `docs/contract/events/error.json`          | `error-pill` (shows `code` / `message`, truncated), triggers bounded reconnect                                                                                                                                                               |
 
 ---
 
@@ -216,10 +286,11 @@ manifest currently exposes these operator-visible widget-level properties:
 
 | id | Type | Default | Purpose |
 |---|---|---|---|
-| `eventId` | text | _(empty)_ | Pin the widget to a specific CROWDAQ event. Empty ⇒ backend picks the best live event for the display. |
-| `refreshInterval` | number | 30 | Fallback poll cadence (seconds) when SSE is unavailable. Min 5. |
+| `apiBaseUrl` | text | _(empty)_ | CROWDAQ backend base URL. Used as `<apiBaseUrl>/events/<eventId>/stream`. Validation pattern `^$|^https://.*`. Falls back to `window.crowdaqBackendBase` when empty; if both are empty the widget shows a "Configure apiBaseUrl" placeholder. |
+| `eventId` | text | _(empty)_ | Pin the widget to a specific CROWDAQ event. Empty ⇒ the widget uses the literal `default` in the URL path and the backend picks the best live event for the display. |
+| `refreshInterval` | number | 30 | Stale-detector interval (seconds). The widget flips to `stale` if no event (including heartbeat) arrives within `2 * refreshInterval`. Min 5. |
 | `theme` | dropdown | `dark` | Palette: `dark` or `light`. |
-| `showTeamLogos` | checkbox | `true` | Whether to render `<img>` crests when the feed includes `logo_url`. |
+| `showTeamLogos` | checkbox | `true` | Whether to render `<img>` crests when the feed includes `logo_url`. Falls back to the team abbreviation on `onerror`. |
 | `showLastMoment` | checkbox | `true` | Whether to render the last-moment text row. |
 | `maxMomentLength` | number | 80 | Character cap for the last-moment text; longer strings end with `…`. Only visible when `showLastMoment` is on. |
 
@@ -236,20 +307,26 @@ manifest currently exposes these operator-visible widget-level properties:
 
 ---
 
-## Open questions (manifest iter)
+## Open questions (MVP-widget iter)
 
-1. **Backend base URL injection.** `<onRender>` currently reads
-   `window.crowdaqBackendBase` — the MVP-widget iter must decide whether
-   this is a CMS-level module setting (written into `<settings>` in the
-   manifest) or a hostname baked into the bar-player bootstrap (lives
-   in `infra/bar-pc/` in the `xibo` repo).
-2. **Display id surfacing.** `xiboIC.get(id, 'displayId')` is the best
-   current guess for how the player exposes its display id to the
-   widget — to be confirmed against the actual xibo-cms player runtime.
-3. **Back-channel (widget → CROWDAQ).** Phase 1 is one-way SSE. If the
-   widget ever needs to emit viewer-side signals (e.g. display taps),
-   that's a phase-2 upgrade and will likely introduce a PHP data
-   provider under `src/` (currently empty — see `src/README.md`).
-4. **Packaging.** Does Xibo CMS accept a single zip drop into `custom/`,
-   or does it need to be unpacked into a specific subdirectory? The
-   release iter must confirm against the real CMS Deployment.
+1. **Backend base URL injection.** Resolved in iter16 as the
+   per-widget `apiBaseUrl` property, with a `window.crowdaqBackendBase`
+   fallback for bar-wide defaults. Still open: whether the bar-player
+   bootstrap in the `xibo` repo should also expose `apiBaseUrl` as a
+   CMS-level module setting so a single operator action picks the
+   default for all new widgets. Deferred to a post-MVP polish iter.
+2. **Auth token injection.** Out of scope for the MVP. The stream is
+   currently open on the tailnet; JWT Bearer tokens are a phase-2
+   upgrade documented in `docs/contract/openapi.yaml`.
+3. **Multi-event streaming.** A single widget consumes one stream.
+   Targeting multiple bars is a separate iter (multi-bar display tags).
+4. **Player preview / offline cache.** The `<sampleData>` block is
+   enough for the CMS layout editor preview; the Xibo Player itself
+   does not yet cache the last-known payload to disk between reboots.
+5. **Back-channel (widget → CROWDAQ).** Still phase-2. If the widget
+   ever needs to emit viewer-side signals (display taps, analytics),
+   that would reintroduce a PHP data provider under `src/`.
+6. **Packaging.** Does Xibo CMS accept a single zip drop into
+   `custom/`, or does it need to be unpacked into a specific
+   subdirectory? The release iter must confirm against the real CMS
+   Deployment.
