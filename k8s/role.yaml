@@ -1,0 +1,23 @@
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: crowdaq-installer
+  namespace: xibo
+  labels:
+    app.kubernetes.io/name: crowdaq-installer
+    app.kubernetes.io/part-of: xibo-plugin
+    app.kubernetes.io/component: gitops-installer
+rules:
+  # Locate the CMS + MySQL pods, then kubectl cp / kubectl exec into them.
+  # `pods/exec` is a subresource and needs `create` (not get) to attach.
+  - apiGroups: [""]
+    resources: ["pods"]
+    verbs: ["get", "list"]
+  - apiGroups: [""]
+    resources: ["pods/exec"]
+    verbs: ["create", "get"]
+  # Roll the CMS deployment after files + DB row are seeded so PHP picks
+  # up the new module.
+  - apiGroups: ["apps"]
+    resources: ["deployments"]
+    verbs: ["get", "patch"]

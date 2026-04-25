@@ -1,0 +1,78 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: crowdaq-install
+  namespace: xibo
+  labels:
+    app.kubernetes.io/name: crowdaq-installer
+    app.kubernetes.io/part-of: xibo-plugin
+    app.kubernetes.io/component: gitops-installer
+spec:
+  # Reap the Job + pod 10 min after it finishes so cluster stays clean
+  # but operators still have a window to inspect logs.
+  ttlSecondsAfterFinished: 600
+  backoffLimit: 3
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: crowdaq-installer
+        app.kubernetes.io/part-of: xibo-plugin
+        app.kubernetes.io/component: gitops-installer
+    spec:
+      serviceAccountName: crowdaq-installer
+      restartPolicy: OnFailure
+      containers:
+        - name: installer
+          image: bitnami/kubectl:1.34
+          imagePullPolicy: IfNotPresent
+          command: ["/bin/bash", "-c"]
+          args:
+            - |
+              set -euo pipefail
+
+              CMS_POD=$(kubectl -n xibo get pod -l app=xibo-cms -o jsonpath='{.items[0].metadata.name}')
+              echo "CMS pod: $CMS_POD"
+
+              # Ensure target dirs exist inside the CMS container. Xibo
+              # scans /var/www/cms/custom/modules/*.xml and
+              # /var/www/cms/custom/modules/datatypes/*.xml on boot.
+              kubectl -n xibo exec "$CMS_POD" -- mkdir -p \
+                /var/www/cms/custom/modules \
+                /var/www/cms/custom/modules/datatypes
+
+              # Stage the XML files. The configmap is content-hashed by
+              # kustomize, so any change here yields a new Job spec and
+              # Flux re-creates the Job.
+              kubectl -n xibo cp /manifests/crowdaq-widget.xml \
+                "$CMS_POD:/var/www/cms/custom/modules/crowdaq-widget.xml"
+              kubectl -n xibo cp /manifests/crowdaq-event.xml \
+                "$CMS_POD:/var/www/cms/custom/modules/datatypes/crowdaq-event.xml"
+
+              kubectl -n xibo exec "$CMS_POD" -- chown www-data:www-data \
+                /var/www/cms/custom/modules/crowdaq-widget.xml \
+                /var/www/cms/custom/modules/datatypes/crowdaq-event.xml
+              kubectl -n xibo exec "$CMS_POD" -- chmod 644 \
+                /var/www/cms/custom/modules/crowdaq-widget.xml \
+                /var/www/cms/custom/modules/datatypes/crowdaq-event.xml
+
+              # Upsert the module DB row (idempotent). Credentials come
+              # from the mysql pod's own env so we don't have to mount
+              # any new Secret here.
+              MYSQL_POD=$(kubectl -n xibo get pod -l app=mysql -o jsonpath='{.items[0].metadata.name}')
+              echo "MySQL pod: $MYSQL_POD"
+              kubectl -n xibo exec "$MYSQL_POD" -- sh -c \
+                'mysql -u"$MYSQL_USER" -p"$MYSQL_PASSWORD" "$MYSQL_DATABASE" -e "INSERT INTO module (moduleId, enabled, previewEnabled, defaultDuration) VALUES (\"crowdaq-widget\", 1, 1, 60) ON DUPLICATE KEY UPDATE enabled=1, previewEnabled=1;"'
+
+              # Roll the CMS so the new XML + DB row are picked up.
+              kubectl -n xibo rollout restart deployment xibo-cms
+              kubectl -n xibo rollout status deployment xibo-cms --timeout=180s
+
+              echo "crowdaq plugin install complete"
+          volumeMounts:
+            - name: manifests
+              mountPath: /manifests
+              readOnly: true
+      volumes:
+        - name: manifests
+          configMap:
+            name: crowdaq-manifests

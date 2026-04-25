@@ -1,0 +1,39 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+# All resources land in the `xibo` namespace alongside the running CMS.
+namespace: xibo
+
+resources:
+  - serviceaccount.yaml
+  - role.yaml
+  - rolebinding.yaml
+  - job.yaml
+
+# Generate the manifest ConfigMap from the actual plugin XML files in the
+# repo. Kustomize appends a content hash to the ConfigMap name, so any
+# change to the plugin XML produces a new ConfigMap (e.g.
+# `crowdaq-manifests-abc123def`). The Job's `volumes[0].configMap.name`
+# is rewritten to point at the hashed name, which changes the Job spec
+# itself — Flux then sees a new Job and applies it as a fresh run.
+configMapGenerator:
+  - name: crowdaq-manifests
+    files:
+      - crowdaq-widget.xml=../modules/crowdaq-widget.xml
+      - crowdaq-event.xml=../datatypes/crowdaq-event.xml
+
+generatorOptions:
+  disableNameSuffixHash: false
+
+# NOTE on local validation: this kustomization references files outside
+# its root (../modules, ../datatypes). Flux's kustomize-controller
+# defaults to LoadRestrictionsNone so it builds cleanly in-cluster, but
+# stock `kubectl kustomize k8s/` will refuse with a security error.
+# To render locally for review, run:
+#
+#   kubectl kustomize k8s/ --load-restrictor=LoadRestrictionsNone
+#
+# Avoiding the relative paths would require duplicating the XML into
+# k8s/, which would defeat the source-of-truth guarantee that the
+# installed plugin is the same XML the rest of the repo (CI, release zip,
+# JSON Schema parity) is built from.
