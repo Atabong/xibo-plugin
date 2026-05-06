@@ -142,6 +142,35 @@ jobs:
               print('expected an empty <dataType></dataType> element',
                     file=sys.stderr)
               sys.exit(1)
+
+          # Twig sandbox check. Xibo's CMS renders <stencil><twig> via a
+          # locked-down Twig sandbox that whitelists ONLY the `escape`,
+          # `raw`, and `url_decode` filters (see
+          # lib/Widget/Render/WidgetHtmlRenderer.php in xibosignage/xibo-cms
+          # 4.4.x). Any other filter — including the very common
+          # `|default(...)` — throws at render time and the player gets
+          # nothing back. The widget's <property> elements already declare
+          # operator-facing defaults that Xibo merges in at render time,
+          # so Twig-side `|default` is redundant on top of being unsafe.
+          stencil_match = re.search(
+              r'<stencil>(.*?)</stencil>', xml, flags=re.S)
+          stencil = stencil_match.group(1) if stencil_match else ''
+          # Allow only the three sandbox-permitted filters. Anything
+          # else (default, length, lower, upper, etc.) is a bug.
+          ALLOWED_FILTERS = {'escape', 'raw', 'url_decode', 'e'}
+          bad_filters = set()
+          for fm in re.finditer(r'\|\s*([a-zA-Z_][a-zA-Z0-9_]*)', stencil):
+              name = fm.group(1)
+              if name not in ALLOWED_FILTERS:
+                  bad_filters.add(name)
+          if bad_filters:
+              print('widget <stencil> uses Twig filters outside the Xibo '
+                    'sandbox allowlist (escape, raw, url_decode): '
+                    + ', '.join(sorted(bad_filters)), file=sys.stderr)
+              print('these throw at render time and leave the player '
+                    'with no resource HTML — use <property><default> '
+                    'instead.', file=sys.stderr)
+              sys.exit(1)
           print('widget manifest is client-side-only (OK)')
           PY
 
