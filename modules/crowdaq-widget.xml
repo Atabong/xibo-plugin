@@ -591,6 +591,11 @@ body {
 .crowdaq-widget[data-crowdaq-clock-running="0"] .crowdaq-clock {
     opacity: 0.6;
 }
+
+/* Hide excitement bar until engine is implemented (post-MVP) */
+.crowdaq-row-excitement {
+    display: none !important;
+}
         ]]></style>
     </stencil>
 
