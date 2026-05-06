@@ -92,32 +92,58 @@ jobs:
               -s "$f"
           done
 
-      # Extract the <sampleData> block from the widget manifest and run
-      # it through ajv against score-update.json — catches drift between
-      # the widget's in-CMS preview payload and the formal contract.
-      - name: Validate widget <sampleData> against score-update.json
+      # Assert the widget manifest stays pure CLIENT-SIDE.
+      #
+      # The widget MUST NOT register itself as data-driven, because the
+      # Xibo CMS pod is not on the tailnet and any server-side data
+      # fetch would 500 with "Cache not ready" and collapse the
+      # player's getResource chain. See the architecture comment at
+      # the top of modules/crowdaq-widget.xml.
+      #
+      # If a future iter reintroduces <dataType> / <dataCacheKey> /
+      # <fallbackData> / <sampleData> for a real PHP data provider,
+      # delete this gate and bring back the previous score-update.json
+      # validation step (and add a corresponding ajv-validate run).
+      - name: Assert widget is client-side-only (no data-driven elements)
         run: |
           set -euxo pipefail
           python3 - <<'PY'
-          import re, json, sys, pathlib
+          import re, sys, pathlib
           xml = pathlib.Path('modules/crowdaq-widget.xml').read_text(encoding='utf-8')
-          m = re.search(r'<sampleData><!\[CDATA\[(.*?)\]\]></sampleData>', xml, re.S)
+          # Strip XML comments + CDATA bodies first — the header comment
+          # and the inline <onRender> JS legitimately mention the
+          # forbidden element names while explaining WHY they are
+          # forbidden. We only care about real XML elements.
+          stripped = re.sub(r'<!--.*?-->', '', xml, flags=re.S)
+          stripped = re.sub(r'<!\[CDATA\[.*?\]\]>', '', stripped, flags=re.S)
+          forbidden = {
+              # `<dataType>foo</dataType>` non-empty
+              'dataType': r'<dataType>\s*[^<\s][^<]*</dataType>',
+              # full element pairs only
+              'dataCacheKey': r'<dataCacheKey\b[^>]*>.*?</dataCacheKey>',
+              'fallbackData': r'<fallbackData\b[^>]*>.*?</fallbackData>',
+              'sampleData': r'<sampleData\b[^>]*>.*?</sampleData>',
+          }
+          violations = []
+          for name, pat in forbidden.items():
+              if re.search(pat, stripped, flags=re.S):
+                  violations.append(name)
+          if violations:
+              print('widget manifest contains forbidden data-driven elements: '
+                    + ', '.join(violations), file=sys.stderr)
+              print('this widget MUST stay client-side-only — see header '
+                    'comment in modules/crowdaq-widget.xml', file=sys.stderr)
+              sys.exit(1)
+          # Empty <dataType></dataType> is the canonical static-module
+          # form (see upstream embedded.xml / countdown-text.xml). Make
+          # sure it's present and empty.
+          m = re.search(r'<dataType>\s*</dataType>', stripped)
           if not m:
-              print('no <sampleData> block found', file=sys.stderr)
+              print('expected an empty <dataType></dataType> element',
+                    file=sys.stderr)
               sys.exit(1)
-          payload = json.loads(m.group(1))
-          # manifest embeds an array with a single event object
-          if not isinstance(payload, list) or len(payload) != 1:
-              print('expected sampleData to be a single-element JSON array', file=sys.stderr)
-              sys.exit(1)
-          pathlib.Path('sampleData.json').write_text(
-              json.dumps(payload[0], indent=2), encoding='utf-8')
+          print('widget manifest is client-side-only (OK)')
           PY
-          ./ci-contract-tools/node_modules/.bin/ajv validate \
-            --spec=draft2020 \
-            -c ajv-formats \
-            -s docs/contract/events/score-update.json \
-            -d sampleData.json
 
   js-lint:
     name: onRender JS lint (ESLint)

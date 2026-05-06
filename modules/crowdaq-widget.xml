@@ -20,27 +20,30 @@
 
     * countdown-text.xml   top-level element order, <class> empty, <stencil>
                            with <twig> + <style> + <onRender> JS.
-    * rss-ticker.xml       <dataType> + <dataCacheKey> + <fallbackData>
-                           pattern for a data-driven widget; <sampleData>
-                           block for the in-CMS layout preview.
     * embedded.xml         <stencil>/<twig> + <stencil>/<style> split with
-                           raw-escaped property injection.
-    * currencies.xml       <dataType> linked to an external datatype id
-                           (see datatypes/ in this repo).
+                           raw-escaped property injection; <dataType> empty.
 
-  Data shape consumed by this widget is defined in
-  datatypes/crowdaq-event.xml and documented in docs/ARCHITECTURE.md
-  (Event schema — per SSE event).
+  This widget is intentionally a pure CLIENT-SIDE widget — the upstream
+  rss-ticker / currencies pattern (with non-empty <dataType>,
+  <dataCacheKey>, <fallbackData>, <sampleData>) is NOT used. Those
+  elements would mark the widget as data-driven, at which point Xibo's
+  XMDS getData endpoint tries to populate a server-side cache. With no
+  PHP <class> provider AND no WidgetDataRequestEvent listener, that
+  cache never populates and getData 500s with "Cache not ready", which
+  collapses the player's getResource chain and the bar TV stays black.
 
   Rendering strategy (MVP-widget iter):
     * The widget is region-specific HTML rendered by the Xibo Player's
       Chromium runtime.
     * The player opens an SSE stream to the CROWDAQ backend
       (GET <apiBaseUrl>/events/<eventId>/stream) from JS in <onRender>.
-    * While waiting for the first event OR in CMS-editor preview mode,
-      the <sampleData> block keeps the <stencil> template renderable.
-    * No PHP server-side data provider is needed: the <class> element is
-      intentionally empty, same as countdown-text.xml / text.xml /
+    * The CMS pod NEVER opens a connection to apiBaseUrl: no server-side
+      data fetch, no preview pre-render against the backend.
+    * Until the first SSE event lands, the stencil renders an empty
+      placeholder ("Waiting for CROWDAQ feed…"). The CMS layout editor
+      preview shows the same placeholder — there is no <sampleData>.
+    * No PHP server-side data provider is needed: <class> AND <dataType>
+      are intentionally empty, same as countdown-text.xml / text.xml /
       embedded.xml.
 
   Source of truth for the event contract is docs/contract/openapi.yaml
@@ -68,15 +71,22 @@
     <class></class>
 
     <type>crowdaq-widget</type>
-    <dataType>crowdaq-event</dataType>
 
-    <!-- Cache key tracks the widget-level config that changes the feed
-         shape. eventId switches the match; theme / flags change render
-         only, not the upstream payload — excluded from the key. -->
-    <dataCacheKey>%eventId%</dataCacheKey>
+    <!-- Empty <dataType> on purpose: the widget is pure-client-side. The
+         live feed is fetched directly from the player's Chromium runtime
+         (EventSource over the tailnet to apiBaseUrl). The CMS MUST NOT
+         attempt to populate a server-side data cache for this widget —
+         the CMS pod is not on the tailnet and any server-side fetch
+         would 500 with "Cache not ready", which in turn collapses the
+         player's getResource chain and leaves the screen black.
 
-    <!-- Keep the last-known payload available when the backend blips. -->
-    <fallbackData>1</fallbackData>
+         This mirrors the upstream "static module" template (embedded.xml
+         and countdown-text.xml in xibosignage/xibo-cms@4.4.2): empty
+         <dataType>, empty <class>, no <dataCacheKey>, no <sampleData>,
+         no <fallbackData>. The widget's properties (apiBaseUrl, eventId,
+         theme, etc.) are still injected into the stencil via Twig and
+         consumed by <onRender> JS at the player. -->
+    <dataType></dataType>
 
     <schemaVersion>1</schemaVersion>
     <assignable>1</assignable>
@@ -476,36 +486,21 @@ body {
     </stencil>
 
     <!--
-      Sample data used by the CMS layout editor to render a preview card
-      before any real feed is connected. Shape mirrors
-      datatypes/crowdaq-event.xml exactly so the stencil's <onRender> JS
-      treats preview and production identically.
+      No <sampleData> block: this is a pure client-side widget. A
+      non-empty <sampleData> is only meaningful when paired with a
+      non-empty <dataType>, and that combination would make the CMS
+      treat the widget as data-driven (see the architecture comment at
+      the top of this file). The layout editor preview falls back to the
+      stencil's placeholder ("Waiting for CROWDAQ feed…") which is a
+      faithful representation of the widget's pre-stream state.
     -->
-    <sampleData><![CDATA[
-[{
-    "match_id": "sample-match-001",
-    "event_id": "sample-match-001",
-    "clock": {"minute": 78, "stoppage": 2, "period": "2H"},
-    "score": {"home": 1, "away": 1},
-    "teams": {
-        "home": {"name": "Home FC", "abbreviation": "HME", "logo_url": ""},
-        "away": {"name": "Away FC", "abbreviation": "AWY", "logo_url": ""}
-    },
-    "excitement": {"level": 0.82, "trend": "rising"},
-    "last_moment": {
-        "type": "goal",
-        "team": "home",
-        "minute": 78,
-        "text": "Goal! Home FC equalise in the 78th minute — stadium erupts."
-    },
-    "next_update_hint_ms": 500
-}]
-    ]]></sampleData>
 
     <!--
       onRender runs on every player paint. It:
-        (a) applies any cached/sample payload to the DOM so there's
-            always something on screen while we wait for the stream;
+        (a) leaves the stencil at its "Waiting for CROWDAQ feed…"
+            placeholder; this widget has no <dataType> / <sampleData>
+            so Xibo passes nothing to seed the DOM with — the first
+            SSE frame is what actually paints the score;
         (b) opens an EventSource to <apiBaseUrl>/events/<eventId>/stream;
         (c) dispatches the five SSE event names (score-update, moment,
             status, heartbeat, error) to DOM-mutation functions that
@@ -524,8 +519,12 @@ body {
 // Module renderer options
 // id: The id of the widget
 // target: The target element to render
-// items: Preview / cached payload (phase-1 expects length 1 in preview mode)
 // properties: The properties for the widget
+//
+// NB: this widget intentionally has no <dataType>, so Xibo does NOT pass
+// an `items` array to <onRender>. We never reference it; the stencil
+// stays at its placeholder until the EventSource handler paints the
+// first SSE frame.
 
 (function () {
     'use strict';
@@ -865,11 +864,20 @@ body {
         }, Math.max(10, refreshInterval * 2) * 1000);
     }
 
-    // --- Paint any preview / cached payload first. ---
-    if (Array.isArray(items) && items.length > 0) {
-        onScoreUpdate(items[0]);
-        setStatus('stale', 'cached');
-    }
+    // --- Pre-stream paint: nothing to do.
+    //     This widget is pure-client-side; there is no Xibo-side
+    //     `items` array to seed the DOM (no <dataType>, no <sampleData>,
+    //     no server-side data cache). The stencil's "Waiting for
+    //     CROWDAQ feed…" placeholder stays on screen until the first
+    //     SSE frame from openStream() lands. We guard with `typeof`
+    //     anyway so that if Xibo ever does inject a legacy `items`
+    //     binding from a cached layout, the JS doesn't ReferenceError. ---
+    try {
+        if (typeof items !== 'undefined' && Array.isArray(items) && items.length > 0) {
+            onScoreUpdate(items[0]);
+            setStatus('stale', 'cached');
+        }
+    } catch (e) { /* ignore — items not defined in client-side-only mode */ }
 
     // --- Resolved values, finalised once xiboIC.info() returns. ---
     var apiBaseUrl = '';
