@@ -29,7 +29,7 @@
 openapi: 3.1.0
 info:
   title: CROWDAQ Widget Feed (SSE)
-  version: 1.0.0
+  version: 1.1.0
   summary: Server-Sent Events contract consumed by the CROWDAQ Xibo widget.
   description: |
     The CROWDAQ backend exposes a single Server-Sent Events (SSE) stream per
@@ -46,7 +46,7 @@ info:
     - `moment` -- standalone notable-moment announcement that the widget may
       overlay for a few seconds. Schema: `events/moment.json`.
     - `status` -- event lifecycle transitions (pre-game, live, halftime,
-      final, etc.). Schema: `events/status.json`.
+      final, `looping`, etc.). Schema: `events/status.json`.
     - `heartbeat` -- proxy/keepalive ping; widget uses it to flip the status
       indicator between `live` and `stale`. Schema: `events/heartbeat.json`.
     - `error` -- stream-level error (auth expiry, backend degraded). Clients
@@ -65,6 +65,49 @@ info:
     Each block is terminated by a blank line (`\n\n`). The `id:` field is
     optional but recommended so browsers replay from `Last-Event-ID` on
     reconnect.
+
+    ## Live vs. replay
+
+    Each event id maps to either a still-recording or already-recorded
+    match in the catalog. The same endpoint serves both:
+
+    - **Live tail** (`?live=true`): the server pushes events as the
+      ingest activity emits them. Used while a fixture is in
+      `recording` status. New connections get the current state
+      snapshot first, then live events as they happen.
+    - **Replay** (default, or `?live=false`): the server reads the
+      completed JSONL file from the recording PVC and re-emits events
+      at `?speed=N` real-time multiplier (default `10`). When the
+      stream reaches the end of the recording it emits a
+      `status` event with `state: "looping"`, seeks back to the
+      start, and continues — there is no terminal close on a replay
+      stream. Phase-1 default is loop replay so a bar TV can stay
+      live on a layout indefinitely.
+
+    ## Reconnect convention
+
+    The widget should rely on the browser's native EventSource to
+    reconnect, but bound the retry cadence to:
+
+    `1s -> 2s -> 5s -> 15s -> 30s` (capped at 30s).
+
+    A "RECONNECTING…" pill should appear in the widget UI when no
+    `heartbeat` event has arrived for >30s. After 5 consecutive failed
+    reconnect attempts the widget flips to `offline` and stops
+    retrying until the next layout refresh.
+
+    ## Authentication (Phase-1)
+
+    Phase-1 auth is the **tailnet ACL** alone. The CROWDAQ backend
+    Service is exposed via the Tailscale operator (`tailscale.com/expose:
+    "true"` annotation), and the ACL grants `tag:bar-player ->
+    tag:crowdaq-backend:443`. There is no Authorization header, no JWT,
+    no API key. Anyone (or anything) on the tailnet with a permitted
+    source tag can open the stream.
+
+    JWT bearer auth is documented below for forward-compatibility but
+    is **not** wired up in Phase-1. Phase-2 may turn it on without a
+    breaking client change.
   license:
     name: AGPL-3.0-or-later
     url: https://www.gnu.org/licenses/agpl-3.0.html
@@ -99,6 +142,45 @@ paths:
         without a separate snapshot call.
       parameters:
         - $ref: '#/components/parameters/EventId'
+        - name: speed
+          in: query
+          required: false
+          description: |
+            Replay-time multiplier (real-time = `1`). Only meaningful
+            when the stream serves a recorded match (i.e. when `live`
+            is false or when the fixture is already in `recorded`
+            status). Default `10` — a typical 90-min match condenses
+            to ~9 min of bar-TV time. Ignored on live streams.
+          schema:
+            type: number
+            minimum: 0.1
+            maximum: 100
+            default: 10
+        - name: live
+          in: query
+          required: false
+          description: |
+            If `true`, force the live-tail path: the server subscribes
+            to the in-process events bus and pushes new events as the
+            recorder emits them. Returns 404 if the fixture is not
+            currently in `recording` status. If `false` (default), the
+            server replays from the completed JSONL file at `?speed=`
+            multiplier and loops on completion.
+          schema:
+            type: boolean
+            default: false
+        - name: startAt
+          in: query
+          required: false
+          description: |
+            Replay seek-to offset (Unix epoch seconds). The server will
+            skip events with `timestamp` earlier than this and start
+            emitting from the first event at or after `startAt`. Only
+            meaningful in replay mode. Omit (default) to start from the
+            beginning of the recording.
+          schema:
+            type: integer
+            minimum: 0
         - name: Last-Event-ID
           in: header
           required: false
@@ -151,8 +233,11 @@ paths:
         '503':
           $ref: '#/components/responses/Unavailable'
       security:
+        # Phase-1 posture: tailnet ACL only — no Authorization header
+        # required. The empty security object below means "no auth";
+        # bearerAuth is documented for forward compat but not enforced.
+        - {}
         - bearerAuth: []
-        - {}  # also accept unauthenticated on the tailnet (Phase-1 posture)
 
 components:
   parameters:
@@ -184,8 +269,13 @@ components:
         header carries a short-lived JWT minted out-of-band by CROWDAQ.
         Signing / rotation / audience claims are NOT specified here --
         that is the Phase-2 task `Decide CROWDAQ backend hosting + data
-        contract` follow-up. In Phase-1 the endpoint is reachable
-        directly over the tailnet and this header is optional.
+        contract` follow-up.
+
+        **Phase-1 (current): this header is NOT used.** Auth is enforced
+        exclusively by the Tailscale ACL: `tag:bar-player ->
+        tag:crowdaq-backend:443`. Any caller on the tailnet with a
+        permitted source tag may open the stream without supplying any
+        Authorization header.
 
   responses:
     Unauthorized:
