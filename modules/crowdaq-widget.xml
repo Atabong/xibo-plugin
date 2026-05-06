@@ -543,9 +543,82 @@ body {
 (function () {
     'use strict';
 
+    // ------------------------------------------------------------------
+    // Structured logging helper.
+    //
+    // The bar-player snap is snap-confined Chromium with no DevTools and
+    // a default sqlite log level of `error` only — there is no way to
+    // observe widget JS at runtime from the operator side. This helper
+    // always logs to the browser console (so the snap's console-logs.db
+    // captures errors at minimum) AND best-effort pipes through
+    // xiboIC.submitLog so the message lands in the CMS `log` table over
+    // XMDS, where an operator can SELECT them out via mysql in the CMS
+    // pod. See docs/OPERATIONS.md for the query.
+    //
+    // Levels map to the xiboIC.submitLog 'level' enum (info|audit|error)
+    // with `warn` folded into `info` (xiboIC has no warn level — the
+    // category prefix in the message preserves the distinction for grep).
+    // The category 'crowdaq' is consistent across all calls so a single
+    // LIKE '%[crowdaq:%' query picks up every event.
+    // ------------------------------------------------------------------
+    function crowdaqLog(level, event, data) {
+        var payload;
+        try { payload = JSON.stringify(data || {}); }
+        catch (e) { payload = '{"_unserializable":true}'; }
+        var msg = '[crowdaq:' + event + '] ' + payload;
+        try {
+            // eslint-disable-next-line no-console
+            if (level === 'error') { console.error(msg); }
+            // eslint-disable-next-line no-console
+            else if (level === 'warn') { console.warn(msg); }
+            // eslint-disable-next-line no-console
+            else { console.log(msg); }
+        } catch (e) { /* console may be missing in very old runtimes */ }
+        try {
+            if (typeof xiboIC !== 'undefined' && xiboIC && typeof xiboIC.submitLog === 'function') {
+                // xiboIC.submitLog accepts info|audit|error. Map warn->info.
+                var icLevel = (level === 'error') ? 'error'
+                            : (level === 'audit') ? 'audit'
+                            : 'info';
+                xiboIC.submitLog({ category: 'crowdaq', level: icLevel, message: msg });
+            }
+        } catch (e) { /* swallow — never let logging take down the widget */ }
+    }
+
+    // Capture uncaught errors in this widget's frame so they reach the
+    // CMS log. The widget runs inside a Chromium iframe with no DevTools
+    // exposed, so without these handlers a thrown error inside an event
+    // handler would be invisible from the operator side.
+    if (typeof window !== 'undefined' && typeof window.addEventListener === 'function') {
+        window.addEventListener('error', function (e) {
+            try {
+                crowdaqLog('error', 'js-error', {
+                    message: e && e.message,
+                    source: e && e.filename,
+                    lineno: e && e.lineno,
+                    colno: e && e.colno,
+                    stack: (e && e.error && typeof e.error.stack === 'string')
+                        ? e.error.stack.substring(0, 500)
+                        : null
+                });
+            } catch (err) { /* swallow */ }
+        });
+        window.addEventListener('unhandledrejection', function (e) {
+            try {
+                var reason = (e && e.reason != null) ? String(e.reason) : '';
+                crowdaqLog('error', 'js-promise-reject', {
+                    reason: reason.substring(0, 500)
+                });
+            } catch (err) { /* swallow */ }
+        });
+    }
+
     var $target = (typeof $ === 'function') ? $(target) : null;
     var $root = $target ? $target.find('[data-crowdaq-root]') : null;
-    if (!$root || $root.length === 0) { return; }
+    if (!$root || $root.length === 0) {
+        crowdaqLog('error', 'init-no-root', {});
+        return;
+    }
     var rootEl = $root.get(0);
 
     var props = properties || {};
@@ -864,6 +937,10 @@ body {
             ? payload.message
             : (payload && payload.code ? String(payload.code) : 'stream error');
         showErrorPill(truncate(msg, 60));
+        crowdaqLog('error', 'server-error-event', {
+            code: (payload && payload.code) || null,
+            message: String(msg).substring(0, 200)
+        });
         scheduleReconnect();
     }
 
@@ -872,10 +949,17 @@ body {
     function resetStaleTimer() {
         if (staleTimer) { clearTimeout(staleTimer); }
         showStale(false);
+        var staleMs = Math.max(10, refreshInterval * 2) * 1000;
         staleTimer = setTimeout(function () {
             showStale(true);
             setStatus('stale', 'stale');
-        }, Math.max(10, refreshInterval * 2) * 1000);
+            crowdaqLog('warn', 'stale-detected', {
+                lastEventAt: lastEventAt,
+                now: Date.now(),
+                gapMs: Date.now() - lastEventAt,
+                staleThresholdMs: staleMs
+            });
+        }, staleMs);
     }
 
     // --- Pre-stream paint: nothing to do.
@@ -897,6 +981,18 @@ body {
     var apiBaseUrl = '';
     var eventId = '';
     var url = '';
+
+    crowdaqLog('info', 'init', {
+        apiBaseUrlRaw: apiBaseUrlRaw,
+        eventIdRaw: eventIdRaw,
+        refreshInterval: refreshInterval,
+        showTeamLogos: showTeamLogos,
+        showLastMoment: showLastMoment,
+        maxMomentLength: maxMomentLength,
+        userAgent: (typeof navigator !== 'undefined' && navigator.userAgent) ? navigator.userAgent.substring(0, 200) : null,
+        hasXiboIC: (typeof xiboIC !== 'undefined'),
+        hasEventSource: (typeof EventSource !== 'undefined')
+    });
 
     function applyResolution(rawApiBaseUrl, rawEventId, info) {
         // apiBaseUrl: resolve display:<field>, fall back to bootstrap
@@ -923,6 +1019,12 @@ body {
         // actually rendered with.
         setAttr('[data-crowdaq-resolved-api-base-url]', 'data-crowdaq-resolved-api-base-url', apiBaseUrl);
         setAttr('[data-crowdaq-resolved-event-id]', 'data-crowdaq-resolved-event-id', eventId);
+
+        crowdaqLog('info', 'resolved', {
+            apiBaseUrl: apiBaseUrl,
+            eventId: eventId,
+            sourceInfoPresent: !!info
+        });
     }
 
     function isPreviewEnv() {
@@ -999,37 +1101,59 @@ body {
         if (attempt >= MAX_ATTEMPTS) {
             setStatus('disconnected', 'offline');
             showStale(true);
+            crowdaqLog('error', 'es-give-up', { attempts: attempt, maxAttempts: MAX_ATTEMPTS, url: url });
             return;
         }
         var delay = backoffSchedule[Math.min(attempt, backoffSchedule.length - 1)];
         attempt += 1;
         setStatus('disconnected', 'reconnecting');
+        crowdaqLog('warn', 'reconnect-attempt', { attempt: attempt, backoffMs: delay, url: url });
         reconnectTimer = setTimeout(openStream, delay);
     }
 
     function openStream() {
         if (cleanedUp) { return; }
         setStatus('connecting', 'connecting');
+        crowdaqLog('info', 'es-opening', { url: url, attempt: attempt });
         try {
             source = new EventSource(url);
         } catch (err) {
             setStatus('disconnected', 'offline');
             showErrorPill('open failed');
+            crowdaqLog('error', 'es-open-throw', {
+                url: url,
+                error: String(err && err.message || err).substring(0, 300)
+            });
             scheduleReconnect();
             return;
         }
 
-        source.onopen = function () {
+        source.onopen = function (e) {
             attempt = 0;  // reset backoff on successful (re)connect
             setStatus('live', 'live');
             showErrorPill('');
             resetStaleTimer();
+            crowdaqLog('info', 'es-open', {
+                readyState: source ? source.readyState : null,
+                url: url,
+                eventType: e && e.type
+            });
         };
 
         // Generic onerror: browser tried to reconnect natively; we take
         // over with bounded backoff so the widget stops thrashing after
-        // MAX_ATTEMPTS.
-        source.onerror = function () {
+        // MAX_ATTEMPTS. EventSource intentionally does not expose error
+        // detail (CORS / network / 5xx all surface the same way) — we
+        // capture readyState + url + the in-flight attempt counter so an
+        // operator can correlate against the backend log.
+        source.onerror = function (e) {
+            crowdaqLog('error', 'es-error', {
+                readyState: source ? source.readyState : null,
+                url: url,
+                attempt: attempt,
+                eventType: e && e.type,
+                timestamp: Date.now()
+            });
             scheduleReconnect();
         };
 
@@ -1041,11 +1165,35 @@ body {
                 setStatus('live', 'live');
                 showErrorPill('');
                 var data = null;
-                if (msg && typeof msg.data === 'string' && msg.data.length > 0) {
+                var rawLen = (msg && typeof msg.data === 'string') ? msg.data.length : 0;
+                if (rawLen > 0) {
                     try { data = JSON.parse(msg.data); }
-                    catch (err) { return; }
+                    catch (err) {
+                        crowdaqLog('error', 'es-parse-error', {
+                            event: name,
+                            error: String(err && err.message || err).substring(0, 200),
+                            sample: (typeof msg.data === 'string') ? msg.data.substring(0, 120) : null
+                        });
+                        return;
+                    }
                 }
-                try { handler(data); } catch (err) { /* never let a handler kill the stream */ }
+                crowdaqLog('info', 'es-event', {
+                    event: name,
+                    bytes: rawLen,
+                    // Lightweight payload summary — full payload would
+                    // bloat the CMS log table. Surface the fields that
+                    // matter for debugging routing / state mismatches.
+                    keys: data && typeof data === 'object' ? Object.keys(data).slice(0, 12) : null
+                });
+                try { handler(data); }
+                catch (err) {
+                    // never let a handler kill the stream
+                    crowdaqLog('error', 'handler-throw', {
+                        event: name,
+                        error: String(err && err.message || err).substring(0, 200),
+                        stack: (err && typeof err.stack === 'string') ? err.stack.substring(0, 400) : null
+                    });
+                }
             });
         }
 
@@ -1061,10 +1209,23 @@ body {
     //     arrived in 30s, surface a yellow "RECONNECTING…" pill. The
     //     stale-timer path covers a longer 2*refreshInterval window;
     //     this is the early-warning indicator the contract documents. ---
+    var watchdogPillVisible = false;
     var reconnectWatchdog = setInterval(function () {
         if (cleanedUp) { return; }
-        if (Date.now() - lastEventAt > 30000) {
+        var gap = Date.now() - lastEventAt;
+        if (gap > 30000) {
+            if (!watchdogPillVisible) {
+                watchdogPillVisible = true;
+                crowdaqLog('warn', 'watchdog-no-events', {
+                    gapMs: gap,
+                    lastEventAt: lastEventAt,
+                    readyState: source ? source.readyState : null
+                });
+            }
             showReconnectingPill(true);
+        } else if (watchdogPillVisible && gap < 5000) {
+            // Reset the latch once events resume so a future stall logs again.
+            watchdogPillVisible = false;
         }
     }, 5000);
 
@@ -1088,11 +1249,16 @@ body {
         if (!apiBaseUrl) {
             showLifecycleBanner('Configure apiBaseUrl');
             setStatus('disconnected', 'not configured');
+            crowdaqLog('error', 'connect-no-api-base-url', {
+                rawApiBaseUrl: apiBaseUrlRaw,
+                rawEventId: eventIdRaw
+            });
             return;
         }
         if (typeof EventSource === 'undefined') {
             setStatus('disconnected', 'no EventSource');
             showErrorPill('EventSource unsupported');
+            crowdaqLog('error', 'connect-no-eventsource', {});
             return;
         }
         // Build stream URL. eventId is optional; when empty the backend
@@ -1105,6 +1271,7 @@ body {
         url = apiBaseUrl
             + '/events/' + encodeURIComponent(streamEventId) + '/stream'
             + '?speed=10';
+        crowdaqLog('info', 'connect', { url: url, streamEventId: streamEventId });
         openStream();
     }
 
