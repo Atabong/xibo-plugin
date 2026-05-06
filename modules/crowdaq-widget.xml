@@ -193,14 +193,21 @@
         <div class="crowdaq-team crowdaq-team-home" data-crowdaq-team="home">
             <img class="crowdaq-team-logo" data-crowdaq-team-a-logo src="" alt="" {% if not showTeamLogos %}hidden{% endif %} />
             <span class="crowdaq-team-name" data-crowdaq-team-a>Home</span>
+            <span class="crowdaq-possession-dot" data-crowdaq-possession-dot data-team="home" hidden></span>
         </div>
-        <span class="crowdaq-score" data-crowdaq-team-a-score>0</span>
+        <span class="crowdaq-score crowdaq-score-big" data-crowdaq-team-a-score>0</span>
         <span class="crowdaq-score-divider">&ndash;</span>
-        <span class="crowdaq-score" data-crowdaq-team-b-score>0</span>
+        <span class="crowdaq-score crowdaq-score-big" data-crowdaq-team-b-score>0</span>
         <div class="crowdaq-team crowdaq-team-away" data-crowdaq-team="away">
+            <span class="crowdaq-possession-dot" data-crowdaq-possession-dot data-team="away" hidden></span>
             <span class="crowdaq-team-name" data-crowdaq-team-b>Away</span>
             <img class="crowdaq-team-logo" data-crowdaq-team-b-logo src="" alt="" {% if not showTeamLogos %}hidden{% endif %} />
         </div>
+    </div>
+
+    <div class="crowdaq-row crowdaq-row-clock">
+        <span class="crowdaq-clock" data-crowdaq-clock-minute>--</span>
+        <span class="crowdaq-clock-period" data-crowdaq-clock-period>--</span>
     </div>
 
     <div class="crowdaq-row crowdaq-row-excitement">
@@ -217,6 +224,7 @@
 
     <div class="crowdaq-pill-row">
         <span class="crowdaq-status" data-crowdaq-status data-state="connecting" aria-live="polite">connecting</span>
+        <span class="crowdaq-reconnecting-pill" data-crowdaq-reconnecting-pill hidden>RECONNECTING&hellip;</span>
         <span class="crowdaq-error-pill" data-crowdaq-error-pill hidden></span>
     </div>
 
@@ -264,6 +272,56 @@ body {
 .crowdaq-row-score {
     font-size: 2.4em;
     font-weight: 700;
+}
+/* Big-scoreboard typography. Tailwind's `text-9xl` baseline is 8rem;
+ * we scale relative to the parent so a small Xibo region still looks
+ * legible while a full-screen layout pushes the score beyond 100px.
+ * `clamp` keeps it readable at both extremes. */
+.crowdaq-score-big {
+    font-size: clamp(2.4em, 9vw, 8em);
+    line-height: 1;
+    font-variant-numeric: tabular-nums;
+    letter-spacing: -0.02em;
+}
+
+/* Possession dot — animated 8px pulsing indicator next to the team
+ * currently in possession. Hidden by default; the SSE
+ * `possession-change` handler toggles the [hidden] attribute on the
+ * winning team's dot and clears the other's. */
+.crowdaq-possession-dot {
+    display: inline-block;
+    width: 0.5em;
+    height: 0.5em;
+    border-radius: 50%;
+    background: #3ad29f;
+    box-shadow: 0 0 0 0 rgba(58, 210, 159, 0.7);
+    animation: crowdaq-pulse 1.6s ease-out infinite;
+    margin: 0 0.3em;
+    vertical-align: middle;
+    transition: opacity 0.4s ease-in-out;
+}
+.crowdaq-possession-dot[hidden] { display: none !important; }
+@keyframes crowdaq-pulse {
+    0%   { box-shadow: 0 0 0 0   rgba(58, 210, 159, 0.7); }
+    70%  { box-shadow: 0 0 0 12px rgba(58, 210, 159, 0); }
+    100% { box-shadow: 0 0 0 0   rgba(58, 210, 159, 0); }
+}
+
+.crowdaq-row-clock {
+    font-size: 1em;
+    margin: 4px 0;
+    opacity: 0.85;
+    gap: 8px;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+}
+.crowdaq-clock { font-variant-numeric: tabular-nums; font-weight: 600; }
+.crowdaq-clock-period {
+    font-size: 0.75em;
+    opacity: 0.7;
+    border: 1px solid currentColor;
+    padding: 1px 6px;
+    border-radius: 4px;
 }
 .crowdaq-team {
     display: flex;
@@ -360,6 +418,26 @@ body {
     text-overflow: ellipsis;
 }
 .crowdaq-error-pill[hidden] { display: none !important; }
+
+/* RECONNECTING pill — appears when the heartbeat watchdog has fired
+ * (no SSE event of any kind in >30s). Distinct from `error-pill`
+ * which is driven by an explicit server `error` event. The two can
+ * be visible at once: a connection blip → reconnecting pill, plus a
+ * server-side error message → error pill below. */
+.crowdaq-reconnecting-pill {
+    background: rgba(245, 197, 66, 0.18);
+    color: #f5c542;
+    padding: 2px 8px;
+    border-radius: 999px;
+    font-weight: 600;
+    letter-spacing: 0.18em;
+    animation: crowdaq-pulse-fade 1.2s ease-in-out infinite;
+}
+.crowdaq-reconnecting-pill[hidden] { display: none !important; }
+@keyframes crowdaq-pulse-fade {
+    0%, 100% { opacity: 0.6; }
+    50%      { opacity: 1; }
+}
 
 .crowdaq-status-overlay {
     position: absolute;
@@ -552,6 +630,34 @@ body {
         show('[data-crowdaq-status-overlay]', !!label);
         setText('[data-crowdaq-status-overlay-text]', label || '');
     }
+    function showReconnectingPill(visible) {
+        show('[data-crowdaq-reconnecting-pill]', !!visible);
+    }
+
+    // --- Possession dot: highlight the team in current possession.
+    //     Runs on each `possession-change` event AND on score-update
+    //     payloads that include a `possession` field (the backend may
+    //     piggyback it on score frames to save a round-trip). ---
+    function setPossession(team) {
+        var dots = rootEl.querySelectorAll('[data-crowdaq-possession-dot]');
+        for (var i = 0; i < dots.length; i++) {
+            var dot = dots[i];
+            if (team && dot.getAttribute('data-team') === team) {
+                dot.removeAttribute('hidden');
+            } else {
+                dot.setAttribute('hidden', '');
+            }
+        }
+    }
+
+    // --- Match clock: minute + period label (1H/HT/2H/ET/PEN/FT). ---
+    function setClock(minute, period) {
+        if (minute != null) {
+            var minStr = (typeof minute === 'number') ? (minute + "'") : String(minute);
+            setText('[data-crowdaq-clock-minute]', minStr);
+        }
+        if (period) { setText('[data-crowdaq-clock-period]', String(period)); }
+    }
 
     // --- Team-logo handling with abbreviation fallback ---
     function setTeamLogo(selector, nameSelector, src, nameText, abbreviation) {
@@ -636,6 +742,24 @@ body {
         if (showLastMoment && lastMoment && typeof lastMoment.text === 'string') {
             setText('[data-crowdaq-moment-text]', truncate(lastMoment.text, maxMomentLength));
         }
+
+        // Clock: minute + period when the payload carries them.
+        // Backend-normalized SSE frames may also embed `elapsed`
+        // (minutes since kickoff) at the top level — fall back to it
+        // when no nested clock object is present.
+        var clock = payload.clock;
+        if (clock && typeof clock === 'object') {
+            setClock(clock.minute, clock.period);
+        } else if (payload.elapsed != null) {
+            setClock(payload.elapsed, null);
+        }
+
+        // Possession piggyback: backend may include `possession: 'home'|'away'|null`
+        // on score-update frames so the widget doesn't need a separate
+        // possession-change round-trip on first paint.
+        if (Object.prototype.hasOwnProperty.call(payload, 'possession')) {
+            setPossession(payload.possession);
+        }
     }
     function flash(selector) {
         var el = q(selector);
@@ -654,10 +778,29 @@ body {
         setText('[data-crowdaq-moment-text]', truncate(payload.description, maxMomentLength));
     }
 
-    // --- status handler: lifecycle state banner ---
+    // --- status handler: lifecycle state banner.
+    //     The backend may emit either {state: "..."} (contract shape)
+    //     or {status: "..."} (legacy shape from the recorder); accept
+    //     both for forward-compat. ---
     function onStatus(payload) {
-        if (!payload || typeof payload.state !== 'string') { return; }
-        var state = payload.state;
+        if (!payload || typeof payload !== 'object') { return; }
+        var state = (typeof payload.state === 'string')
+            ? payload.state
+            : (typeof payload.status === 'string' ? payload.status : null);
+        if (!state) { return; }
+
+        // `looping` is the replay-loop transition: the backend has
+        // played the recording to completion and is about to seek
+        // back to minute 0. The widget MUST flush its in-memory
+        // score / possession / clock state so the next frame paints
+        // a fresh match, not a stale FT scoreline. (Per docs/contract
+        // amendment v1.1.0: status enum gained `looping`.)
+        if (state === 'looping') {
+            resetMatchState();
+            showLifecycleBanner('looping');
+            return;
+        }
+
         var label = '';
         switch (state) {
             case 'pre_game':         label = 'pre-game'; break;
@@ -673,9 +816,33 @@ body {
         showLifecycleBanner(label);
     }
 
-    // --- heartbeat handler: reset stale indicator only ---
+    // --- possession-change handler: dot moves to the team that just
+    //     gained possession. Payload shape: {team: 'home'|'away'|null}. ---
+    function onPossessionChange(payload) {
+        if (!payload || typeof payload !== 'object') { return; }
+        var team = payload.team;
+        if (team === 'home' || team === 'away' || team === null) {
+            setPossession(team);
+        }
+    }
+
+    function resetMatchState() {
+        lastScore = { home: null, away: null };
+        setText('[data-crowdaq-team-a-score]', '0');
+        setText('[data-crowdaq-team-b-score]', '0');
+        setPossession(null);
+        setClock(0, null);
+        setText('[data-crowdaq-moment-text]', '');
+    }
+
+    // --- heartbeat handler: track last receipt for the RECONNECTING
+    //     pill watchdog (in addition to the resetStaleTimer() path
+    //     which is handled uniformly by the SSE dispatcher). ---
+    var lastEventAt = Date.now();
     function onHeartbeat() {
-        // Handled uniformly by resetStaleTimer() in the SSE dispatcher.
+        // resetStaleTimer() in the SSE dispatcher already runs.
+        // Track lastEventAt explicitly so the reconnecting watchdog
+        // can fire independently of the (longer) stale timer.
     }
 
     // --- error handler: show error pill + trigger reconnect ---
@@ -846,6 +1013,8 @@ body {
 
         function listen(name, handler) {
             source.addEventListener(name, function (msg) {
+                lastEventAt = Date.now();
+                showReconnectingPill(false);
                 resetStaleTimer();
                 setStatus('live', 'live');
                 showErrorPill('');
@@ -859,17 +1028,30 @@ body {
         }
 
         listen('score-update', onScoreUpdate);
+        listen('possession-change', onPossessionChange);
         listen('moment', onMoment);
         listen('status', onStatus);
         listen('heartbeat', onHeartbeat);
         listen('error', onStreamError);
     }
 
+    // --- RECONNECTING pill watchdog: if no SSE event of any kind has
+    //     arrived in 30s, surface a yellow "RECONNECTING…" pill. The
+    //     stale-timer path covers a longer 2*refreshInterval window;
+    //     this is the early-warning indicator the contract documents. ---
+    var reconnectWatchdog = setInterval(function () {
+        if (cleanedUp) { return; }
+        if (Date.now() - lastEventAt > 30000) {
+            showReconnectingPill(true);
+        }
+    }, 5000);
+
     // --- Cleanup on unload / widget replacement ---
     function cleanup() {
         cleanedUp = true;
         if (reconnectTimer) { clearTimeout(reconnectTimer); reconnectTimer = null; }
         if (staleTimer) { clearTimeout(staleTimer); staleTimer = null; }
+        if (reconnectWatchdog) { clearInterval(reconnectWatchdog); reconnectWatchdog = null; }
         closeSource();
     }
     if (typeof window !== 'undefined' && typeof window.addEventListener === 'function') {
@@ -892,9 +1074,15 @@ body {
             return;
         }
         // Build stream URL. eventId is optional; when empty the backend
-        // picks the best live event for the display.
+        // picks the best live event for the display. Phase-1 default is
+        // replay mode (no `live=true`) at speed=10 — a typical 90-min
+        // match condenses to ~9 min of bar-TV time, then the recording
+        // loops via the `status: 'looping'` transition the backend
+        // emits at end-of-file. See docs/contract/openapi.yaml.
         var streamEventId = eventId || 'default';
-        url = apiBaseUrl + '/events/' + encodeURIComponent(streamEventId) + '/stream';
+        url = apiBaseUrl
+            + '/events/' + encodeURIComponent(streamEventId) + '/stream'
+            + '?speed=10';
         openStream();
     }
 
