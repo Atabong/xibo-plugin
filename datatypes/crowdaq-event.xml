@@ -5,8 +5,20 @@
   ~ Licensed under AGPL-3.0-or-later. See the LICENSE file at the repo root.
   -->
 <!--
-  CROWDAQ event data type — referenced from modules/crowdaq-widget.xml
-  via the <dataType>crowdaq-event</dataType> element.
+  CROWDAQ event data type.
+
+  NOTE (client-side-only fix): modules/crowdaq-widget.xml no longer
+  references this datatype via a <dataType> element — the widget is
+  pure-client-side (EventSource opened from the player's Chromium
+  runtime), and registering a non-empty <dataType> would cause Xibo's
+  XMDS getData endpoint to attempt server-side data caching and 500
+  with "Cache not ready" because there is no PHP data provider. See
+  the architecture comment at the top of modules/crowdaq-widget.xml.
+
+  This file is retained as a machine-readable mirror of the SSE
+  score-update payload schema for documentation parity with
+  docs/contract/events/score-update.json. It is not loaded by the
+  Xibo CMS in the current widget configuration.
 
   Structure mirrors upstream xibo-cms 4.4.2 datatype definitions (see
   modules/datatypes/stock.xml, currency.xml). Xibo datatypes use a flat

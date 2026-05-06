@@ -137,17 +137,24 @@ are emitted on the single `/events/{eventId}/stream` endpoint:
 | `heartbeat` | [`heartbeat.json`](contract/events/heartbeat.json) | Keepalive ping; flips the status pill between `live` and `stale`. |
 | `error` | [`error.json`](contract/events/error.json) | Stream-level error; client should log + let EventSource retry. |
 
-The `score-update` shape is mirrored in two additional machine-readable
-places in this repo, both of which MUST stay 1:1 with
-`score-update.json`:
+The `score-update` shape is mirrored in one additional machine-readable
+place in this repo, which MUST stay 1:1 with `score-update.json`:
 
-- `datatypes/crowdaq-event.xml` — declared to Xibo's data-provider
-  registry and referenced by `modules/crowdaq-widget.xml` via
-  `<dataType>crowdaq-event</dataType>`. Field-by-field mapping is
-  documented in that file's header.
-- `modules/crowdaq-widget.xml` `<sampleData>` block — one canonical
-  sample event used by the CMS layout editor and by the stencil when no
-  live feed is yet connected.
+- `datatypes/crowdaq-event.xml` — documentation-parity mirror of the
+  payload schema. **Not loaded by the CMS** in the current widget
+  configuration: the widget manifest at `modules/crowdaq-widget.xml`
+  intentionally has an empty `<dataType>` element so the widget stays
+  pure-client-side (EventSource opened from the player's Chromium).
+  See "Client-side-only widget" below.
+
+  An earlier iter referenced this datatype from the widget via
+  `<dataType>crowdaq-event</dataType>` and shipped a `<sampleData>`
+  block, but that combination registered the widget as data-driven
+  and made Xibo's XMDS `getData` endpoint try to populate a
+  server-side cache. With no PHP `<class>` provider, `getData` 500s
+  with `Cache not ready`, which collapses the player's `getResource`
+  chain — the bar TV stays black. The fix in `fix/widget-client-side-only`
+  reverted both elements.
 
 ```json
 {
@@ -271,7 +278,7 @@ selects and mutates those elements directly.
 |    excitement,       |          eventId     ← property
 |    moment, status,   |          refreshInterval / flags / lengths
 |    error pill, stale |
-|    overlay)          |        Paint sampleData / cached items[0].
+|    overlay)          |        Stencil starts at "Waiting for feed…".
 +----------+----------+        Open EventSource(url).
            |
            v
@@ -344,9 +351,11 @@ manifest currently exposes these operator-visible widget-level properties:
    upgrade documented in `docs/contract/openapi.yaml`.
 3. **Multi-event streaming.** A single widget consumes one stream.
    Targeting multiple bars is a separate iter (multi-bar display tags).
-4. **Player preview / offline cache.** The `<sampleData>` block is
-   enough for the CMS layout editor preview; the Xibo Player itself
-   does not yet cache the last-known payload to disk between reboots.
+4. **Player preview / offline cache.** The CMS layout editor preview
+   shows the stencil placeholder ("Waiting for CROWDAQ feed…") since
+   the widget is client-side-only and ships no `<sampleData>`. The
+   Xibo Player itself does not yet cache the last-known payload to
+   disk between reboots.
 5. **Back-channel (widget → CROWDAQ).** Still phase-2. If the widget
    ever needs to emit viewer-side signals (display taps, analytics),
    that would reintroduce a PHP data provider under `src/`.
