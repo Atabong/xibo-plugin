@@ -10,76 +10,53 @@ via `kubectl --context nadwell-k3s -n xibo`.
 
 ## Table of contents
 
-- [Querying widget logs (CMS log table)](#querying-widget-logs-cms-log-table)
+- [Querying widget logs (CMS player_faults table)](#querying-widget-logs-cms-player_faults-table)
 - [Log event reference](#log-event-reference)
 - [Refreshing a deployed widget](#refreshing-a-deployed-widget)
 - [Player-side Chromium remote debugging](#player-side-chromium-remote-debugging)
 - [Known limitation: xibo-player CSP whitelist](#known-limitation-xibo-player-csp-whitelist)
 - [Known limitation: payload schema mismatch (backend vs widget)](#known-limitation-payload-schema-mismatch-backend-vs-widget)
 
-## Querying widget logs (CMS log table)
+## Querying widget logs (CMS player_faults table)
 
-The widget's `<onRender>` JS pipes structured events through
-`xiboIC.submitLog(...)` over XMDS. They land in the CMS database's `log`
-table with `channel = "xmds"` (or whichever channel XMDS uses on this
-deployment) and a `[crowdaq:<event>] <json>` message body.
-
-The bar-player snap is snap-confined Chromium with no remote DevTools
-exposed and a default sqlite log level of `error` only — these CMS-side
-log entries are therefore the canonical source of widget-runtime signal
-on a production bar.
+Errors propagate to CMS `player_faults` table via `xiboIC.reportFault`. Non-error events
+(info, warn) log to the player's local console-logs.db sqlite only (severity gated by
+the player's logLevel config) — they are **not** visible in CMS.
 
 ### One-shot query (last 30 entries)
+
+```sql
+SELECT incidentDt, displayId, code, reason
+FROM player_faults
+WHERE code LIKE 'crowdaq-%'
+ORDER BY playerFaultId DESC LIMIT 30;
+```
+
+Run against the CMS pod:
 
 ```bash
 POD=$(kubectl --context nadwell-k3s -n xibo get pod \
     -l app.kubernetes.io/name=xibo-cms \
     -o jsonpath='{.items[0].metadata.name}')
-MYSQL_POD=$(kubectl --context nadwell-k3s -n xibo get pod \
-    -l app=mysql \
-    -o jsonpath='{.items[0].metadata.name}')
 
-kubectl --context nadwell-k3s -n xibo exec "$MYSQL_POD" -- sh -c '
-mysql -u"$MYSQL_USER" -p"$MYSQL_PASSWORD" "$MYSQL_DATABASE" -e "
-    SELECT logDate, displayId, page, function, message
-    FROM log
-    WHERE message LIKE '\''%[crowdaq:%'\''
-    ORDER BY logId DESC
-    LIMIT 30
-"'
+kubectl --context nadwell-k3s -n xibo exec "$POD" -- bash -c \
+  'mysql -h mysql -u cms -p${MYSQL_PASSWORD} cms -e \
+  "\"SELECT incidentDt, displayId, code, reason FROM player_faults WHERE code LIKE 'crowdaq-%' ORDER BY playerFaultId DESC LIMIT 30\""'
 ```
 
-`displayId` lets you scope to a single bar when multiple displays log at
-once. `page` and `function` are XMDS metadata; the structured fields
-that matter live inside `message`.
-
-### Filter by event class
-
-```bash
-# Only errors
-... WHERE message LIKE '%[crowdaq:%' AND message LIKE '%[crowdaq:%' AND
-    message REGEXP '\\[crowdaq:(es-error|es-give-up|es-open-throw|es-parse-error|server-error-event|js-error|js-promise-reject|handler-throw|connect-no-api-base-url|connect-no-eventsource|init-no-root)'
-ORDER BY logId DESC LIMIT 30
-
-# Only EventSource lifecycle (open / error / give-up / events)
-... WHERE message REGEXP '\\[crowdaq:(es-opening|es-open|es-error|es-event|es-give-up|reconnect-attempt|stale-detected|watchdog-no-events)'
-ORDER BY logId DESC LIMIT 50
-```
+`displayId` lets you scope to a single bar. `code` is `crowdaq-<event>`, `reason` is
+the full `[crowdaq:<event>] {json}` message. Note: info/warn-level events are NOT
+visible here — only errors escalate via reportFault.
 
 ### Tail (re-run every few seconds)
 
-There is no native tail on the CMS `log` table; rerun the one-shot query
+There is no native tail on the CMS `player_faults` table; rerun the one-shot query
 or use `watch` on the bastion:
 
 ```bash
-watch -n 5 'kubectl --context nadwell-k3s -n xibo exec "$MYSQL_POD" -- sh -c "
-mysql -u\"\$MYSQL_USER\" -p\"\$MYSQL_PASSWORD\" \"\$MYSQL_DATABASE\" -e \"
-    SELECT logDate, displayId, message
-    FROM log
-    WHERE message LIKE '%[crowdaq:%'
-    ORDER BY logId DESC
-    LIMIT 10
-\""'
+watch -n 5 kubectl --context nadwell-k3s -n xibo exec "$POD" -- bash -c \
+  'mysql -h mysql -u cms -p${MYSQL_PASSWORD} cms -e \
+  "\"SELECT incidentDt, displayId, code, reason FROM player_faults WHERE code LIKE 'crowdaq-%' ORDER BY playerFaultId DESC LIMIT 10\""'
 ```
 
 ## Log event reference
@@ -189,11 +166,10 @@ default, expose `--remote-debugging-port`. Investigation status:
   `fix(bar-player): drop snap-confine cap-stripping knobs`).
 - The supported path forward is to either (a) build a private xibo-player
   snap with the debug arg patched in, or (b) run the unconfined dev build
-  on a debug bar VM. Neither is in scope while the CMS-side `log` table
   pipeline serves as the production observability surface.
 
-For this reason the widget's `xiboIC.submitLog` pipeline (this doc's
-[Querying widget logs](#querying-widget-logs-cms-log-table) section) is
+For this reason the widget's `xiboIC.reportFault` pipeline (this doc's
+[Querying widget logs](#querying-widget-logs-cms-player_faults-table) section) is
 the supported observability path on production bars. DevTools-level
 inspection is reserved for the dev VM build.
 
