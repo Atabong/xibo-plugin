@@ -94,13 +94,34 @@ Flux-managed. It is reachable over the tailnet from:
 HTTP-native, reconnect-friendly, no WebSocket upgrade required, passes
 through Traefik and the tailnet without special handling.
 
-### Auth / display resolution
+### Auth / event addressing
 
-The widget calls `GET /stream?display_id=<xibo_display_id>`. The backend
-resolves `display_id -> bar slug` via the Xibo CMS API and streams that
-bar's events. Network access is gated by the Tailscale ACL
-(`tag:bar-player -> tag:crowdaq-api`). No shared secret in phase 1;
-signed JWT is an optional phase-2 upgrade.
+Phase-1 widgets are pinned to a specific event via the `eventId`
+property on the widget itself; the backend does not need a `display_id
+-> bar slug` resolver. The widget opens
+`GET /events/<eventId>/stream?speed=<N>` directly.
+
+Network access is gated **solely** by the Tailscale ACL:
+`tag:bar-player -> tag:crowdaq-backend:443`. There is no shared secret,
+no JWT, no API key in Phase-1. The endpoint accepts any caller on the
+tailnet whose source tag is permitted by the ACL.
+
+JWT bearer auth remains an optional Phase-2 upgrade and is documented
+in `docs/contract/openapi.yaml` for forward compatibility — clients can
+ignore it today.
+
+### Replay vs. live (loop replay)
+
+A single endpoint serves both modes:
+
+- **Recording in flight** — server subscribes to the in-process events
+  bus and pushes events as the ingest activity emits them
+  (`?live=true`).
+- **Match completed** — server reads the JSONL recording from the
+  capture PVC and re-emits events at `?speed=N` real-time multiplier
+  (default `10`). On reaching the end of the recording the server
+  emits `event: status` with `state: "looping"`, seeks back to the
+  start, and continues; replay streams never deliberately close.
 
 ### Event schema (per SSE event)
 
@@ -198,8 +219,11 @@ only (phase 1 has no scrollback / history).
      - `moment` → replace the last-moment text line with the new
        `description` (truncated by `maxMomentLength`).
      - `status` → toggle a lifecycle banner overlay (pre-game,
-       halftime, extra time, penalties, final, cancelled, postponed).
-       The banner hides when `state === 'live'`.
+       halftime, extra time, penalties, final, cancelled, postponed,
+       looping). The banner hides when `state === 'live'`. On
+       `state === 'looping'` the widget MUST reset its in-memory score
+       / possession / clock state before the next `score-update`
+       arrives, since the recording is about to replay from minute 0.
      - `heartbeat` → reset the stale timer only.
      - `error` → display a small red error pill with the code/message
        and trigger a bounded reconnect.

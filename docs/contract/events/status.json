@@ -31,9 +31,10 @@
         "penalty_shootout",
         "final",
         "cancelled",
-        "postponed"
+        "postponed",
+        "looping"
       ],
-      "description": "New lifecycle state of the event."
+      "description": "New lifecycle state of the event. `looping` is emitted by replay streams when a recorded match has played to completion and the backend is about to seek back to the start (see `replay loop` in openapi.yaml)."
     },
     "previous_state": {
       "type": "string",
@@ -45,7 +46,8 @@
         "penalty_shootout",
         "final",
         "cancelled",
-        "postponed"
+        "postponed",
+        "looping"
       ],
       "description": "Optional previous state, for debuggability."
     },
