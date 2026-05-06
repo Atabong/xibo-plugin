@@ -199,6 +199,10 @@
         <span class="crowdaq-status-overlay-text" data-crowdaq-status-overlay-text></span>
     </div>
 
+    <div class="crowdaq-goal-toast" data-crowdaq-goal-toast hidden>
+        <span class="crowdaq-goal-toast-text" data-crowdaq-goal-toast-text></span>
+    </div>
+
     <div class="crowdaq-row crowdaq-row-score" data-crowdaq-score-row>
         <div class="crowdaq-team crowdaq-team-home" data-crowdaq-team="home">
             <img class="crowdaq-team-logo" data-crowdaq-team-a-logo src="" alt="" {% if not showTeamLogos %}hidden{% endif %} />
@@ -496,6 +500,97 @@ body {
 }
 .crowdaq-stale-overlay[hidden] { display: none !important; }
 .crowdaq-widget.crowdaq-stale .crowdaq-stale-overlay { display: flex; }
+
+/* Score-change flash — already declared above as `.crowdaq-delta-flash`,
+ * augmented here with a stronger glow + scale curve so the change is
+ * unmistakable on a bar TV viewed across the room. The base
+ * .crowdaq-score transition (color + transform) is retained; this
+ * adds a keyframe animation on top so the flash has a distinct
+ * grow-then-relax beat instead of an instantaneous toggle. */
+@keyframes crowdaq-score-flash-kf {
+    0%   { transform: scale(1.0); text-shadow: 0 0 0    rgba(58, 210, 159, 0.0); }
+    35%  { transform: scale(1.25); text-shadow: 0 0 24px rgba(58, 210, 159, 0.85); }
+    70%  { transform: scale(1.10); text-shadow: 0 0 12px rgba(58, 210, 159, 0.50); }
+    100% { transform: scale(1.0); text-shadow: 0 0 0    rgba(58, 210, 159, 0.0); }
+}
+.crowdaq-score.crowdaq-delta-flash {
+    color: #3ad29f;
+    animation: crowdaq-score-flash-kf 0.7s ease-out;
+}
+
+/* Goal toast — slides in from above, holds, slides out. Stacked on
+ * top of the lifecycle banner (z-index higher) so a goal landing in
+ * the middle of "halftime" doesn't get hidden. Pure CSS animation
+ * keyed off a class toggle from JS — no Framer Motion or other deps
+ * are present in the player runtime, and we deliberately keep it that
+ * way (Xibo player Chromium is snap-confined / no node_modules). */
+.crowdaq-goal-toast {
+    position: absolute;
+    top: 0; left: 0; right: 0;
+    background: linear-gradient(90deg, rgba(58, 210, 159, 0.92), rgba(58, 210, 159, 0.72));
+    color: #07120c;
+    text-align: center;
+    padding: 10px 12px;
+    font-size: 1em;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.18em;
+    z-index: 4;
+    transform: translateY(-100%);
+    transition: transform 0.35s ease-out;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.35);
+    pointer-events: none;
+}
+.crowdaq-goal-toast[hidden] { display: none !important; }
+.crowdaq-goal-toast.crowdaq-goal-toast-visible { transform: translateY(0); }
+.crowdaq-theme-light .crowdaq-goal-toast {
+    color: #07120c;
+}
+.crowdaq-goal-toast-text {
+    display: inline-block;
+    max-width: 92%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    vertical-align: middle;
+}
+
+/* Lifecycle status overlay enter/exit. The banner remains for the
+ * status the backend sets (no auto-hide for sustained states like
+ * "halftime"); transient transitions ("MATCH STARTED", "FULL TIME",
+ * "REPLAY LOOPING") set the `crowdaq-status-overlay-toast` class
+ * which adds a 3s fade-out via JS-driven removal. */
+.crowdaq-status-overlay {
+    transition: opacity 0.3s ease-in-out;
+    opacity: 1;
+}
+.crowdaq-status-overlay.crowdaq-status-overlay-fading { opacity: 0; }
+
+/* LIVE pill heartbeat pulse — when a `heartbeat` event lands, JS
+ * adds .crowdaq-status-pulse for 600ms so the operator sees the pill
+ * react. The base `.crowdaq-status[data-state="live"]` rule already
+ * sets the green color; this keyframe just briefly bumps brightness. */
+@keyframes crowdaq-status-pulse-kf {
+    0%   { filter: brightness(1.0); transform: scale(1.0); }
+    50%  { filter: brightness(1.6); transform: scale(1.08); }
+    100% { filter: brightness(1.0); transform: scale(1.0); }
+}
+.crowdaq-status.crowdaq-status-pulse {
+    animation: crowdaq-status-pulse-kf 0.6s ease-out;
+}
+
+/* Clock — when JS interpolates between server events, a subtle
+ * tick animation makes the second-by-second update visible. The
+ * minute display still updates in whole minutes (per contract); this
+ * keeps the digit weight readable while making it clear the clock
+ * is alive. */
+.crowdaq-clock { transition: opacity 0.18s ease-in-out; }
+.crowdaq-widget[data-crowdaq-clock-running="1"] .crowdaq-clock {
+    opacity: 1;
+}
+.crowdaq-widget[data-crowdaq-clock-running="0"] .crowdaq-clock {
+    opacity: 0.6;
+}
         ]]></style>
     </stencil>
 
@@ -629,6 +724,13 @@ body {
     var maxMomentLength = parseInt(props.maxMomentLength, 10);
     if (isNaN(maxMomentLength) || maxMomentLength <= 0) { maxMomentLength = 80; }
 
+    // Replay speed multiplier passed to the backend SSE endpoint.
+    // Clock interpolation between server events scales wall-clock time
+    // by this factor so the on-screen minute display ticks at the same
+    // rate the recording is being replayed at. Kept in sync with the
+    // value baked into connect()'s URL builder below.
+    var SPEED_MULTIPLIER = 10;
+
     // Resolve the API base URL: explicit property first, then the
     // bar-player bootstrap global. Per-widget settings win so an
     // operator can point a single bar at a different backend.
@@ -712,9 +814,32 @@ body {
         else { rootEl.classList.remove('crowdaq-stale'); }
         show('[data-crowdaq-stale-overlay]', isStale);
     }
-    function showLifecycleBanner(label) {
+    // showLifecycleBanner: shows a banner with the given label.
+    // When `transient` is truthy the banner auto-fades out after 3s
+    // (used for "MATCH STARTED", "FULL TIME", "REPLAY LOOPING" etc).
+    // For sustained states ("halftime", "pre-game") the banner stays
+    // until the next status-change clears it.
+    var lifecycleBannerTimer = null;
+    function showLifecycleBanner(label, transient) {
+        var el = q('[data-crowdaq-status-overlay]');
+        if (!el) { return; }
+        if (lifecycleBannerTimer) {
+            clearTimeout(lifecycleBannerTimer);
+            lifecycleBannerTimer = null;
+        }
+        el.classList.remove('crowdaq-status-overlay-fading');
         show('[data-crowdaq-status-overlay]', !!label);
         setText('[data-crowdaq-status-overlay-text]', label || '');
+        if (label && transient) {
+            lifecycleBannerTimer = setTimeout(function () {
+                el.classList.add('crowdaq-status-overlay-fading');
+                lifecycleBannerTimer = setTimeout(function () {
+                    el.classList.remove('crowdaq-status-overlay-fading');
+                    el.setAttribute('hidden', '');
+                    setText('[data-crowdaq-status-overlay-text]', '');
+                }, 320);
+            }, 3000);
+        }
     }
     function showReconnectingPill(visible) {
         show('[data-crowdaq-reconnecting-pill]', !!visible);
@@ -745,6 +870,52 @@ body {
         if (period) { setText('[data-crowdaq-clock-period]', String(period)); }
     }
 
+    // --- Local clock interpolation.
+    //     The backend only emits `clock.minute` on score-update +
+    //     status events, not on a steady cadence. Between events the
+    //     on-screen clock would freeze, which reads as "feed dead" to
+    //     a bar regular. To fix the dead-clock UX without changing
+    //     the contract, the widget extrapolates the minute locally:
+    //     every 250ms it computes `(now - baselineWallMs) *
+    //     SPEED_MULTIPLIER + baselineMinute` (in minutes) and paints
+    //     it. When the next server event lands, captureClockBaseline()
+    //     resets the baseline so the local extrapolation stays anchored
+    //     to the server's authoritative timestamp.
+    //
+    //     We only run interpolation while the clock is in a state
+    //     that makes sense to advance (live / extra time / penalty).
+    //     During halftime / pre-game / FT we hold the baseline. ---
+    var clockBaselineWallMs = null;     // wall-clock ms when last server clock arrived
+    var clockBaselineMinute = null;     // minute value at that baseline
+    var clockRunning = false;           // gates interpolation
+    var clockTickTimer = null;
+
+    function captureClockBaseline(minute, _period) {
+        if (typeof minute !== 'number' || isNaN(minute)) {
+            // Period-only update with no minute: keep prior baseline.
+            return;
+        }
+        clockBaselineWallMs = Date.now();
+        clockBaselineMinute = minute;
+    }
+    function setClockRunning(running) {
+        clockRunning = !!running;
+        if (rootEl) {
+            rootEl.setAttribute('data-crowdaq-clock-running', running ? '1' : '0');
+        }
+    }
+    function tickClock() {
+        if (!clockRunning) { return; }
+        if (clockBaselineWallMs == null || clockBaselineMinute == null) { return; }
+        var elapsedWallMs = Date.now() - clockBaselineWallMs;
+        var elapsedMatchMin = (elapsedWallMs / 60000) * SPEED_MULTIPLIER;
+        var displayMin = Math.floor(clockBaselineMinute + elapsedMatchMin);
+        if (displayMin < 0) { displayMin = 0; }
+        // Cap at 130' so a stuck baseline doesn't show 999' nonsense.
+        if (displayMin > 130) { displayMin = 130; }
+        setText('[data-crowdaq-clock-minute]', displayMin + "'");
+    }
+
     // --- Team-logo handling with abbreviation fallback ---
     function setTeamLogo(selector, nameSelector, src, nameText, abbreviation) {
         var img = q(selector);
@@ -767,7 +938,14 @@ body {
     }
 
     // --- score-update handler: full snapshot -> DOM ---
-    var lastScore = { home: null, away: null };
+    // lastScore is initialised to 0 (not null) so the first SSE frame
+    // that arrives with a non-zero score (replay restart, late-join)
+    // still flashes the changed digit. The previous null-guard was
+    // suppressing the very first goal flash and was the root cause of
+    // the operator-reported "silent updates" UX gap. Repeated equal
+    // scores (clock-only frames) do nothing.
+    var lastScore = { home: 0, away: 0 };
+    var lastMomentText = null;
     function onScoreUpdate(payload) {
         if (!payload || typeof payload !== 'object') { return; }
         var teams = payload.teams || {};
@@ -793,15 +971,16 @@ body {
             awayTeam.abbreviation
         );
 
-        // deltaSinceLast flash for score changes.
+        // deltaSinceLast flash on ANY change (up or back to 0 on
+        // looping replay reset). lastScore is seeded at 0,0 so the
+        // first non-zero frame flashes too.
         var newHome = (score.home != null) ? score.home : 0;
         var newAway = (score.away != null) ? score.away : 0;
-        if (lastScore.home !== null && newHome > lastScore.home) {
-            flash('[data-crowdaq-team-a-score]');
-        }
-        if (lastScore.away !== null && newAway > lastScore.away) {
-            flash('[data-crowdaq-team-b-score]');
-        }
+        var homeChanged = newHome !== lastScore.home;
+        var awayChanged = newAway !== lastScore.away;
+        var anyScoreChange = homeChanged || awayChanged;
+        if (homeChanged) { flash('[data-crowdaq-team-a-score]'); }
+        if (awayChanged) { flash('[data-crowdaq-team-b-score]'); }
         lastScore.home = newHome;
         lastScore.away = newAway;
         setText('[data-crowdaq-team-a-score]', newHome);
@@ -825,9 +1004,23 @@ body {
         }
 
         // Last moment row — score-update carries the current summary.
-        if (showLastMoment && lastMoment && typeof lastMoment.text === 'string') {
-            setText('[data-crowdaq-moment-text]', truncate(lastMoment.text, maxMomentLength));
+        var newMomentText = (lastMoment && typeof lastMoment.text === 'string')
+            ? lastMoment.text
+            : null;
+        if (showLastMoment && newMomentText !== null) {
+            setText('[data-crowdaq-moment-text]', truncate(newMomentText, maxMomentLength));
         }
+
+        // Goal-toast: a score change WITH a populated last_moment
+        // (or a fresh moment text) is treated as a notable goal
+        // event. Surfaces a 5s slide-in banner so the bar regulars
+        // notice the moment a goal lands. We deliberately don't
+        // toast on stand-alone `moment` events (handled separately
+        // via onMoment) to avoid double-banners.
+        if (anyScoreChange && newMomentText && newMomentText !== lastMomentText) {
+            showGoalToast(newMomentText);
+        }
+        if (newMomentText !== null) { lastMomentText = newMomentText; }
 
         // Clock: minute + period when the payload carries them.
         // Backend-normalized SSE frames may also embed `elapsed`
@@ -836,8 +1029,10 @@ body {
         var clock = payload.clock;
         if (clock && typeof clock === 'object') {
             setClock(clock.minute, clock.period);
+            captureClockBaseline(clock.minute, clock.period);
         } else if (payload.elapsed != null) {
             setClock(payload.elapsed, null);
+            captureClockBaseline(payload.elapsed, null);
         }
 
         // Possession piggyback: backend may include `possession: 'home'|'away'|null`
@@ -850,10 +1045,42 @@ body {
     function flash(selector) {
         var el = q(selector);
         if (!el) { return; }
+        // Force restart of the keyframe animation: removing then
+        // re-adding the class in the same tick is debounced by the
+        // browser to a no-op, so we toggle via a forced reflow.
+        el.classList.remove('crowdaq-delta-flash');
+        // eslint-disable-next-line no-unused-expressions
+        void el.offsetWidth;
         el.classList.add('crowdaq-delta-flash');
         setTimeout(function () {
             if (el && el.classList) { el.classList.remove('crowdaq-delta-flash'); }
-        }, 600);
+        }, 700);
+    }
+
+    // --- Goal toast: slide-down banner with the last_moment text.
+    //     Auto-clears after 5s. If a second goal lands during the
+    //     5s window, the timer is reset and the new text overwrites
+    //     the banner — operator never sees a stale goal blurb on
+    //     the strip. ---
+    var goalToastTimer = null;
+    function showGoalToast(text) {
+        var el = q('[data-crowdaq-goal-toast]');
+        var textEl = q('[data-crowdaq-goal-toast-text]');
+        if (!el || !textEl) { return; }
+        textEl.textContent = truncate(String(text || ''), maxMomentLength);
+        el.removeAttribute('hidden');
+        // Force reflow before adding the visible class so the slide-in
+        // transition runs even when the toast was already hidden.
+        // eslint-disable-next-line no-unused-expressions
+        void el.offsetWidth;
+        el.classList.add('crowdaq-goal-toast-visible');
+        if (goalToastTimer) { clearTimeout(goalToastTimer); }
+        goalToastTimer = setTimeout(function () {
+            el.classList.remove('crowdaq-goal-toast-visible');
+            // After the 0.35s slide-out transition, hide so it
+            // doesn't intercept any future click interactions.
+            setTimeout(function () { el.setAttribute('hidden', ''); }, 400);
+        }, 5000);
     }
 
     // --- moment handler: standalone notable-moment text line ---
@@ -867,13 +1094,38 @@ body {
     // --- status handler: lifecycle state banner.
     //     The backend may emit either {state: "..."} (contract shape)
     //     or {status: "..."} (legacy shape from the recorder); accept
-    //     both for forward-compat. ---
+    //     both for forward-compat.
+    //
+    //     Transition banners (transient: 3s auto-fade) vs sustained
+    //     banners (held until next status):
+    //       - transient: live (kickoff), final, looping
+    //       - sustained: halftime, extra time, penalties, pre-game
+    //
+    //     Also gates clock interpolation: the local clock only
+    //     extrapolates while the match is in a running state. ---
+    var lastSeenStatus = null;
     function onStatus(payload) {
         if (!payload || typeof payload !== 'object') { return; }
         var state = (typeof payload.state === 'string')
             ? payload.state
             : (typeof payload.status === 'string' ? payload.status : null);
         if (!state) { return; }
+
+        var prev = lastSeenStatus;
+        lastSeenStatus = state;
+
+        // Capture an initial clock baseline if the status payload
+        // carries one (the recorder embeds {clock: {minute, period}}
+        // on transitions). Without this the local interpolator can
+        // sit at minute=null until the first score-update lands —
+        // which on a 0-0 quiet match would leave the clock blank
+        // for minutes.
+        if (payload && payload.clock && typeof payload.clock === 'object') {
+            captureClockBaseline(payload.clock.minute, payload.clock.period);
+            if (typeof payload.clock.minute === 'number') {
+                setClock(payload.clock.minute, payload.clock.period);
+            }
+        }
 
         // `looping` is the replay-loop transition: the backend has
         // played the recording to completion and is about to seek
@@ -883,23 +1135,43 @@ body {
         // amendment v1.1.0: status enum gained `looping`.)
         if (state === 'looping') {
             resetMatchState();
-            showLifecycleBanner('looping');
+            setClockRunning(false);
+            showLifecycleBanner('REPLAY LOOPING', true);
             return;
         }
 
+        // Drive clock-running gate by the new state.
+        var isRunning = (state === 'live' || state === 'extra_time' || state === 'penalty_shootout');
+        setClockRunning(isRunning);
+
         var label = '';
+        var transient = false;
         switch (state) {
-            case 'pre_game':         label = 'pre-game'; break;
-            case 'halftime':         label = 'halftime'; break;
-            case 'extra_time':       label = 'extra time'; break;
-            case 'penalty_shootout': label = 'penalties'; break;
-            case 'final':            label = 'final'; break;
-            case 'cancelled':        label = 'cancelled'; break;
-            case 'postponed':        label = 'postponed'; break;
-            case 'live':             label = ''; break;  // no banner when live
+            case 'pre_game':         label = 'PRE-GAME'; break;
+            case 'halftime':         label = 'HALFTIME'; break;
+            case 'extra_time':       label = 'EXTRA TIME'; transient = (prev !== 'extra_time'); break;
+            case 'penalty_shootout': label = 'PENALTIES'; transient = (prev !== 'penalty_shootout'); break;
+            case 'final':            label = 'FULL TIME'; transient = true; break;
+            case 'cancelled':        label = 'CANCELLED'; break;
+            case 'postponed':        label = 'POSTPONED'; break;
+            case 'live':
+                // Show "MATCH STARTED" toast on the kickoff
+                // transition (pre_game -> live or first observed
+                // live state). On every subsequent live status
+                // (e.g. resume from halftime) we surface a brief
+                // "LIVE" toast so the operator gets a visible
+                // confirmation that play has resumed.
+                if (prev === null || prev === 'pre_game') {
+                    label = 'MATCH STARTED'; transient = true;
+                } else if (prev !== 'live') {
+                    label = 'LIVE'; transient = true;
+                } else {
+                    label = '';
+                }
+                break;
             default:                 label = state;
         }
-        showLifecycleBanner(label);
+        showLifecycleBanner(label, transient);
     }
 
     // --- possession-change handler: dot moves to the team that just
@@ -913,22 +1185,40 @@ body {
     }
 
     function resetMatchState() {
-        lastScore = { home: null, away: null };
+        lastScore = { home: 0, away: 0 };
+        lastMomentText = null;
         setText('[data-crowdaq-team-a-score]', '0');
         setText('[data-crowdaq-team-b-score]', '0');
         setPossession(null);
         setClock(0, null);
         setText('[data-crowdaq-moment-text]', '');
+        clockBaselineWallMs = Date.now();
+        clockBaselineMinute = 0;
     }
 
     // --- heartbeat handler: track last receipt for the RECONNECTING
     //     pill watchdog (in addition to the resetStaleTimer() path
-    //     which is handled uniformly by the SSE dispatcher). ---
+    //     which is handled uniformly by the SSE dispatcher), and
+    //     pulse the LIVE pill so the operator gets a visible
+    //     "still alive" tick every ~15s. ---
     var lastEventAt = Date.now();
     function onHeartbeat() {
         // resetStaleTimer() in the SSE dispatcher already runs.
         // Track lastEventAt explicitly so the reconnecting watchdog
         // can fire independently of the (longer) stale timer.
+        var pillEl = q('[data-crowdaq-status]');
+        if (pillEl) {
+            pillEl.classList.remove('crowdaq-status-pulse');
+            // Force reflow to restart the keyframe animation.
+            // eslint-disable-next-line no-unused-expressions
+            void pillEl.offsetWidth;
+            pillEl.classList.add('crowdaq-status-pulse');
+            setTimeout(function () {
+                if (pillEl && pillEl.classList) {
+                    pillEl.classList.remove('crowdaq-status-pulse');
+                }
+            }, 650);
+        }
     }
 
     // --- error handler: show error pill + trigger reconnect ---
@@ -1205,6 +1495,16 @@ body {
         listen('error', onStreamError);
     }
 
+    // --- Clock interpolation tick: 250ms cadence smooth-updates the
+    //     on-screen minute display between server clock samples. The
+    //     setClockRunning() gate (driven by status events) controls
+    //     whether this writes to the DOM each tick. ---
+    clockTickTimer = setInterval(function () {
+        if (cleanedUp) { return; }
+        try { tickClock(); }
+        catch (e) { /* swallow */ }
+    }, 250);
+
     // --- RECONNECTING pill watchdog: if no SSE event of any kind has
     //     arrived in 30s, surface a yellow "RECONNECTING…" pill. The
     //     stale-timer path covers a longer 2*refreshInterval window;
@@ -1235,6 +1535,9 @@ body {
         if (reconnectTimer) { clearTimeout(reconnectTimer); reconnectTimer = null; }
         if (staleTimer) { clearTimeout(staleTimer); staleTimer = null; }
         if (reconnectWatchdog) { clearInterval(reconnectWatchdog); reconnectWatchdog = null; }
+        if (clockTickTimer) { clearInterval(clockTickTimer); clockTickTimer = null; }
+        if (lifecycleBannerTimer) { clearTimeout(lifecycleBannerTimer); lifecycleBannerTimer = null; }
+        if (goalToastTimer) { clearTimeout(goalToastTimer); goalToastTimer = null; }
         closeSource();
     }
     if (typeof window !== 'undefined' && typeof window.addEventListener === 'function') {
@@ -1270,7 +1573,7 @@ body {
         var streamEventId = eventId || 'default';
         url = apiBaseUrl
             + '/events/' + encodeURIComponent(streamEventId) + '/stream'
-            + '?speed=10';
+            + '?speed=' + SPEED_MULTIPLIER;
         crowdaqLog('info', 'connect', { url: url, streamEventId: streamEventId });
         openStream();
     }
