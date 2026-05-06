@@ -693,38 +693,135 @@ body {
     // ------------------------------------------------------------------
     // Structured logging helper.
     //
-    // Always writes to browser console (snap captures errors in
-    // console-logs.db, gated by the player's logLevel config).
+    // Path picked: POST to the CROWDAQ backend's /log endpoint.
     //
-    // Errors ONLY escalate to CMS via xiboIC.reportFault -- they land in
-    // the player_faults table (playerFaultId, displayId, incidentDt,
-    // code, reason). Non-error levels are console-only; they are NOT
-    // visible in CMS. See docs/OPERATIONS.md for the query.
+    // Why not xiboIC.reportFault / xiboIC.submitLog?
     //
-    // reportFault is available in xibo-player snap rev 248+.
-    // xiboIC.submitLog does not exist in rev 248 and is not used.
+    //   We audited the xibo-player snap at rev 248 (the published
+    //   binary on bar-demo). Two findings:
+    //
+    //     1. xiboIC.reportFault POSTs to a relative `/fault` route. The
+    //        player has no HTTP server registered for /fault and no
+    //        fault aggregation table on disk. The request 404s into
+    //        the void.
+    //     2. The player's `Xmds.reportFaults()` method is a literal
+    //        empty stub: it logs "Reporting Faults to CMS" and returns.
+    //        No SOAP call is made. The CMS-side player_faults table
+    //        therefore stays at 0 rows regardless of how many faults
+    //        the widget emits.
+    //     3. xiboIC.submitLog does not exist on this snap rev. (The
+    //        previous iteration of this widget used `submitLog` and
+    //        was reverted in #15.)
+    //
+    //   Console.log/error from the renderer also doesn't reach the
+    //   player's console-logs.db: only the player's *main* process
+    //   feeds that DB. The widget runs in a Chromium webview whose
+    //   console is detached.
+    //
+    //   Net: the only working path to surface widget logs to a human
+    //   operator is to POST them to a backend we control. The
+    //   crowdaq-backend's read-side server adds a `POST /log`
+    //   endpoint (component=widget) that re-emits each entry to
+    //   worker stdout in the same JSON-line shape as activities and
+    //   workflows. Operator queries via:
+    //
+    //     kubectl logs -n crowdaq-app deploy/crowdaq-worker \
+    //         | grep '"component":"widget"'
+    //
+    // We retain console.log/error/warn as a best-effort secondary
+    // sink — for ad-hoc DevTools sessions on a developer workstation
+    // and for the unusual case where the widget is rendered outside a
+    // tailnet-reachable backend. Backend POST is the source of truth.
     // ------------------------------------------------------------------
+
+    // Resolved tailnet API base. Populated by applyResolution() before
+    // the SSE stream opens. We keep a separate var here so logs that
+    // fire BEFORE resolveProperties() finishes (e.g. the very first
+    // 'init' line) don't drop on the floor — those land in the buffer
+    // below and replay once apiBaseUrl is known.
+    var logEndpointBase = '';
+    // Display info captured from xiboIC.info() so each log line is
+    // attributable to a specific bar without an operator-side join.
+    var logDisplayInfo = {};
+    // Pre-resolution buffer: tightly bounded so a misconfigured widget
+    // (no apiBaseUrl) doesn't accumulate logs forever. Drops the
+    // oldest entries first.
+    var logBuffer = [];
+    var LOG_BUFFER_MAX = 50;
+
+    function flushLogBuffer() {
+        if (!logEndpointBase) { return; }
+        // Snapshot + clear so a fetch that lands during flush doesn't
+        // re-process the same entries.
+        var pending = logBuffer.splice(0, logBuffer.length);
+        for (var i = 0; i < pending.length; i++) {
+            postLogToBackend(pending[i]);
+        }
+    }
+
+    function postLogToBackend(entry) {
+        if (!logEndpointBase || typeof fetch !== 'function') { return; }
+        try {
+            // keepalive: true so a log fired during pagehide / beforeunload
+            // (cleanup path, layout swap) still leaves the browser. Body
+            // is plain JSON — the backend coerces unknown / oversized
+            // fields server-side.
+            fetch(logEndpointBase + '/log', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(entry),
+                keepalive: true,
+                // Don't propagate cookies or credentials — the backend
+                // does not consume them; tailnet ACL is the auth
+                // boundary, browser-side credentials are noise.
+                credentials: 'omit',
+                // Best-effort: silently drop network errors.
+                mode: 'cors'
+            }).catch(function () { /* swallow */ });
+        } catch (e) { /* swallow */ }
+    }
+
     function crowdaqLog(level, event, data) {
+        var safeLevel = (level === 'debug' || level === 'info' || level === 'warn' || level === 'error')
+            ? level : 'info';
         var payload;
         try { payload = JSON.stringify(data || {}); }
         catch (e) { payload = '{"_unserializable":true}'; }
         var msg = '[crowdaq:' + event + '] ' + payload;
-        // Always log to console (captured in snap's console-logs.db when logLevel >= severity)
+        // Always log to console (still useful in DevTools / fallback
+        // dev runs; ignored in production where the snap's renderer
+        // console is detached from the player main DB).
         try {
             // eslint-disable-next-line no-console
-            if (level === 'error') { console.error(msg); }
+            if (safeLevel === 'error') { console.error(msg); }
             // eslint-disable-next-line no-console
-            else if (level === 'warn') { console.warn(msg); }
+            else if (safeLevel === 'warn') { console.warn(msg); }
             // eslint-disable-next-line no-console
             else { console.log(msg); }
         } catch (e) { /* console may be missing in very old runtimes */ }
-        // Errors (and only errors) escalate to CMS via reportFault -> player_faults table
-        if (level === 'error' && typeof xiboIC !== 'undefined' && xiboIC &&
-                typeof xiboIC.reportFault === 'function') {
-            try {
-                var code = 'crowdaq-' + event;
-                xiboIC.reportFault({ code: code, reason: msg }, { targetId: id });
-            } catch (e) { /* swallow -- never let logging take down the widget */ }
+        // Build the structured entry. Truncate / sanitize the data
+        // payload so a runaway stack or huge object doesn't explode
+        // the log line. The backend re-truncates server-side; we trim
+        // here to keep the network payload bounded.
+        var entry = {
+            level: safeLevel,
+            event: String(event || 'unknown').slice(0, 200),
+            data: (data && typeof data === 'object') ? data : null,
+            display: logDisplayInfo,
+            clientTs: (typeof performance !== 'undefined' && performance && typeof performance.now === 'function')
+                ? performance.now()
+                : null
+        };
+        if (logEndpointBase) {
+            postLogToBackend(entry);
+        } else {
+            // Pre-resolution: buffer so the operator still sees init/
+            // resolved/connect lines that fire before we've worked out
+            // the backend URL. Bounded ring buffer.
+            logBuffer.push(entry);
+            if (logBuffer.length > LOG_BUFFER_MAX) {
+                logBuffer.splice(0, logBuffer.length - LOG_BUFFER_MAX);
+            }
         }
     }
 
@@ -1590,6 +1687,27 @@ body {
 
         apiBaseUrl = resolvedApi;
         eventId = resolvedEvent;
+
+        // Activate the backend log path. Until this is set, crowdaqLog
+        // entries are buffered (pre-resolution init/resolve lines) so
+        // the operator still sees the early lifecycle even though the
+        // POST URL wasn't known at emit time.
+        logEndpointBase = resolvedApi || '';
+        // Stash a compact display fingerprint on every log entry so
+        // an operator can attribute a stdout line to a specific bar
+        // without joining against XMDS state. Whitelist the fields
+        // xibo-player ships in xiboIC.info(): hardwareKey, displayName,
+        // timeZone, latitude, longitude.
+        if (info && typeof info === 'object') {
+            logDisplayInfo = {
+                hardwareKey:  (typeof info.hardwareKey  === 'string') ? info.hardwareKey  : null,
+                displayName:  (typeof info.displayName  === 'string') ? info.displayName  : null,
+                timeZone:     (typeof info.timeZone     === 'string') ? info.timeZone     : null,
+                latitude:     (typeof info.latitude     === 'number') ? info.latitude     : null,
+                longitude:    (typeof info.longitude    === 'number') ? info.longitude    : null
+            };
+        }
+        flushLogBuffer();
 
         // Mirror the resolved values onto the hidden debug elements so
         // operators / headless probes can introspect what a given bar
