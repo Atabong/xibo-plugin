@@ -186,14 +186,14 @@
     <stencil>
         <twig><![CDATA[
 <div
-    class="crowdaq-widget crowdaq-theme-{{ theme|default('dark') }}"
+    class="crowdaq-widget crowdaq-theme-{{ theme }}"
     data-crowdaq-root="1"
-    data-crowdaq-api-base-url="{{ apiBaseUrl|default('') }}"
-    data-crowdaq-event-id="{{ eventId|default('') }}"
-    data-crowdaq-refresh-interval="{{ refreshInterval|default(30) }}"
-    data-crowdaq-show-team-logos="{{ showTeamLogos|default(1) }}"
-    data-crowdaq-show-last-moment="{{ showLastMoment|default(1) }}"
-    data-crowdaq-max-moment-length="{{ maxMomentLength|default(80) }}">
+    data-crowdaq-api-base-url="{{ apiBaseUrl }}"
+    data-crowdaq-event-id="{{ eventId }}"
+    data-crowdaq-refresh-interval="{{ refreshInterval }}"
+    data-crowdaq-show-team-logos="{{ showTeamLogos }}"
+    data-crowdaq-show-last-moment="{{ showLastMoment }}"
+    data-crowdaq-max-moment-length="{{ maxMomentLength }}">
 
     <div class="crowdaq-status-overlay" data-crowdaq-status-overlay hidden>
         <span class="crowdaq-status-overlay-text" data-crowdaq-status-overlay-text></span>
@@ -246,8 +246,8 @@
          display:<field> placeholders (if any) are substituted from
          xiboIC.info(). Hidden from the signage render but readable with
          DevTools / a headless playwright probe. See docs/TARGETING.md. -->
-    <span hidden data-crowdaq-resolved-event-id="{{ eventId|default('') }}"></span>
-    <span hidden data-crowdaq-resolved-api-base-url="{{ apiBaseUrl|default('') }}"></span>
+    <span hidden data-crowdaq-resolved-event-id="{{ eventId }}"></span>
+    <span hidden data-crowdaq-resolved-api-base-url="{{ apiBaseUrl }}"></span>
 </div>
         ]]></twig>
         <style><![CDATA[
