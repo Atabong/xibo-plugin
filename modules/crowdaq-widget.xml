@@ -254,6 +254,20 @@
 /* CROWDAQ widget — MVP inline style. Signage displays often run
    no-JS / strict-CSP profiles so we keep everything self-contained and
    avoid web-font loads. */
+/* Fill the whole region/viewport. Without explicit html+body height,
+   the widget collapses to its intrinsic content height (~300px) inside
+   the bar-player Electron webview — which fills its iframe to the bar
+   TV's full resolution but only shows the top sliver if the document
+   itself is short. The .crowdaq-widget root sets width/height: 100%
+   below; that only resolves correctly when the html+body ancestors
+   are also 100%. */
+html, body {
+    height: 100%;
+    width: 100%;
+    margin: 0;
+    padding: 0;
+    background: transparent;
+}
 body {
     margin: 0;
     padding: 0;
