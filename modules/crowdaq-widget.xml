@@ -246,6 +246,19 @@
         <span>stale</span>
     </div>
 
+    <!-- Player silhouette overlay. Right-third of viewport, fades in for
+         ~5s when a recognised game-event lands (goal, card, sub, status
+         transition). Uses background-image so a missing PNG fails
+         silently — no broken-image icon. The actual <img> probe runs
+         a transient Image() from JS and only paints the overlay when
+         the asset loaded; if it 404s the overlay stays hidden. The
+         asset bundle lives at modules/assets/players/argentina-10-*.png
+         and ships inside the same dist zip the CMS unpacks into
+         /var/www/cms/custom/. Reachable from the player via the
+         standard Xibo asset URL pattern; the stencil rewrites the
+         path through xiboIC.getResourceUrl() when available. -->
+    <div class="crowdaq-player-image" data-crowdaq-player-image hidden></div>
+
     <!-- Debug-only: resolved values populated by onRender once the
          display:<field> placeholders (if any) are substituted from
          xiboIC.info(). Hidden from the signage render but readable with
@@ -596,6 +609,40 @@ body {
 .crowdaq-row-excitement {
     display: none !important;
 }
+
+/* Player silhouette overlay.
+ *
+ * Renders a right-third backlit silhouette PNG while a notable
+ * game-event is fresh (goal, card, sub, lifecycle transition). Sits
+ * *below* the goal toast and the lifecycle banner (z-index 1) so the
+ * scoreboard text and the toast text remain dominant. Background
+ * image only — if the PNG 404s the JS preloader sees the error and
+ * never sets background-image, leaving the overlay invisible. There
+ * is no <img> tag in the DOM, so a missing asset can never paint a
+ * broken-image icon on a bar TV.
+ *
+ * Sized at 35% of the widget width pinned to the right edge,
+ * background-size:contain so the silhouette never crops, and aligned
+ * to bottom-right so the boots sit on the scoreboard's lower row
+ * rather than floating in the middle. */
+.crowdaq-player-image {
+    position: absolute;
+    top: 0;
+    right: 0;
+    width: 35%;
+    height: 100%;
+    background-position: right bottom;
+    background-size: contain;
+    background-repeat: no-repeat;
+    opacity: 0;
+    transition: opacity 400ms ease-in-out;
+    pointer-events: none;
+    z-index: 1;
+}
+.crowdaq-player-image[hidden] { display: none !important; }
+.crowdaq-player-image.crowdaq-player-image-visible {
+    opacity: 0.85;
+}
         ]]></style>
     </stencil>
 
@@ -938,6 +985,176 @@ body {
         setText(nameSelector, abbreviation || nameText || '');
     }
 
+    // ------------------------------------------------------------------
+    // Player silhouette overlay.
+    //
+    // Maps notable game events (goal / card / sub / lifecycle) to a
+    // backlit-silhouette PNG. The PNGs live in
+    // modules/assets/players/ and ship inside the dist zip; the CMS
+    // unpacks the zip into /var/www/cms/custom/, and the player asks
+    // for them via the asset endpoint that xiboIC's getResourceUrl()
+    // resolves. When that helper isn't available (preview / older
+    // player runtimes) we fall back to a relative path which still
+    // works in the editor preview because the stencil and the assets
+    // load from the same origin.
+    //
+    // Defensive design:
+    //   1. We probe each PNG via a transient Image() before painting
+    //      the overlay. If the load errors (asset missing, 404, CSP
+    //      block) we log once and leave the overlay invisible — the
+    //      bar TV never shows a broken-image icon.
+    //   2. The overlay is `pointer-events:none` and sits under the
+    //      goal toast so it can never block scoreboard interactions.
+    //   3. A new event during the visible window resets the timer
+    //      and swaps the image.
+    // ------------------------------------------------------------------
+    var PLAYER_IMAGE_PREFIX = 'argentina-10-';
+    // Map keyed by the contract's `type` (and `moment_type`) enum
+    // values, plus a few synthetic keys ('card-yellow', 'card-red',
+    // 'substitution-on', 'substitution-off') that are derived from
+    // the moment's `text`/`description` since the contract doesn't
+    // currently carry color or direction discriminators.
+    var PLAYER_IMAGE_KIND_MAP = {
+        'goal':              'goal-celebrate',
+        'card':              'yellow-card-frustrated',
+        'card-yellow':       'yellow-card-frustrated',
+        'card-red':          'red-card-shame',
+        'substitution':      'sub-on-eager',
+        'substitution-on':   'sub-on-eager',
+        'substitution-off':  'sub-off-tired',
+        'penalty':           'penalty-prep',
+        'var':               'var-review'
+    };
+    // Lifecycle states. The 'final' state needs a winner/loser
+    // discriminator — we resolve it inside onStatus by comparing
+    // the home/away score against the team this widget is following.
+    // For phase-1 (single-bar generic widget), default 'final' to
+    // the win pose; operator can extend the map per-deployment.
+    var PLAYER_IMAGE_STATUS_MAP = {
+        'halftime':    'halftime-neutral',
+        'final':       'fulltime-win',
+        'final-win':   'fulltime-win',
+        'final-loss':  'fulltime-loss'
+    };
+    // Cache the resolution result for each filename so a 404 only logs
+    // once per session (a missing asset doesn't spam the player_faults
+    // table on every event).
+    var playerImageCache = {};
+    var playerImageTimer = null;
+
+    function resolvePlayerImageUrl(filename) {
+        var rel = 'modules/assets/players/' + filename;
+        if (typeof xiboIC !== 'undefined' && xiboIC &&
+                typeof xiboIC.getResourceUrl === 'function') {
+            try { return xiboIC.getResourceUrl(rel); }
+            catch (e) { /* fall through */ }
+        }
+        return rel;
+    }
+
+    function preloadPlayerImage(filename, onReady) {
+        if (typeof Image === 'undefined') { onReady(null); return; }
+        if (Object.prototype.hasOwnProperty.call(playerImageCache, filename)) {
+            onReady(playerImageCache[filename]);
+            return;
+        }
+        var url = resolvePlayerImageUrl(filename);
+        var probe = new Image();
+        probe.onload = function () {
+            playerImageCache[filename] = url;
+            onReady(url);
+        };
+        probe.onerror = function () {
+            playerImageCache[filename] = null;
+            crowdaqLog('warn', 'player-image-missing', { filename: filename, url: url });
+            onReady(null);
+        };
+        probe.src = url;
+    }
+
+    function showPlayerImage(slug, durationMs) {
+        if (!slug) { return; }
+        var filename = PLAYER_IMAGE_PREFIX + slug + '.png';
+        var ms = (typeof durationMs === 'number' && durationMs > 0) ? durationMs : 5000;
+        var el = q('[data-crowdaq-player-image]');
+        if (!el) { return; }
+        preloadPlayerImage(filename, function (url) {
+            if (!url) { return; /* missing asset — overlay stays hidden */ }
+            // Reset any in-flight fade-out timer; a new event during
+            // the visible window swaps the image and restarts the 5s
+            // hold so the operator never sees a half-faded silhouette
+            // mid-celebration.
+            if (playerImageTimer) {
+                clearTimeout(playerImageTimer);
+                playerImageTimer = null;
+            }
+            el.style.backgroundImage = "url('" + url + "')";
+            el.removeAttribute('hidden');
+            // Force reflow before adding the visible class so the
+            // fade-in transition runs even when we're swapping
+            // back-to-back from a previously-visible overlay.
+            // eslint-disable-next-line no-unused-expressions
+            void el.offsetWidth;
+            el.classList.add('crowdaq-player-image-visible');
+            crowdaqLog('info', 'player-image-show', { slug: slug, durationMs: ms });
+            playerImageTimer = setTimeout(function () {
+                el.classList.remove('crowdaq-player-image-visible');
+                // After the 400ms fade-out transition, hide so the
+                // overlay can't intercept future paints if the slot
+                // moves under the player image.
+                setTimeout(function () {
+                    if (el && el.classList && !el.classList.contains('crowdaq-player-image-visible')) {
+                        el.setAttribute('hidden', '');
+                        el.style.backgroundImage = '';
+                    }
+                }, 450);
+            }, ms);
+        });
+    }
+
+    function maybeShowPlayerImageForMoment(moment) {
+        if (!moment || typeof moment !== 'object') { return; }
+        // Accept both the score-update.last_moment shape (`type`) and
+        // the standalone moment event shape (`moment_type`). Also
+        // accept `kind` as a forward-compat alias.
+        var kind = moment.type || moment.moment_type || moment.kind;
+        if (!kind) { return; }
+        var key = String(kind).toLowerCase();
+        var text = String(moment.text || moment.description || '').toLowerCase();
+        // `card`: contract doesn't carry color, so heuristically
+        // detect "red"/"yellow" in the text. Default to yellow (the
+        // common case). A future contract amendment that adds a
+        // dedicated `color` field would let us drop the substring
+        // probe.
+        if (key === 'card') {
+            if (moment.color) {
+                key = 'card-' + String(moment.color).toLowerCase();
+            } else if (text.indexOf('red') !== -1) {
+                key = 'card-red';
+            } else if (text.indexOf('yellow') !== -1) {
+                key = 'card-yellow';
+            }
+        }
+        // `substitution`: same — no direction in the contract, so
+        // sniff for "on"/"off" in the description. Default to "on"
+        // (the more visually celebratory pose).
+        if (key === 'substitution') {
+            var dir = moment.direction || moment.role || '';
+            dir = String(dir).toLowerCase();
+            if (dir === 'on' || dir === 'in') {
+                key = 'substitution-on';
+            } else if (dir === 'off' || dir === 'out') {
+                key = 'substitution-off';
+            } else if (text.indexOf(' off') !== -1 || text.indexOf('replaced') !== -1) {
+                key = 'substitution-off';
+            } else if (text.indexOf(' on') !== -1 || text.indexOf('comes on') !== -1) {
+                key = 'substitution-on';
+            }
+        }
+        var slug = PLAYER_IMAGE_KIND_MAP[key] || PLAYER_IMAGE_KIND_MAP[String(kind).toLowerCase()];
+        if (slug) { showPlayerImage(slug); }
+    }
+
     // --- score-update handler: full snapshot -> DOM ---
     // lastScore is initialised to 0 (not null) so the first SSE frame
     // that arrives with a non-zero score (replay restart, late-join)
@@ -1023,6 +1240,25 @@ body {
         }
         if (newMomentText !== null) { lastMomentText = newMomentText; }
 
+        // Player silhouette: a score change always paints the
+        // goal-celebrate silhouette. last_moment.type is consulted
+        // to disambiguate (e.g. an own-goal carries type:'goal'
+        // explicitly so we get the right pose). When the score
+        // changed but no type was supplied, force the synthesised
+        // type to 'goal' so the celebrate pose still triggers.
+        if (anyScoreChange) {
+            var goalMoment = (lastMoment && typeof lastMoment === 'object')
+                ? {
+                    type: lastMoment.type || 'goal',
+                    text: lastMoment.text,
+                    color: lastMoment.color,
+                    direction: lastMoment.direction,
+                    role: lastMoment.role
+                }
+                : { type: 'goal' };
+            maybeShowPlayerImageForMoment(goalMoment);
+        }
+
         // Clock: minute + period when the payload carries them.
         // Backend-normalized SSE frames may also embed `elapsed`
         // (minutes since kickoff) at the top level — fall back to it
@@ -1085,11 +1321,25 @@ body {
     }
 
     // --- moment handler: standalone notable-moment text line ---
+    // Paints the moment description into the row + paints the
+    // matching player silhouette overlay if the moment_type maps
+    // to a known pose. The silhouette runs even when showLastMoment
+    // is off — operators may want the moment text suppressed but
+    // the visual cue retained. Score-driven goals are handled in
+    // onScoreUpdate to avoid double-toasting.
     function onMoment(payload) {
-        if (!showLastMoment || !payload || typeof payload.description !== 'string') {
-            return;
+        if (!payload || typeof payload !== 'object') { return; }
+        if (showLastMoment && typeof payload.description === 'string') {
+            setText('[data-crowdaq-moment-text]', truncate(payload.description, maxMomentLength));
         }
-        setText('[data-crowdaq-moment-text]', truncate(payload.description, maxMomentLength));
+        // Skip the silhouette on a 'goal' moment_type — onScoreUpdate
+        // already handled it from the score-change path; firing again
+        // would fade out the celebrate pose mid-toast on a fresh
+        // duplicate.
+        var mt = payload.moment_type || payload.type || payload.kind;
+        if (mt && String(mt).toLowerCase() !== 'goal') {
+            maybeShowPlayerImageForMoment(payload);
+        }
     }
 
     // --- status handler: lifecycle state banner.
@@ -1145,6 +1395,30 @@ body {
         var isRunning = (state === 'live' || state === 'extra_time' || state === 'penalty_shootout');
         setClockRunning(isRunning);
 
+        // Player silhouette overlays for lifecycle transitions.
+        // Only fire on actual entry into the new state so a
+        // re-emitted status frame mid-half doesn't spam the overlay.
+        if (state !== prev) {
+            var statusSlug = PLAYER_IMAGE_STATUS_MAP[state];
+            // 'final': pick win or loss based on score. Phase-1 has
+            // no follow-team config, so default to 'win' if home
+            // out-scored away, 'loss' otherwise. A future
+            // followTeam property would let the operator point this
+            // per bar.
+            if (state === 'final') {
+                if (lastScore && typeof lastScore.home === 'number' && typeof lastScore.away === 'number') {
+                    statusSlug = (lastScore.home > lastScore.away)
+                        ? PLAYER_IMAGE_STATUS_MAP['final-win']
+                        : (lastScore.home < lastScore.away)
+                            ? PLAYER_IMAGE_STATUS_MAP['final-loss']
+                            : PLAYER_IMAGE_STATUS_MAP['final-win'];
+                }
+            }
+            if (statusSlug) {
+                showPlayerImage(statusSlug, 7000);
+            }
+        }
+
         var label = '';
         var transient = false;
         switch (state) {
@@ -1195,6 +1469,18 @@ body {
         setText('[data-crowdaq-moment-text]', '');
         clockBaselineWallMs = Date.now();
         clockBaselineMinute = 0;
+        // Clear any in-flight silhouette overlay so the next replay
+        // doesn't open with a stale fulltime-loss pose mid-fade.
+        if (playerImageTimer) {
+            clearTimeout(playerImageTimer);
+            playerImageTimer = null;
+        }
+        var imgEl = q('[data-crowdaq-player-image]');
+        if (imgEl) {
+            imgEl.classList.remove('crowdaq-player-image-visible');
+            imgEl.setAttribute('hidden', '');
+            imgEl.style.backgroundImage = '';
+        }
     }
 
     // --- heartbeat handler: track last receipt for the RECONNECTING
@@ -1539,6 +1825,7 @@ body {
         if (clockTickTimer) { clearInterval(clockTickTimer); clockTickTimer = null; }
         if (lifecycleBannerTimer) { clearTimeout(lifecycleBannerTimer); lifecycleBannerTimer = null; }
         if (goalToastTimer) { clearTimeout(goalToastTimer); goalToastTimer = null; }
+        if (playerImageTimer) { clearTimeout(playerImageTimer); playerImageTimer = null; }
         closeSource();
     }
     if (typeof window !== 'undefined' && typeof window.addEventListener === 'function') {
