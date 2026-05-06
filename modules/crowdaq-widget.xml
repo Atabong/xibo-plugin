@@ -641,26 +641,23 @@ body {
     // ------------------------------------------------------------------
     // Structured logging helper.
     //
-    // The bar-player snap is snap-confined Chromium with no DevTools and
-    // a default sqlite log level of `error` only — there is no way to
-    // observe widget JS at runtime from the operator side. This helper
-    // always logs to the browser console (so the snap's console-logs.db
-    // captures errors at minimum) AND best-effort pipes through
-    // xiboIC.submitLog so the message lands in the CMS `log` table over
-    // XMDS, where an operator can SELECT them out via mysql in the CMS
-    // pod. See docs/OPERATIONS.md for the query.
+    // Always writes to browser console (snap captures errors in
+    // console-logs.db, gated by the player's logLevel config).
     //
-    // Levels map to the xiboIC.submitLog 'level' enum (info|audit|error)
-    // with `warn` folded into `info` (xiboIC has no warn level — the
-    // category prefix in the message preserves the distinction for grep).
-    // The category 'crowdaq' is consistent across all calls so a single
-    // LIKE '%[crowdaq:%' query picks up every event.
+    // Errors ONLY escalate to CMS via xiboIC.reportFault -- they land in
+    // the player_faults table (playerFaultId, displayId, incidentDt,
+    // code, reason). Non-error levels are console-only; they are NOT
+    // visible in CMS. See docs/OPERATIONS.md for the query.
+    //
+    // reportFault is available in xibo-player snap rev 248+.
+    // xiboIC.submitLog does not exist in rev 248 and is not used.
     // ------------------------------------------------------------------
     function crowdaqLog(level, event, data) {
         var payload;
         try { payload = JSON.stringify(data || {}); }
         catch (e) { payload = '{"_unserializable":true}'; }
         var msg = '[crowdaq:' + event + '] ' + payload;
+        // Always log to console (captured in snap's console-logs.db when logLevel >= severity)
         try {
             // eslint-disable-next-line no-console
             if (level === 'error') { console.error(msg); }
@@ -669,15 +666,14 @@ body {
             // eslint-disable-next-line no-console
             else { console.log(msg); }
         } catch (e) { /* console may be missing in very old runtimes */ }
-        try {
-            if (typeof xiboIC !== 'undefined' && xiboIC && typeof xiboIC.submitLog === 'function') {
-                // xiboIC.submitLog accepts info|audit|error. Map warn->info.
-                var icLevel = (level === 'error') ? 'error'
-                            : (level === 'audit') ? 'audit'
-                            : 'info';
-                xiboIC.submitLog({ category: 'crowdaq', level: icLevel, message: msg });
-            }
-        } catch (e) { /* swallow — never let logging take down the widget */ }
+        // Errors (and only errors) escalate to CMS via reportFault -> player_faults table
+        if (level === 'error' && typeof xiboIC !== 'undefined' && xiboIC &&
+                typeof xiboIC.reportFault === 'function') {
+            try {
+                var code = 'crowdaq-' + event;
+                xiboIC.reportFault({ code: code, reason: msg }, { targetId: id });
+            } catch (e) { /* swallow -- never let logging take down the widget */ }
+        }
     }
 
     // Capture uncaught errors in this widget's frame so they reach the
