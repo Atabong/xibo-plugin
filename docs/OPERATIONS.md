@@ -14,6 +14,8 @@ via `kubectl --context nadwell-k3s -n xibo`.
 - [Log event reference](#log-event-reference)
 - [Refreshing a deployed widget](#refreshing-a-deployed-widget)
 - [Player-side Chromium remote debugging](#player-side-chromium-remote-debugging)
+- [Known limitation: xibo-player CSP whitelist](#known-limitation-xibo-player-csp-whitelist)
+- [Known limitation: payload schema mismatch (backend vs widget)](#known-limitation-payload-schema-mismatch-backend-vs-widget)
 
 ## Querying widget logs (CMS log table)
 
@@ -194,3 +196,80 @@ For this reason the widget's `xiboIC.submitLog` pipeline (this doc's
 [Querying widget logs](#querying-widget-logs-cms-log-table) section) is
 the supported observability path on production bars. DevTools-level
 inspection is reserved for the dev VM build.
+
+## Known limitation: xibo-player CSP whitelist
+
+The upstream `xibo-player` Electron snap injects a hardcoded
+Content-Security-Policy on every renderer response from its main process.
+The literal lives at:
+
+```
+/snap/xibo-player/<rev>/resources/app/dist/main/index.js
+```
+
+inside the `webRequest.onHeadersReceived` callback, and the value is:
+
+```
+connect-src 'self' http://localhost:9696 https://auth.signlicence.co.uk
+```
+
+Chromium enforces this CSP at the renderer **before** CORS preflight or
+any network packet leaves the box. EventSource, `fetch`, and WebSocket
+calls to any other origin are silently blocked: nothing reaches the
+widget's network stack and tcpdump on the player records zero packets to
+the target host.
+
+In the CROWDAQ deployment this blocks the widget's connection to the
+CROWDAQ SSE backend at `http://crowdaq-1.tail7c5015.ts.net`. The widget's
+`[crowdaq:es-error]` log entries fire immediately on every connect
+attempt with `readyState=0`; this is the CSP block, **not** a CORS or
+network problem. Do not re-debug from the widget side: the plugin code
+is correct and the backend's `Access-Control-Allow-Origin: *` is
+correct — the request never leaves the renderer.
+
+Fix path: fork the `xibo-player` snap, patch the CSP literal to allow
+the bar's tailnet stem (e.g. `http://*.ts.net`, or a tighter
+`http://crowdaq-*.tail7c5015.ts.net`), publish the forked snap to a
+private channel, and switch `infra/bar-pc/bootstrap.sh` to install from
+that channel.
+
+Until that lands the widget will log a tight repeating sequence of
+`es-opening` -> `es-error (readyState=0)` -> `reconnect-attempt` ->
+`es-give-up` on every bar player. Those entries are still useful as a
+heartbeat that the widget itself is mounted and the logging pipeline is
+working — they just are not actionable until the snap fork ships.
+
+## Known limitation: payload schema mismatch (backend vs widget)
+
+Independent of the CSP block, the widget's `score-update` handler
+expects a nested payload shape per
+[`docs/contract/events/score-update.json`](contract/events/score-update.json):
+
+```json
+{
+  "teams": { "home": {...}, "away": {...} },
+  "score": { "home": 0, "away": 0 },
+  "excitement": { "level": 0.0, "trend": "flat" },
+  "last_moment": { "text": "..." },
+  "clock": { "minute": 0, "period": "1H" },
+  "possession": "home"
+}
+```
+
+The current backend (as observed on the dev recording) emits a flatter
+shape — top-level `home`, `away`, `possession`, `status` fields without
+the `teams` / `score` wrappers. Once the CSP block is removed, the first
+event that lands at the widget will fail to populate the score row
+(`payload.score.home` will be `undefined`, defaulted to `0`).
+
+This is a separate todo and requires either:
+
+1. Backend emits the contract-compliant nested shape (preferred — the
+   contract under `docs/contract/` is source of truth), or
+2. Widget grows a shape-translation shim in `onScoreUpdate` that accepts
+   either shape.
+
+Re-confirm with a `[crowdaq:es-event]` entry in the log table after the
+snap fork unblocks the connection: the `keys` field of that log line
+will show whether the backend is emitting `[teams,score,excitement,...]`
+or `[home,away,possession,status]`.
