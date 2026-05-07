@@ -1,97 +1,80 @@
-# Player Silhouette Image Prompts (Kit A — Argentina-style, #10)
+# Player image prompts (manual generation via ChatGPT Pro web)
 
-These prompts generate **legally-clean** stadium-lit player silhouettes for the
-CROWDAQ Xibo widget. Used to render dynamic art per game-event kind
-(`goal-celebrate`, `yellow-card-frustrated`, etc.).
+These 10 silhouette images are consumed by the crowdaq xibo-plugin widget. Each fires on a specific game event (goal celebration, yellow card frustration, etc).
 
-## Legal / visual constraints (every prompt enforces these)
+## Workflow
 
-- Body is pure black silhouette — no faces, no hair detail, no skin features
-- No real player likeness — generic body proportions
-- No team logos, sponsor patches, or registered trademarks (no AFA sun, no Adidas stripes, no FFF rooster)
-- Generic team colors only — Kit A = light blue + white vertical stripes,
-  generic dark shorts; Kit B (future) = dark navy + white horizontal accent
-- Number `10` on back of jersey
-- Stadium-lit dramatic backlight halo so silhouette pops
-- Vertical aspect 4:5 (1024 x 1280 PNG)
+1. Open ChatGPT (Pro account, image gen included)
+2. Copy each prompt block below verbatim into a **new chat** (one chat per prompt — do not chain)
+3. After ChatGPT generates the image, click the download icon
+4. Save the PNG to: `xibo-plugin/modules/assets/players/argentina-10-<slug>.png`
+   (slug listed for each prompt below)
+5. Verify before saving: black silhouette only (no real face), generic light blue + white vertical stripes (no AFA sun / Adidas / sponsors), `10` on jersey, no text overlays anywhere
+6. Once all 10 saved: tell coordinator. Agent will commit + deploy.
 
-## Base template
+## About these prompts
 
-> Cinematic stadium photograph, dramatic backlit silhouette of a soccer player
-> viewed from `{angle}`, `{pose_description}`. The player's body, head, hair,
-> arms, legs are pure black silhouette with no visible features. The jersey is
-> light blue and white vertical stripes with a large `10` number on the back
-> in white, no team logo, no sponsor, no crest, plain dark shorts. Stadium
-> lights flare behind, audience blurred in deep focus, `{time_of_day}`.
-> Photorealistic, high detail, dramatic lighting. Vertical aspect 4:5.
+Each prompt below is **fully self-contained** — paste once, get a usable PNG, no follow-up edits required. All legal/visual constraints (silhouette only, no logos, no text overlays, no UI elements, single image, 4:5, PNG) are baked into every individual prompt. Do not strip them out.
 
-## 10 poses for Kit A (Argentina-style #10)
+The number `10` on the jersey is allowed (it is part of the silhouette spec). No other readable characters should appear in the image.
 
-### 1. argentina-10-goal-celebrate.png
-- **angle:** back
-- **pose:** arms raised bent at elbow, thumbs gesturing at jersey number, head tilted slightly back
-- **time_of_day:** evening, golden floodlights
+## Prompts
 
-### 2. argentina-10-yellow-card-frustrated.png
-- **angle:** side
-- **pose:** arms raised palms-up pleading toward unseen referee, head tilted, body language indignant
-- **time_of_day:** late afternoon overcast, harsh white floodlights
+### 1. Goal celebrate
+**Filename:** `argentina-10-goal-celebrate.png`
 
-### 3. argentina-10-red-card-shame.png
-- **angle:** back / away
-- **pose:** head bowed, hands clasped behind head, walking slowly off pitch toward an exit tunnel
-- **time_of_day:** dusk, deep blue sky
+> Cinematic stadium photograph, dramatic backlit silhouette of a soccer player viewed from the back, his arms raised bent at the elbow with thumbs gesturing at the number on his shirt in celebration, head tilted slightly back. The player's body, head, hair, arms, and legs are pure black silhouette with no visible features, no real-player likeness, generic body proportions. The jersey is light blue and white vertical stripes with a large `10` number on the back in white, no team logo, no sponsor patch, no crest, no AFA sun emblem, no Adidas stripes, plain dark shorts. Stadium floodlights flare behind in evening golden tones, audience blurred in deep focus, night setting. Photorealistic, high detail, dramatic backlight halo. Single image output — do not produce a grid, composite, contact sheet, or reference panel. No text overlays, no labels, no captions, no titles, no watermarks — the image must contain zero readable characters other than the `10` jersey number. No UI elements, no scoreboard, no jumbotron text, no on-screen graphics — pure photographic stadium scene only. Aspect ratio 4:5 vertical. PNG output.
 
-### 4. argentina-10-sub-on-eager.png
-- **angle:** side
-- **pose:** jogging onto pitch, fresh strides, fists clenched, focused forward lean
-- **time_of_day:** evening, bright stadium floodlights
+### 2. Yellow card frustrated
+**Filename:** `argentina-10-yellow-card-frustrated.png`
 
-### 5. argentina-10-sub-off-tired.png
-- **angle:** side
-- **pose:** walking off pitch, shoulders slumped, jersey hem grabbed in one hand wiping forehead
-- **time_of_day:** evening, warm sodium-vapor lights
+> Cinematic stadium photograph, dramatic backlit silhouette of a soccer player viewed from the side, arms raised with palms-up pleading toward an unseen referee, head tilted, body language indignant and frustrated. The player's body, head, hair, arms, and legs are pure black silhouette with no visible features, no real-player likeness, generic body proportions. The jersey is light blue and white vertical stripes with a large `10` number on the back in white, no team logo, no sponsor patch, no crest, no AFA sun emblem, no Adidas stripes, plain dark shorts. Late afternoon overcast sky, harsh white stadium floodlights flare behind, audience blurred in deep focus. Photorealistic, high detail, dramatic backlight halo. Single image output — do not produce a grid, composite, contact sheet, or reference panel. No text overlays, no labels, no captions, no titles, no watermarks — the image must contain zero readable characters other than the `10` jersey number. No UI elements, no scoreboard, no jumbotron text, no on-screen graphics — pure photographic stadium scene only. Aspect ratio 4:5 vertical. PNG output.
 
-### 6. argentina-10-halftime-neutral.png
-- **angle:** side
-- **pose:** standing on touchline, hands on hips, breathing steady
-- **time_of_day:** afternoon, even daylight with stadium-shadow contrast
+### 3. Red card shame
+**Filename:** `argentina-10-red-card-shame.png`
 
-### 7. argentina-10-fulltime-win.png
-- **angle:** front
-- **pose:** arms wide overhead V-shape, jersey clutched in fists at sides, triumphant
-- **time_of_day:** night, full floodlights, confetti drifting
+> Cinematic stadium photograph, dramatic backlit silhouette of a soccer player viewed from the back walking away, head bowed, hands clasped behind the head, walking slowly off the pitch toward an exit tunnel in shame. The player's body, head, hair, arms, and legs are pure black silhouette with no visible features, no real-player likeness, generic body proportions. The jersey is light blue and white vertical stripes with a large `10` number on the back in white, no team logo, no sponsor patch, no crest, no AFA sun emblem, no Adidas stripes, plain dark shorts. Dusk setting with deep blue sky, stadium floodlights flare behind, audience blurred in deep focus. Photorealistic, high detail, dramatic backlight halo. Single image output — do not produce a grid, composite, contact sheet, or reference panel. No text overlays, no labels, no captions, no titles, no watermarks — the image must contain zero readable characters other than the `10` jersey number. No UI elements, no scoreboard, no jumbotron text, no on-screen graphics — pure photographic stadium scene only. Aspect ratio 4:5 vertical. PNG output.
 
-### 8. argentina-10-fulltime-loss.png
-- **angle:** back
-- **pose:** bent over hands on knees, exhausted, head down
-- **time_of_day:** night, cool blue floodlights
+### 4. Sub on eager
+**Filename:** `argentina-10-sub-on-eager.png`
 
-### 9. argentina-10-penalty-prep.png
-- **angle:** back
-- **pose:** hands on hips, looking down at the ball, ready stance
-- **time_of_day:** evening, dramatic single-source floodlight
+> Cinematic stadium photograph, dramatic backlit silhouette of a soccer player viewed from the side, jogging onto the pitch with fresh strides, fists clenched, focused forward lean, eager body language. The player's body, head, hair, arms, and legs are pure black silhouette with no visible features, no real-player likeness, generic body proportions. The jersey is light blue and white vertical stripes with a large `10` number on the back in white, no team logo, no sponsor patch, no crest, no AFA sun emblem, no Adidas stripes, plain dark shorts. Evening setting, bright stadium floodlights flare behind, audience blurred in deep focus, night sky. Photorealistic, high detail, dramatic backlight halo. Single image output — do not produce a grid, composite, contact sheet, or reference panel. No text overlays, no labels, no captions, no titles, no watermarks — the image must contain zero readable characters other than the `10` jersey number. No UI elements, no scoreboard, no jumbotron text, no on-screen graphics — pure photographic stadium scene only. Aspect ratio 4:5 vertical. PNG output.
 
-### 10. argentina-10-var-review.png
-- **angle:** side
-- **pose:** hands raised, looking up at giant stadium screen, anxious
-- **time_of_day:** night, giant stadium screen casting cool light on player
+### 5. Sub off tired
+**Filename:** `argentina-10-sub-off-tired.png`
 
-## How to generate
+> Cinematic stadium photograph, dramatic backlit silhouette of a soccer player viewed from the side, walking off the pitch with shoulders slumped, jersey hem grabbed in one hand wiping forehead, exhausted body language. The player's body, head, hair, arms, and legs are pure black silhouette with no visible features, no real-player likeness, generic body proportions. The jersey is light blue and white vertical stripes with a large `10` number on the back in white, no team logo, no sponsor patch, no crest, no AFA sun emblem, no Adidas stripes, plain dark shorts. Evening setting, warm sodium-vapor stadium lights flare behind, audience blurred in deep focus. Photorealistic, high detail, dramatic backlight halo. Single image output — do not produce a grid, composite, contact sheet, or reference panel. No text overlays, no labels, no captions, no titles, no watermarks — the image must contain zero readable characters other than the `10` jersey number. No UI elements, no scoreboard, no jumbotron text, no on-screen graphics — pure photographic stadium scene only. Aspect ratio 4:5 vertical. PNG output.
 
-See `generate.sh` in this directory. Requires `OPENAI_API_KEY` with the
-`api.model.images.request` scope. Codex CLI's ChatGPT-OAuth login does NOT
-include that scope; you need a project API key from the OpenAI dashboard.
+### 6. Halftime neutral
+**Filename:** `argentina-10-halftime-neutral.png`
 
-```bash
-export OPENAI_API_KEY=sk-proj-...
-bash modules/assets/players/generate.sh
-```
+> Cinematic stadium photograph, dramatic backlit silhouette of a soccer player viewed from the side, standing on the touchline with hands on hips, breathing steady, neutral resting body language. The player's body, head, hair, arms, and legs are pure black silhouette with no visible features, no real-player likeness, generic body proportions. The jersey is light blue and white vertical stripes with a large `10` number on the back in white, no team logo, no sponsor patch, no crest, no AFA sun emblem, no Adidas stripes, plain dark shorts. Afternoon setting with even daylight and stadium-shadow contrast, audience blurred in deep focus. Photorealistic, high detail, dramatic backlight halo. Single image output — do not produce a grid, composite, contact sheet, or reference panel. No text overlays, no labels, no captions, no titles, no watermarks — the image must contain zero readable characters other than the `10` jersey number. No UI elements, no scoreboard, no jumbotron text, no on-screen graphics — pure photographic stadium scene only. Aspect ratio 4:5 vertical. PNG output.
 
-## Kit B (France-style #10) — deferred
+### 7. Fulltime win
+**Filename:** `argentina-10-fulltime-win.png`
 
-Same 10 poses, replace jersey description with:
-> dark navy blue main color, white horizontal accent across chest, no rooster
-> crest, generic white shorts
+> Cinematic stadium photograph, dramatic backlit silhouette of a soccer player viewed from the front, arms wide overhead in a V-shape, jersey clutched in fists at sides, triumphant victorious body language. The player's body, head, hair, arms, and legs are pure black silhouette with no visible features, no real-player likeness, generic body proportions. The jersey is light blue and white vertical stripes with a large `10` number visible on the chest in white, no team logo, no sponsor patch, no crest, no AFA sun emblem, no Adidas stripes, plain dark shorts. Night setting, full stadium floodlights flare behind, confetti drifting in the air, audience blurred in deep focus. Photorealistic, high detail, dramatic backlight halo. Single image output — do not produce a grid, composite, contact sheet, or reference panel. No text overlays, no labels, no captions, no titles, no watermarks — the image must contain zero readable characters other than the `10` jersey number. No UI elements, no scoreboard, no jumbotron text, no on-screen graphics — pure photographic stadium scene only. Aspect ratio 4:5 vertical. PNG output.
 
-File prefix: `france-10-*.png`. Generate after Kit A is approved.
+### 8. Fulltime loss
+**Filename:** `argentina-10-fulltime-loss.png`
+
+> Cinematic stadium photograph, dramatic backlit silhouette of a soccer player viewed from the back, bent over with hands on knees, head down, exhausted and defeated body language. The player's body, head, hair, arms, and legs are pure black silhouette with no visible features, no real-player likeness, generic body proportions. The jersey is light blue and white vertical stripes with a large `10` number on the back in white, no team logo, no sponsor patch, no crest, no AFA sun emblem, no Adidas stripes, plain dark shorts. Night setting, cool blue stadium floodlights flare behind, audience blurred in deep focus. Photorealistic, high detail, dramatic backlight halo. Single image output — do not produce a grid, composite, contact sheet, or reference panel. No text overlays, no labels, no captions, no titles, no watermarks — the image must contain zero readable characters other than the `10` jersey number. No UI elements, no scoreboard, no jumbotron text, no on-screen graphics — pure photographic stadium scene only. Aspect ratio 4:5 vertical. PNG output.
+
+### 9. Penalty prep
+**Filename:** `argentina-10-penalty-prep.png`
+
+> Cinematic stadium photograph, dramatic backlit silhouette of a soccer player viewed from the back, hands on hips, looking down at the ball on the penalty spot in a ready stance, focused. The player's body, head, hair, arms, and legs are pure black silhouette with no visible features, no real-player likeness, generic body proportions. The jersey is light blue and white vertical stripes with a large `10` number on the back in white, no team logo, no sponsor patch, no crest, no AFA sun emblem, no Adidas stripes, plain dark shorts. Evening setting, dramatic single-source stadium floodlight casting a long backlight halo, audience blurred in deep focus. Photorealistic, high detail, dramatic backlight halo. Single image output — do not produce a grid, composite, contact sheet, or reference panel. No text overlays, no labels, no captions, no titles, no watermarks — the image must contain zero readable characters other than the `10` jersey number. No UI elements, no scoreboard, no jumbotron text, no on-screen graphics — pure photographic stadium scene only. Aspect ratio 4:5 vertical. PNG output.
+
+### 10. VAR review
+**Filename:** `argentina-10-var-review.png`
+
+> Cinematic stadium photograph, dramatic backlit silhouette of a soccer player viewed from the side, hands raised, looking up at a giant stadium screen, anxious and uncertain body language. The player's body, head, hair, arms, and legs are pure black silhouette with no visible features, no real-player likeness, generic body proportions. The jersey is light blue and white vertical stripes with a large `10` number on the back in white, no team logo, no sponsor patch, no crest, no AFA sun emblem, no Adidas stripes, plain dark shorts. Night setting, the giant stadium screen casts a cool light on the player, stadium floodlights flare behind, audience blurred in deep focus. The stadium screen surface is rendered as a featureless blank glow with no visible images or text — under no circumstances render text, captions, "VAR", "VAR CHECK", "REPLAY", scoreboard tickers, or any readable characters on the screen. Photorealistic, high detail, dramatic backlight halo. Single image output — do not produce a grid, composite, contact sheet, or reference panel. No text overlays, no labels, no captions, no titles, no watermarks — the image must contain zero readable characters other than the `10` jersey number. No UI elements, no scoreboard, no jumbotron text, no on-screen graphics — pure photographic stadium scene only. Aspect ratio 4:5 vertical. PNG output.
+
+## After generation
+
+Once all 10 PNGs are saved into `xibo-plugin/modules/assets/players/`, ping the coordinator. A subagent will:
+1. Verify file presence + dimensions
+2. Commit the PNG bundle on a new branch
+3. Open a PR + deploy to bar-demo display
+
+Reference: `modules/assets/players/PROMPTS.md` (slot-fill source) and `modules/assets/players/README.md` (widget mapping).

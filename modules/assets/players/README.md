@@ -8,7 +8,7 @@ player likeness, club crests, kit-supplier marks, or registered trademarks.
 
 ## Files
 
-- `PROMPTS.md` — exact prompt specs for the 10 Kit A poses (and Kit B notes).
+- `./PROMPTS.md` — exact prompt specs for the 10 Kit A poses (and Kit B notes).
 - `generate.sh` — runner script; calls OpenAI Images API (`gpt-image-1`)
   for all 10 poses. Skips files that already exist.
 - `argentina-10-*.png` — 10 generated silhouettes (created on first run).
