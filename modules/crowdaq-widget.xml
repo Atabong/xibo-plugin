@@ -254,9 +254,12 @@
          the asset loaded; if it 404s the overlay stays hidden. The
          asset bundle lives at modules/assets/players/argentina-10-*.png
          and ships inside the same dist zip the CMS unpacks into
-         /var/www/cms/custom/. Reachable from the player via the
-         standard Xibo asset URL pattern; the stencil rewrites the
-         path through xiboIC.getResourceUrl() when available. -->
+         /var/www/cms/custom/. The PNGs are declared as module assets
+         in the <assets> block at the bottom of this XML; XMDS
+         includes them in the layout's required-files manifest and the
+         CMS substitutes `[[assetAlias=...]]` placeholders inside the
+         <onRender> JS at widget-render time so each URL is baked in
+         before the layout reaches the player. -->
     <div class="crowdaq-player-image" data-crowdaq-player-image hidden></div>
 
     <!-- Debug-only: resolved values populated by onRender once the
@@ -1088,12 +1091,16 @@ body {
     // Maps notable game events (goal / card / sub / lifecycle) to a
     // backlit-silhouette PNG. The PNGs live in
     // modules/assets/players/ and ship inside the dist zip; the CMS
-    // unpacks the zip into /var/www/cms/custom/, and the player asks
-    // for them via the asset endpoint that xiboIC's getResourceUrl()
-    // resolves. When that helper isn't available (preview / older
-    // player runtimes) we fall back to a relative path which still
-    // works in the editor preview because the stencil and the assets
-    // load from the same origin.
+    // unpacks the zip into /var/www/cms/custom/. They're declared as
+    // module assets in the <assets> block at the bottom of this XML,
+    // which gates two things:
+    //
+    //   - XMDS includes them in the layout's required-files manifest,
+    //     so the player downloads them to its local cache.
+    //   - The CMS substitutes `[[assetAlias=...]]` placeholders inside
+    //     this <onRender> block at render time so the URLs are baked
+    //     in — no runtime lookup against xiboIC.getResourceUrl()
+    //     needed (which doesn't exist on most player runtimes).
     //
     // Defensive design:
     //   1. We probe each PNG via a transient Image() before painting
@@ -1133,6 +1140,32 @@ body {
         'final-win':   'fulltime-win',
         'final-loss':  'fulltime-loss'
     };
+    // Pre-resolved URL map — one entry per slug listed in the <assets>
+    // block at the bottom of this XML. The CMS substitutes each
+    // `[[assetAlias=...]]` placeholder at widget-render time
+    // (lib/Widget/Render/WidgetHtmlRenderer.php::decorateForPlayer).
+    // For local Android / Linux / Windows players it resolves to the
+    // bare on-disk filename (the player serves it from its local
+    // required-files cache); for PWA players it becomes a signed link.
+    // If a slug isn't declared as an asset the placeholder is replaced
+    // with an empty string and we treat that as "missing" — the
+    // overlay simply stays hidden, no broken-image icon.
+    //
+    // Keep this map in lock-step with the <assets> block. A missing
+    // entry here = no overlay for that event; a missing entry there =
+    // 404 at render time.
+    var PLAYER_IMAGE_URL_MAP = {
+        'fulltime-loss':         '[[assetAlias=argentina-10-fulltime-loss]]',
+        'fulltime-win':          '[[assetAlias=argentina-10-fulltime-win]]',
+        'goal-celebrate':        '[[assetAlias=argentina-10-goal-celebrate]]',
+        'halftime-neutral':      '[[assetAlias=argentina-10-halftime-neutral]]',
+        'penalty-prep':          '[[assetAlias=argentina-10-penalty-prep]]',
+        'red-card-shame':        '[[assetAlias=argentina-10-red-card-shame]]',
+        'sub-off-tired':         '[[assetAlias=argentina-10-sub-off-tired]]',
+        'sub-on-eager':          '[[assetAlias=argentina-10-sub-on-eager]]',
+        'var-review':            '[[assetAlias=argentina-10-var-review]]',
+        'yellow-card-frustrated':'[[assetAlias=argentina-10-yellow-card-frustrated]]'
+    };
     // Cache the resolution result for each filename so a 404 only logs
     // once per session (a missing asset doesn't spam the player_faults
     // table on every event).
@@ -1140,13 +1173,25 @@ body {
     var playerImageTimer = null;
 
     function resolvePlayerImageUrl(filename) {
-        var rel = 'modules/assets/players/' + filename;
-        if (typeof xiboIC !== 'undefined' && xiboIC &&
-                typeof xiboIC.getResourceUrl === 'function') {
-            try { return xiboIC.getResourceUrl(rel); }
-            catch (e) { /* fall through */ }
+        // filename = 'argentina-10-<slug>.png'. Strip prefix + .png
+        // suffix and look up the pre-substituted URL.
+        var slug = filename;
+        if (slug.indexOf(PLAYER_IMAGE_PREFIX) === 0) {
+            slug = slug.slice(PLAYER_IMAGE_PREFIX.length);
         }
-        return rel;
+        if (slug.lastIndexOf('.png') === slug.length - 4) {
+            slug = slug.slice(0, -4);
+        }
+        var url = PLAYER_IMAGE_URL_MAP[slug];
+        if (url && url.indexOf('[[') === -1) {
+            // Substituted by CMS — real URL.
+            return url;
+        }
+        // Either the slug isn't in the map, or substitution didn't run
+        // (preview / older renderer / dev harness). Fall back to the
+        // legacy relative path which still works in the editor preview
+        // because the stencil and assets load from the same origin.
+        return 'modules/assets/players/' + filename;
     }
 
     function preloadPlayerImage(filename, onReady) {
@@ -1156,6 +1201,12 @@ body {
             return;
         }
         var url = resolvePlayerImageUrl(filename);
+        if (!url) {
+            playerImageCache[filename] = null;
+            crowdaqLog('warn', 'player-image-missing', { filename: filename, reason: 'no-asset-declared' });
+            onReady(null);
+            return;
+        }
         var probe = new Image();
         probe.onload = function () {
             playerImageCache[filename] = url;
@@ -1987,4 +2038,49 @@ body {
     resolveProperties(connect);
 })();
     ]]></onRender>
+
+    <!--
+      Module assets — 10 player-silhouette PNGs.
+
+      Declaring each PNG here gates two things:
+
+        1. XMDS includes them in the layout's required-files manifest at
+           every RequiredFiles call, so the player downloads them to its
+           local cache alongside the layout HTML / fonts / etc.
+           (see lib/Xmds/Soap.php — the loop that walks
+           `$module->getAssets()` and emits a `<file>` element per asset
+           that returns true from `isSendToPlayer()`).
+
+        2. The CMS substitutes `[[assetAlias=...]]` placeholders inside
+           our <onRender> JS at widget-render time
+           (lib/Widget/Render/WidgetHtmlRenderer.php::decorateForPlayer)
+           to the asset's on-disk filename — which Xibo serves locally
+           when the player loads the layout.
+
+      `path` is resolved against PROJECT_ROOT (=/var/www/cms), so we
+      prefix `/custom/modules/...` because this widget ships in the
+      custom modules tree (NOT the upstream /var/www/cms/modules tree).
+
+      `type="path"` matches every other PNG asset in the upstream tree
+      (clock-analogue, forecastio, etc.). `mimeType` is the MIME the
+      player serves the file as.
+
+      `id` must be globally unique across all modules — we prefix with
+      `crowdaq-player-img-` to avoid collision. `alias` is the friendly
+      name used by `[[assetAlias=...]]`. The widget JS keeps the same
+      `argentina-10-<slug>.png` filename convention so the alias maps
+      1:1 to the basename minus extension.
+    -->
+    <assets>
+        <asset id="crowdaq-player-img-fulltime-loss" alias="argentina-10-fulltime-loss" type="path" mimeType="image/png" path="/custom/modules/assets/players/argentina-10-fulltime-loss.png"></asset>
+        <asset id="crowdaq-player-img-fulltime-win" alias="argentina-10-fulltime-win" type="path" mimeType="image/png" path="/custom/modules/assets/players/argentina-10-fulltime-win.png"></asset>
+        <asset id="crowdaq-player-img-goal-celebrate" alias="argentina-10-goal-celebrate" type="path" mimeType="image/png" path="/custom/modules/assets/players/argentina-10-goal-celebrate.png"></asset>
+        <asset id="crowdaq-player-img-halftime-neutral" alias="argentina-10-halftime-neutral" type="path" mimeType="image/png" path="/custom/modules/assets/players/argentina-10-halftime-neutral.png"></asset>
+        <asset id="crowdaq-player-img-penalty-prep" alias="argentina-10-penalty-prep" type="path" mimeType="image/png" path="/custom/modules/assets/players/argentina-10-penalty-prep.png"></asset>
+        <asset id="crowdaq-player-img-red-card-shame" alias="argentina-10-red-card-shame" type="path" mimeType="image/png" path="/custom/modules/assets/players/argentina-10-red-card-shame.png"></asset>
+        <asset id="crowdaq-player-img-sub-off-tired" alias="argentina-10-sub-off-tired" type="path" mimeType="image/png" path="/custom/modules/assets/players/argentina-10-sub-off-tired.png"></asset>
+        <asset id="crowdaq-player-img-sub-on-eager" alias="argentina-10-sub-on-eager" type="path" mimeType="image/png" path="/custom/modules/assets/players/argentina-10-sub-on-eager.png"></asset>
+        <asset id="crowdaq-player-img-var-review" alias="argentina-10-var-review" type="path" mimeType="image/png" path="/custom/modules/assets/players/argentina-10-var-review.png"></asset>
+        <asset id="crowdaq-player-img-yellow-card-frustrated" alias="argentina-10-yellow-card-frustrated" type="path" mimeType="image/png" path="/custom/modules/assets/players/argentina-10-yellow-card-frustrated.png"></asset>
+    </assets>
 </module>
