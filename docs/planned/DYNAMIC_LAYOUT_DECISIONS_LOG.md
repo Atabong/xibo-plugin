@@ -3733,7 +3733,7 @@ Temporal was already in the stack for recording jobs. Using Temporal workflows g
 **Date:** 2026-05-12
 **Status:** decided
 **Supersedes:** none
-**Amended by:** D-GRH-71
+**Amended by:** D-GRH-72
 
 #### Decision
 
@@ -3766,7 +3766,7 @@ Manual operator override capability ensures edge cases (unlisted fixtures, speci
 **Date:** 2026-05-12
 **Status:** decided
 **Supersedes:** none
-**Amended by:** D-GRH-71
+**Amended by:** D-GRH-72
 
 #### Decision
 
@@ -4611,7 +4611,7 @@ WebSocket ping/pong (transport-level only) does not confirm the application laye
 **Date:** 2026-05-12
 **Status:** decided
 **Supersedes:** none
-**Amended by:** D-GRH-72
+**Amended by:** D-GRH-73
 
 #### Decision
 
@@ -5017,7 +5017,7 @@ Scoping is automatic via per-bar `ProgramSlot` membership. The scheduler iterate
 
 ---
 
-### D-GRH-68 — AdminGatewayService — Single Admin Write Surface
+### D-GRH-69 — AdminGatewayService — Single Admin Write Surface
 
 **Date:** 2026-05-13
 **Status:** decided
@@ -5043,7 +5043,7 @@ Centralizes auth, RBAC, validation, and audit at one boundary. Scheduler-channel
 
 ---
 
-### D-GRH-69 — Schedule Authoring — Rule-Driven + Slot-Pin Override
+### D-GRH-70 — Schedule Authoring — Rule-Driven + Slot-Pin Override
 
 **Date:** 2026-05-13
 **Status:** decided
@@ -5052,19 +5052,19 @@ Centralizes auth, RBAC, validation, and audit at one boundary. Scheduler-channel
 
 #### Decision
 
-The schedule is autonomously authored by `BarPlayerSchedulerService` (D-GRH-40) from `BarPreferences` + rules (D-GRH-47, D-GRH-70) + game catalog. Admin "schedule authoring" is therefore not from-scratch authoring; it is two distinct modification paths against the auto-generated output:
+The schedule is autonomously authored by `BarPlayerSchedulerService` (D-GRH-40) from `BarPreferences` + rules (D-GRH-47, D-GRH-71) + game catalog. Admin "schedule authoring" is therefore not from-scratch authoring; it is two distinct modification paths against the auto-generated output:
 
 1. **Slot-level edit (one-off).** Admin selects a row in the pre-computed `ScheduleWindow` and edits it directly (swap `template_id`, extend `dwell_target_ms`, replace `program_slot_id`, drop `ad_slot_id`, etc.). The edit is written to the schedule hot tier with a `pinned: true` flag. The scheduler skips pinned rows during full-reprocess. Pinned rows expire when their `ScheduleWindow` rolls off the 24-hour rolling horizon — no explicit unpin step or GC needed.
-2. **Rule edit (persistent).** Admin authors or modifies a rule under D-GRH-70. Rules outlive any single `ScheduleWindow`.
+2. **Rule edit (persistent).** Admin authors or modifies a rule under D-GRH-71. Rules outlive any single `ScheduleWindow`.
 
-**Write paths (per LCK-1 / D-GRH-68 multi-protocol dispatch):**
+**Write paths (per LCK-1 / D-GRH-69 multi-protocol dispatch):**
 
 - Slot edit: `AdminGatewayService` → DB hot tier direct write (the D-GRH-41 admin injection path applied verbatim, identical to the recap insertion described in D-GRH-67). Scheduler picks up `pinned` rows on its next eval tick.
 - Rule edit: `AdminGatewayService` → DB rules table write **plus** Temporal signal to `BarPlayerSchedulerService` (D-GRH-66) → force full-reprocess of bars in the rule's scope. Effect visible within seconds.
 
 **Conflict between pinned slot and rule output:** pinned wins for the lifetime of the slot's `ScheduleWindow`. Admin override is intentional and short-lived by construction.
 
-**Validation site:** statically checkable constraints in `AdminGatewayService` per D-GRH-68 (`business_mode` enum, `transition` catalog membership per D-GRH-50, `theme_id` resolvable per D-GRH-51, dwell minima per D-SCHEMA, FK integrity). Cross-row stateful checks (overlap with other pinned slots, dwell math after surrounding rows shift) run defensively in the scheduler; failures log and skip rather than crash.
+**Validation site:** statically checkable constraints in `AdminGatewayService` per D-GRH-69 (`business_mode` enum, `transition` catalog membership per D-GRH-50, `theme_id` resolvable per D-GRH-51, dwell minima per D-SCHEMA, FK integrity). Cross-row stateful checks (overlap with other pinned slots, dwell math after surrounding rows shift) run defensively in the scheduler; failures log and skip rather than crash.
 
 **Horizon:** bounded by the rolling 24-hour `ScheduleWindow` for pinned slots. Rule edits are persistent and have no horizon. `FixtureList` 7-day lookahead (D-GRH-18) is unchanged.
 
@@ -5080,7 +5080,7 @@ PRD already commits: "schedule is rule-driven with overrides, not hand-authored 
 
 ---
 
-### D-GRH-70 — Rules Authoring API — Two-Tier Bar Config + Conditional Rules
+### D-GRH-71 — Rules Authoring API — Two-Tier Bar Config + Conditional Rules
 
 **Date:** 2026-05-13
 **Status:** decided
@@ -5089,11 +5089,11 @@ PRD already commits: "schedule is rule-driven with overrides, not hand-authored 
 
 #### Decision
 
-Admin authoring is split into two entity classes, both written through `AdminGatewayService` (D-GRH-68).
+Admin authoring is split into two entity classes, both written through `AdminGatewayService` (D-GRH-69).
 
 **Tier 1 — `BarPreferences` (per-bar static config).** Existing entity (D-GRH-36, D-GRH-60). Schema fields: `theme_id`, `sports`, `leagues`, `region`, `timezone`, `business_hours`, `local_team_list`. Single row per bar. Updated rarely (bar onboarding, infrequent operator tweaks). Carries the bar's identity-shaped attributes — what this bar is.
 
-**Schema addition:** `BarPreferences` gains `state` (state/province code) and `city` (city slug) fields to support the phase-1 rule scope set below. The `ConfigPush.preferences` payload schema is extended in D-GRH-72.
+**Schema addition:** `BarPreferences` gains `state` (state/province code) and `city` (city slug) fields to support the phase-1 rule scope set below. The `ConfigPush.preferences` payload schema is extended in D-GRH-73.
 
 **Tier 2 — `Rule` (conditional behavior).** New entity. D-GRH-47 shape `{scope, condition, action}`. Authored when operator wants conditional/contextual behavior beyond bare bar attributes: coverage targeting, content weighting, ad timing modifiers.
 
@@ -5140,7 +5140,7 @@ No OR or NOT phase 1 — author multiple rules instead. Empty `condition: {}` me
 
 `AdminGatewayService` may warn admin at write time when a rule is statically shadowed by a more-specific rule that already exists.
 
-**Rule lifecycle fields:** `rule_id` (UUID, server-assigned), `name` (operator string, ≤100 chars, for admin-UI + audit log readability), `enabled` (bool, default true; pause/resume without delete), `created_at` and `updated_at` (server-assigned timestamps; the latter feeds last-write tiebreak), `created_by` (admin user id, audit). No `expires_at` (use `condition.date_range`), no `priority` (specificity is implicit), no `version` field (last-write-wins per D-GRH-69).
+**Rule lifecycle fields:** `rule_id` (UUID, server-assigned), `name` (operator string, ≤100 chars, for admin-UI + audit log readability), `enabled` (bool, default true; pause/resume without delete), `created_at` and `updated_at` (server-assigned timestamps; the latter feeds last-write tiebreak), `created_by` (admin user id, audit). No `expires_at` (use `condition.date_range`), no `priority` (specificity is implicit), no `version` field (last-write-wins per D-GRH-70).
 
 **Live preview / dry-run:** none in phase 1. Workflow: author rule with `enabled: false`, manually read scheduler output for one bar via the schedule read endpoint, then flip `enabled: true`. Force-reprocess signal makes the publish-observe loop seconds. Defer dry-run endpoint to phase 2 when concrete bad-coverage incidents or rule-volume growth justify the simulate-with-rule scheduler mode.
 
@@ -5148,13 +5148,13 @@ No OR or NOT phase 1 — author multiple rules instead. Empty `condition: {}` me
 
 PRD framing — "rules-driven scheduling with overrides, not hand-authored screen-by-screen" — pinned this two-tier split. Bar-config and conditional-rule lifecycles are different (static identity vs ongoing tuning); collapsing them into one rule entity would force everything through `{scope, condition, action}` including attributes that have no condition (a bar's timezone has no condition, just a value). Closed enums on scope, action, and condition predicates keep gateway validation tight and scheduler dispatch deterministic; each closed set is cheap to extend when concrete need lands. Specificity-based conflict resolution matches operator mental model (broad rules at `all`, narrow overrides at `bar`) without an explicit priority field that operators would have to author and reason about.
 
-**Open architectural gap (out of scope, separate grill):** `cover` rules at scopes broader than `bar` (e.g., `all` "cover NFL") imply some service maps coverage rules + the fixture catalog to recording-workflow spawns. No locked decision currently identifies that service. D-GRH-34/D-GRH-45 define per-game recording lifecycle but not who decides which `game_id` gets a workflow. Candidates: extend `BarPlayerSchedulerService` to also plan recordings; new singleton `GameRecordingPlannerService` mirroring D-GRH-40 architecture; or trigger from `AdminGatewayService` on rule write. Locked in D-GRH-71.
+**Open architectural gap (out of scope, separate grill):** `cover` rules at scopes broader than `bar` (e.g., `all` "cover NFL") imply some service maps coverage rules + the fixture catalog to recording-workflow spawns. No locked decision currently identifies that service. D-GRH-34/D-GRH-45 define per-game recording lifecycle but not who decides which `game_id` gets a workflow. Candidates: extend `BarPlayerSchedulerService` to also plan recordings; new singleton `GameRecordingPlannerService` mirroring D-GRH-40 architecture; or trigger from `AdminGatewayService` on rule write. Locked in D-GRH-72.
 
 **Pins:** Surface 2 of the Admin UI grill (`ADMIN_UI_GRILL.md`). Closes Open Question: Admin UI Design bullets "Rules authoring API" and "Bar preference write API" (latter is addressed by the `BarPreferences` schema addition above).
 
 ---
 
-### D-GRH-71 — GameScheduler Coverage Driver: Rule-Driven, Not Bar-Preference-Aggregated
+### D-GRH-72 — GameScheduler Coverage Driver: Rule-Driven, Not Bar-Preference-Aggregated
 
 **Date:** 2026-05-13
 **Status:** decided
@@ -5166,7 +5166,7 @@ PRD framing — "rules-driven scheduling with overrides, not hand-authored scree
 
 The GameScheduler responsibility originally stated in D-GRH-35 — "aggregates all bar preference profiles (sports, local teams, leagues, tournaments) from the central bar profile store" and "filters the fixture feed against aggregated preferences to determine which games need recording" — is **retracted**. Bar preference profiles no longer drive recording-coverage decisions.
 
-**New coverage input: `cover` rules (D-GRH-70).** GameScheduler reads the `Rule` table, selects rules whose `action.type == "cover"`, and resolves them against the fixture catalog using D-GRH-70's specificity-aware conflict-resolution model. The union of fixtures matched by any in-force `cover` rule at any applicable scope is the recording-coverage set. Admin intent for what to record is now expressed exclusively through `cover` rules, never inferred from aggregated bar preferences.
+**New coverage input: `cover` rules (D-GRH-71).** GameScheduler reads the `Rule` table, selects rules whose `action.type == "cover"`, and resolves them against the fixture catalog using D-GRH-71's specificity-aware conflict-resolution model. The union of fixtures matched by any in-force `cover` rule at any applicable scope is the recording-coverage set. Admin intent for what to record is now expressed exclusively through `cover` rules, never inferred from aggregated bar preferences.
 
 **Other D-GRH-35 responsibilities stand unchanged:**
 
@@ -5181,7 +5181,7 @@ The GameScheduler responsibility originally stated in D-GRH-35 — "aggregates a
 
 New GameScheduler triggers:
 
-1. **`CoverRuleChanged{rule_id}`** — emitted by `AdminGatewayService` (D-GRH-68) on any write (create / update / enable / disable / delete) to a rule whose `action.type == "cover"`. GameScheduler re-resolves the coverage set for fixtures whose match status could be affected.
+1. **`CoverRuleChanged{rule_id}`** — emitted by `AdminGatewayService` (D-GRH-69) on any write (create / update / enable / disable / delete) to a rule whose `action.type == "cover"`. GameScheduler re-resolves the coverage set for fixtures whose match status could be affected.
 2. **Fixture catalog change** — new fixture, cancellation, or reschedule events emitted by whichever service publishes `FixtureList` (D-GRH-18). GameScheduler re-resolves any newly relevant fixtures against the current rules table.
 3. **Daily cron reconciliation** — defensive sweep over the full forward fixture horizon against the current rules table. Catches any missed event or rule-evaluation drift.
 4. **Service restart bootstrap scan** — on cold start, GameScheduler runs a full resolution pass against the current rules table + fixture catalog before consuming live NATS events.
@@ -5192,19 +5192,19 @@ New GameScheduler triggers:
 
 #### Rationale
 
-D-GRH-35 predated both D-GRH-47 (rules engine) and D-GRH-70 (rules authoring API). When D-GRH-35 was authored, aggregating bar preference profiles was the only available proxy for admin intent about coverage. Now that rules exist as an explicit, operator-authored, conditional surface for coverage targeting (D-GRH-70 `cover` action), aggregating bar preferences as a coverage proxy is both redundant and incorrect:
+D-GRH-35 predated both D-GRH-47 (rules engine) and D-GRH-71 (rules authoring API). When D-GRH-35 was authored, aggregating bar preference profiles was the only available proxy for admin intent about coverage. Now that rules exist as an explicit, operator-authored, conditional surface for coverage targeting (D-GRH-71 `cover` action), aggregating bar preferences as a coverage proxy is both redundant and incorrect:
 
 1. **Conflation of concerns.** Bar preferences describe what a bar wants to *consume*; `cover` rules describe what the operator wants the system to *record*. These are two different decisions. A bar can consume the EPL stream without the operator wanting to record EPL globally, and an operator can choose to record NFL archivally for a future bar that has no current consumers. Coupling them through aggregation prevents either case.
 2. **Operator authoring surface.** Rules are now the single explicit authoring surface for conditional behavior. Routing coverage decisions through preference aggregation hides admin intent behind a derived calculation that no operator wrote and no UI surfaces directly.
-3. **Bar onboarding simplification.** With coverage decoupled, bar onboarding focuses purely on consumption-side `BarPreferences` (D-GRH-72 schema). Operators do not have to think about "if I onboard this bar, will the scheduler start recording new content?" — coverage stays stable across bar churn unless a `cover` rule is explicitly authored or scoped to change.
+3. **Bar onboarding simplification.** With coverage decoupled, bar onboarding focuses purely on consumption-side `BarPreferences` (D-GRH-73 schema). Operators do not have to think about "if I onboard this bar, will the scheduler start recording new content?" — coverage stays stable across bar churn unless a `cover` rule is explicitly authored or scoped to change.
 
 This is an evolution of D-GRH-35 in light of decisions that were not yet locked when D-GRH-35 was written, not a contradiction of D-GRH-35's architectural intent (single-responsibility coverage planner ahead of Temporal recording). The single-responsibility framing is preserved; only the input source shifts from "aggregated bar preferences" to "cover rules".
 
-**Pins:** Surface 3 (recording-trigger) of the admin UI grill session 2026-05-13. Closes the open architectural gap surfaced in D-GRH-70.
+**Pins:** Surface 3 (recording-trigger) of the admin UI grill session 2026-05-13. Closes the open architectural gap surfaced in D-GRH-71.
 
 ---
 
-### D-GRH-72 — BarPreferences Schema Lock + ConfigPush.preferences Payload Extension
+### D-GRH-73 — BarPreferences Schema Lock + ConfigPush.preferences Payload Extension
 
 **Date:** 2026-05-13
 **Status:** decided
@@ -5222,11 +5222,11 @@ The `BarPreferences` row schema (per bar, single row, central CROWDAQ DB per D-G
 | `sports` | string array | Sport slugs the bar shows. Unchanged from D-GRH-60. |
 | `leagues` | string array | League slugs. Unchanged from D-GRH-60. |
 | `region` | string | Region code (e.g., `us-midwest`). Unchanged from D-GRH-60. |
-| `state` | string | State / province code. **Added.** Required by D-GRH-70 rule scope `state:{code}` resolution. |
-| `city` | string | City slug. **Added.** Required by D-GRH-70 rule scope `city:{slug}` resolution. |
-| `timezone` | string (IANA TZ, e.g., `America/New_York`) | **Added.** Required by D-GRH-70 condition predicates `time_range` and `day_of_week`, which resolve in bar-local TZ. |
-| `business_hours` | array of `{day_of_week, start_local, end_local}` | **Added.** Required because D-GRH-70 locked it as part of the Tier-1 `BarPreferences` schema. |
-| `local_team_list` | string array | Team slugs. **Added.** Required because D-GRH-70 locked it as part of the Tier-1 `BarPreferences` schema and because team-tier weight rules (D-GRH-47 example) resolve against it. |
+| `state` | string | State / province code. **Added.** Required by D-GRH-71 rule scope `state:{code}` resolution. |
+| `city` | string | City slug. **Added.** Required by D-GRH-71 rule scope `city:{slug}` resolution. |
+| `timezone` | string (IANA TZ, e.g., `America/New_York`) | **Added.** Required by D-GRH-71 condition predicates `time_range` and `day_of_week`, which resolve in bar-local TZ. |
+| `business_hours` | array of `{day_of_week, start_local, end_local}` | **Added.** Required because D-GRH-71 locked it as part of the Tier-1 `BarPreferences` schema. |
+| `local_team_list` | string array | Team slugs. **Added.** Required because D-GRH-71 locked it as part of the Tier-1 `BarPreferences` schema and because team-tier weight rules (D-GRH-47 example) resolve against it. |
 
 **`ConfigPush.preferences` payload (extends D-GRH-60 schema):**
 
@@ -5258,9 +5258,9 @@ All other D-GRH-60 framing — when sent (reconnect re-push, initial DeviceRegis
 
 #### Rationale
 
-D-GRH-70 introduced rule scopes (`state:{code}`, `city:{slug}`) and condition predicates (`time_range`, `day_of_week`) whose resolution depends on bar-side data fields that D-GRH-60's original four-field payload (`theme_id`, `sports`, `leagues`, `region`) did not carry. Tier-1 `BarPreferences` in D-GRH-70 already enumerated the broader field set (`timezone`, `business_hours`, `local_team_list`, plus the schema addition of `state` and `city`), but the `ConfigPush` wire schema was never updated in step. Locking both the row schema and the wire payload in a single decision gives downstream consumers — `AdminGatewayService` write validation, `GameScheduler` rule resolution, `GameDeliveryService` per-player filtering, and the bar-player `ConfigPush` handler — one authoritative reference for the field set instead of forcing each consumer to re-derive it from a scattered combination of D-GRH-37, D-GRH-60, and D-GRH-70.
+D-GRH-71 introduced rule scopes (`state:{code}`, `city:{slug}`) and condition predicates (`time_range`, `day_of_week`) whose resolution depends on bar-side data fields that D-GRH-60's original four-field payload (`theme_id`, `sports`, `leagues`, `region`) did not carry. Tier-1 `BarPreferences` in D-GRH-71 already enumerated the broader field set (`timezone`, `business_hours`, `local_team_list`, plus the schema addition of `state` and `city`), but the `ConfigPush` wire schema was never updated in step. Locking both the row schema and the wire payload in a single decision gives downstream consumers — `AdminGatewayService` write validation, `GameScheduler` rule resolution, `GameDeliveryService` per-player filtering, and the bar-player `ConfigPush` handler — one authoritative reference for the field set instead of forcing each consumer to re-derive it from a scattered combination of D-GRH-37, D-GRH-60, and D-GRH-71.
 
-**Pins:** D-GRH-70 BarPreferences Tier-1 schema. Closes the cross-decision drift flagged in the scribe report 2026-05-13.
+**Pins:** D-GRH-71 BarPreferences Tier-1 schema. Closes the cross-decision drift flagged in the scribe report 2026-05-13.
 
 ---
 
@@ -5282,7 +5282,7 @@ D-GRH-70 introduced rule scopes (`state:{code}`, `city:{slug}`) and condition pr
 - Journal data access for admin reporting
 - Metrics emission and dashboard targets
 
-**Resolved 2026-05-13:** D-GRH-68 (AdminGatewayService single write surface), D-GRH-69 (Schedule authoring — rule-driven + slot-pin override), D-GRH-70 (Rules authoring API — two-tier BarPreferences + Rule). Closes the "Rules authoring API", "Schedule authoring API", and "Bar preference write API" bullets above.
+**Resolved 2026-05-13:** D-GRH-69 (AdminGatewayService single write surface), D-GRH-70 (Schedule authoring — rule-driven + slot-pin override), D-GRH-71 (Rules authoring API — two-tier BarPreferences + Rule). Closes the "Rules authoring API", "Schedule authoring API", and "Bar preference write API" bullets above.
 
 **Recommended next step:** Grill the remaining surfaces in operator-prioritized order: ad inventory management (D-GRH-55 phase-1 asset model), auth/RBAC, Temporal workflow visibility, journal data access, metrics + dashboards.
 

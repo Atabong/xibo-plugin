@@ -10,7 +10,7 @@
 
 ### LCK-1 — AdminGatewayService is the single admin write surface
 
-**Graduated 2026-05-13 to D-GRH-68.**
+**Graduated 2026-05-13 to D-GRH-69.**
 
 **Date:** 2026-05-12.
 
@@ -37,8 +37,8 @@
 
 ## Operator-set priority queue (2026-05-12)
 
-1. Schedule authoring — **GRADUATED 2026-05-13 to D-GRH-69.**
-2. Rules authoring API — **GRADUATED 2026-05-13 to D-GRH-70.**
+1. Schedule authoring — **GRADUATED 2026-05-13 to D-GRH-70.**
+2. Rules authoring API — **GRADUATED 2026-05-13 to D-GRH-71.**
 3. **Ad inventory management** — uploading creatives, `AdSlot` policy authoring (relates to D-GRH-55 phase-1 asset-id model).
 4. **Auth/RBAC** — login, scopes, scope delegation. Pins all upstream endpoint auth.
 5. **Temporal workflow visibility** — built-in Temporal Web UI vs custom admin views.
@@ -56,7 +56,7 @@ These will be picked up after the priority queue drains, or sooner if a priority
 - MessagingLane authoring API (D-GRH-57: "central admin authors" — no API defined).
 - Manual recording request mechanism (D-GRH-35 references it).
 - Admin pause/resume for `BarPlayerSchedulerService` or recording workflows.
-- **Open architectural gap:** recording-trigger path for `cover` rules at scopes broader than `bar` (graduating Surface 2 surfaced this). To be grilled separately. **— GRADUATED 2026-05-13 to D-GRH-71.**
+- **Open architectural gap:** recording-trigger path for `cover` rules at scopes broader than `bar` (graduating Surface 2 surfaced this). To be grilled separately. **— GRADUATED 2026-05-13 to D-GRH-72.**
 
 ---
 
@@ -81,11 +81,11 @@ These will be picked up after the priority queue drains, or sooner if a priority
 
 **Dropped:** resource scope (per-bar vs shared `ProgramSlot`/`AdSlot`) — scheduler-internal implementation detail, not an admin-UI concern.
 
-**Pins:** D-GRH-69.
+**Pins:** D-GRH-70.
 
 **Next question to ask:** N/A — surface graduated.
 
-**Status:** GRADUATED 2026-05-13 to D-GRH-69.
+**Status:** GRADUATED 2026-05-13 to D-GRH-70.
 
 ---
 
@@ -107,11 +107,11 @@ These will be picked up after the priority queue drains, or sooner if a priority
 
 **Surfaced architectural gap:** `cover` rules at scopes broader than `bar` (e.g., `all` "cover NFL") imply a service that maps coverage rules + fixture catalog → recording-workflow spawns. No locked decision identifies that service today. Candidates: extend `BarPlayerSchedulerService`, new singleton `GameRecordingPlannerService`, or trigger from `AdminGatewayService` on rule write. To be grilled separately.
 
-**Pins:** D-GRH-70.
+**Pins:** D-GRH-71.
 
 **Next question to ask:** N/A — surface graduated.
 
-**Status:** GRADUATED 2026-05-13 to D-GRH-70.
+**Status:** GRADUATED 2026-05-13 to D-GRH-71.
 
 ---
 
