@@ -1,5 +1,13 @@
 # Multi-bar targeting via display properties
 
+> Status: **current implementation / Phase-1 widget targeting**.
+>
+> This document describes targeting for the current single-widget SSE architecture.
+>
+> Future backend-orchestrated dynamic layout targeting may expand beyond this model, but this doc remains the source for the current widget behavior.
+>
+> See `../index.md` for the documentation map.
+
 _Status: loop iter17. Path chosen: **B (client-side substitution)**. See
 "Why not Path A" below for the upstream evidence that ruled out
 CMS-side `%displayTag(name)%` substitution against Xibo CMS 4.4.2._
@@ -128,7 +136,7 @@ For `displayName` values that encode a CROWDAQ event id (the
 recommended use):
 
 - Lowercase, hyphenated — matches the CROWDAQ event-id convention
-  used in `docs/contract/openapi.yaml` (`eventId` path parameter,
+  used in `docs/current/contract/openapi.yaml` (`eventId` path parameter,
   pattern `^[A-Za-z0-9][A-Za-z0-9._:-]*$`).
 - No spaces, no `/`, no `?`, no `#` — the value is URL-encoded when
   it's spliced into the stream path but keeping it URL-safe in the

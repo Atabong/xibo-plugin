@@ -4,6 +4,14 @@
 -->
 # CROWDAQ Xibo plugin — operations runbook
 
+> Status: **current implementation / Phase-1 widget operations**.
+>
+> This runbook covers the currently implemented or currently intended single-widget SSE runtime and its operational/debugging model.
+>
+> It does **not** describe the future backend-orchestrated dynamic layout platform from `../planned/PRODUCT_REQUIREMENTS.md`.
+>
+> See `../index.md` for the documentation map.
+
 Operator-side procedures for inspecting and debugging a deployed CROWDAQ
 widget. Targets the production stack (k3s + Flux + Xibo CMS pod) reached
 via `kubectl --context nadwell-k3s -n xibo`.
@@ -99,7 +107,7 @@ existing ones do not change shape.
 
 | event | level | fields | meaning |
 | --- | --- | --- | --- |
-| `server-error-event` | error | `code`, `message` | Server emitted an `event: error` SSE frame (per `docs/contract/events/error.json`). |
+| `server-error-event` | error | `code`, `message` | Server emitted an `event: error` SSE frame (per `docs/current/contract/events/error.json`). |
 | `handler-throw` | error | `event`, `error`, `stack` | A widget event handler threw — caught so the stream stays alive. Indicates a bug in the dispatch path. |
 
 ### Liveness watchdogs
@@ -219,7 +227,7 @@ working — they just are not actionable until the snap fork ships.
 
 Independent of the CSP block, the widget's `score-update` handler
 expects a nested payload shape per
-[`docs/contract/events/score-update.json`](contract/events/score-update.json):
+[`docs/current/contract/events/score-update.json`](contract/events/score-update.json):
 
 ```json
 {
@@ -241,7 +249,7 @@ event that lands at the widget will fail to populate the score row
 This is a separate todo and requires either:
 
 1. Backend emits the contract-compliant nested shape (preferred — the
-   contract under `docs/contract/` is source of truth), or
+   contract under `docs/current/contract/` is source of truth), or
 2. Widget grows a shape-translation shim in `onScoreUpdate` that accepts
    either shape.
 
