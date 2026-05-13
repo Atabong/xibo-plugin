@@ -5017,26 +5017,42 @@ Scoping is automatic via per-bar `ProgramSlot` membership. The scheduler iterate
 
 ---
 
-## D-GRH-68: AdminGatewayService — Single Admin Write Surface (2026-05-13)
+### D-GRH-68 — AdminGatewayService — Single Admin Write Surface
 
-**Decision:** A new Go process named `AdminGatewayService` is the only HTTPS surface for admin writes against the CROWDAQ backend. It owns:
+**Date:** 2026-05-13
+**Status:** decided
+**Supersedes:** none
+**Amended by:** none
+
+#### Decision
+
+A new Go process named `AdminGatewayService` is the only HTTPS surface for admin writes against the CROWDAQ backend. It owns:
 
 - Authentication and RBAC enforcement (model to be locked in a later grill round).
 - Per-endpoint input validation (statically checkable: schema, enum, bound, simple FK, syntactic). Stateful/cross-row checks (dwell-after-expansion math, rule×rule conflict, pinned-slot vs rule-output collision) run defensively in the scheduler.
 - Append-only audit logging. Every admin mutation is recorded.
 - Multi-protocol downstream dispatch: NATS publish for real-time messages (e.g., `MessagingLane`), DB hot-tier write for schedule and rule rows (D-GRH-41 admin injection path), Temporal signal for workflow control plane (e.g., force-reprocess on `BarPlayerSchedulerService` per D-GRH-66; manual recording request per D-GRH-35).
 
-**Rationale:** Centralizes auth, RBAC, validation, and audit at one boundary. Scheduler-channeled (every admin write as `BarPlayerSchedulerService` signal) was rejected because the scheduler does not author message types like `OverrideInjection` (out-of-band per D-SCHEMA-08) or `MessagingLane`; routing every admin write through it adds architectural noise. Per-subsystem REST surfaces were rejected because scattering auth/RBAC across N services multiplies attack surface and audit-log fan-out.
-
 **Process kind:** Go process, following the D-GRH-42 precedent for `GameDeliveryService` — real-time HTTPS gateway is a different domain from durable workflow logic; Temporal is the wrong fit for inbound REST.
+
+#### Rationale
+
+Centralizes auth, RBAC, validation, and audit at one boundary. Scheduler-channeled (every admin write as `BarPlayerSchedulerService` signal) was rejected because the scheduler does not author message types like `OverrideInjection` (out-of-band per D-SCHEMA-08) or `MessagingLane`; routing every admin write through it adds architectural noise. Per-subsystem REST surfaces were rejected because scattering auth/RBAC across N services multiplies attack surface and audit-log fan-out.
 
 **Pins:** every admin REST endpoint in subsequent decisions.
 
 ---
 
-## D-GRH-69: Schedule Authoring — Rule-Driven + Slot-Pin Override (2026-05-13)
+### D-GRH-69 — Schedule Authoring — Rule-Driven + Slot-Pin Override
 
-**Decision:** The schedule is autonomously authored by `BarPlayerSchedulerService` (D-GRH-40) from `BarPreferences` + rules (D-GRH-47, D-GRH-70) + game catalog. Admin "schedule authoring" is therefore not from-scratch authoring; it is two distinct modification paths against the auto-generated output:
+**Date:** 2026-05-13
+**Status:** decided
+**Supersedes:** none
+**Amended by:** none
+
+#### Decision
+
+The schedule is autonomously authored by `BarPlayerSchedulerService` (D-GRH-40) from `BarPreferences` + rules (D-GRH-47, D-GRH-70) + game catalog. Admin "schedule authoring" is therefore not from-scratch authoring; it is two distinct modification paths against the auto-generated output:
 
 1. **Slot-level edit (one-off).** Admin selects a row in the pre-computed `ScheduleWindow` and edits it directly (swap `template_id`, extend `dwell_target_ms`, replace `program_slot_id`, drop `ad_slot_id`, etc.). The edit is written to the schedule hot tier with a `pinned: true` flag. The scheduler skips pinned rows during full-reprocess. Pinned rows expire when their `ScheduleWindow` rolls off the 24-hour rolling horizon — no explicit unpin step or GC needed.
 2. **Rule edit (persistent).** Admin authors or modifies a rule under D-GRH-70. Rules outlive any single `ScheduleWindow`.
@@ -5056,15 +5072,24 @@ Scoping is automatic via per-bar `ProgramSlot` membership. The scheduler iterate
 
 **Resource scope (per-bar vs shared `ProgramSlot`/`AdSlot`):** scheduler-internal implementation detail, not an admin-UI concern. Out of scope for this decision.
 
-**Rationale:** PRD already commits: "schedule is rule-driven with overrides, not hand-authored screen-by-screen by default." The scheduler exists to convert authored intent into the wire protocol; direct CRUD on `PlannedState`/`ProgramSlot`/`AdSlot` rows would make pre-computation pointless and would break server-side ad-timing computation (D-GRH-62). The two-path model (rule for persistent shape, pinned slot for one-offs) covers admin's full use case without introducing a parallel trigger API surface (D-GRH-67 echo).
+#### Rationale
+
+PRD already commits: "schedule is rule-driven with overrides, not hand-authored screen-by-screen by default." The scheduler exists to convert authored intent into the wire protocol; direct CRUD on `PlannedState`/`ProgramSlot`/`AdSlot` rows would make pre-computation pointless and would break server-side ad-timing computation (D-GRH-62). The two-path model (rule for persistent shape, pinned slot for one-offs) covers admin's full use case without introducing a parallel trigger API surface (D-GRH-67 echo).
 
 **Pins:** Surface 1 of the Admin UI grill (`ADMIN_UI_GRILL.md`). Closes Open Question: Admin UI Design bullet "Schedule authoring API".
 
 ---
 
-## D-GRH-70: Rules Authoring API — Two-Tier Bar Config + Conditional Rules (2026-05-13)
+### D-GRH-70 — Rules Authoring API — Two-Tier Bar Config + Conditional Rules
 
-**Decision:** Admin authoring is split into two entity classes, both written through `AdminGatewayService` (D-GRH-68).
+**Date:** 2026-05-13
+**Status:** decided
+**Supersedes:** none
+**Amended by:** none
+
+#### Decision
+
+Admin authoring is split into two entity classes, both written through `AdminGatewayService` (D-GRH-68).
 
 **Tier 1 — `BarPreferences` (per-bar static config).** Existing entity (D-GRH-36, D-GRH-60). Schema fields: `theme_id`, `sports`, `leagues`, `region`, `timezone`, `business_hours`, `local_team_list`. Single row per bar. Updated rarely (bar onboarding, infrequent operator tweaks). Carries the bar's identity-shaped attributes — what this bar is.
 
@@ -5119,7 +5144,9 @@ No OR or NOT phase 1 — author multiple rules instead. Empty `condition: {}` me
 
 **Live preview / dry-run:** none in phase 1. Workflow: author rule with `enabled: false`, manually read scheduler output for one bar via the schedule read endpoint, then flip `enabled: true`. Force-reprocess signal makes the publish-observe loop seconds. Defer dry-run endpoint to phase 2 when concrete bad-coverage incidents or rule-volume growth justify the simulate-with-rule scheduler mode.
 
-**Rationale:** PRD framing — "rules-driven scheduling with overrides, not hand-authored screen-by-screen" — pinned this two-tier split. Bar-config and conditional-rule lifecycles are different (static identity vs ongoing tuning); collapsing them into one rule entity would force everything through `{scope, condition, action}` including attributes that have no condition (a bar's timezone has no condition, just a value). Closed enums on scope, action, and condition predicates keep gateway validation tight and scheduler dispatch deterministic; each closed set is cheap to extend when concrete need lands. Specificity-based conflict resolution matches operator mental model (broad rules at `all`, narrow overrides at `bar`) without an explicit priority field that operators would have to author and reason about.
+#### Rationale
+
+PRD framing — "rules-driven scheduling with overrides, not hand-authored screen-by-screen" — pinned this two-tier split. Bar-config and conditional-rule lifecycles are different (static identity vs ongoing tuning); collapsing them into one rule entity would force everything through `{scope, condition, action}` including attributes that have no condition (a bar's timezone has no condition, just a value). Closed enums on scope, action, and condition predicates keep gateway validation tight and scheduler dispatch deterministic; each closed set is cheap to extend when concrete need lands. Specificity-based conflict resolution matches operator mental model (broad rules at `all`, narrow overrides at `bar`) without an explicit priority field that operators would have to author and reason about.
 
 **Open architectural gap (out of scope, separate grill):** `cover` rules at scopes broader than `bar` (e.g., `all` "cover NFL") imply some service maps coverage rules + the fixture catalog to recording-workflow spawns. No locked decision currently identifies that service. D-GRH-34/D-GRH-45 define per-game recording lifecycle but not who decides which `game_id` gets a workflow. Candidates: extend `BarPlayerSchedulerService` to also plan recordings; new singleton `GameRecordingPlannerService` mirroring D-GRH-40 architecture; or trigger from `AdminGatewayService` on rule write. Locked in D-GRH-71.
 
@@ -5257,7 +5284,7 @@ D-GRH-70 introduced rule scopes (`state:{code}`, `city:{slug}`) and condition pr
 
 **Resolved 2026-05-13:** D-GRH-68 (AdminGatewayService single write surface), D-GRH-69 (Schedule authoring — rule-driven + slot-pin override), D-GRH-70 (Rules authoring API — two-tier BarPreferences + Rule). Closes the "Rules authoring API", "Schedule authoring API", and "Bar preference write API" bullets above.
 
-**Recommended next step:** Grill the remaining surfaces in operator-prioritized order: ad inventory management (D-GRH-55 phase-1 asset model), auth/RBAC, Temporal workflow visibility, journal data access, metrics + dashboards. Open architectural gap to address separately: the recording-trigger path implied by D-GRH-70 `cover` rules at scopes broader than `bar`.
+**Recommended next step:** Grill the remaining surfaces in operator-prioritized order: ad inventory management (D-GRH-55 phase-1 asset model), auth/RBAC, Temporal workflow visibility, journal data access, metrics + dashboards.
 
 ---
 
