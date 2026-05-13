@@ -56,7 +56,7 @@ These will be picked up after the priority queue drains, or sooner if a priority
 - MessagingLane authoring API (D-GRH-57: "central admin authors" — no API defined).
 - Manual recording request mechanism (D-GRH-35 references it).
 - Admin pause/resume for `BarPlayerSchedulerService` or recording workflows.
-- **Open architectural gap:** recording-trigger path for `cover` rules at scopes broader than `bar` (graduating Surface 2 surfaced this). To be grilled separately.
+- **Open architectural gap:** recording-trigger path for `cover` rules at scopes broader than `bar` (graduating Surface 2 surfaced this). To be grilled separately. **— GRADUATED 2026-05-13 to D-GRH-71.**
 
 ---
 

@@ -3733,7 +3733,7 @@ Temporal was already in the stack for recording jobs. Using Temporal workflows g
 **Date:** 2026-05-12
 **Status:** decided
 **Supersedes:** none
-**Amended by:** none
+**Amended by:** D-GRH-71
 
 #### Decision
 
@@ -3766,7 +3766,7 @@ Manual operator override capability ensures edge cases (unlisted fixtures, speci
 **Date:** 2026-05-12
 **Status:** decided
 **Supersedes:** none
-**Amended by:** none
+**Amended by:** D-GRH-71
 
 #### Decision
 
@@ -4611,7 +4611,7 @@ WebSocket ping/pong (transport-level only) does not confirm the application laye
 **Date:** 2026-05-12
 **Status:** decided
 **Supersedes:** none
-**Amended by:** none
+**Amended by:** D-GRH-72
 
 #### Decision
 
@@ -5068,7 +5068,7 @@ Scoping is automatic via per-bar `ProgramSlot` membership. The scheduler iterate
 
 **Tier 1 — `BarPreferences` (per-bar static config).** Existing entity (D-GRH-36, D-GRH-60). Schema fields: `theme_id`, `sports`, `leagues`, `region`, `timezone`, `business_hours`, `local_team_list`. Single row per bar. Updated rarely (bar onboarding, infrequent operator tweaks). Carries the bar's identity-shaped attributes — what this bar is.
 
-**Schema addition:** `BarPreferences` gains `state` (state/province code) and `city` (city slug) fields to support the phase-1 rule scope set below. The `ConfigPush` payload in D-GRH-60 is updated correspondingly.
+**Schema addition:** `BarPreferences` gains `state` (state/province code) and `city` (city slug) fields to support the phase-1 rule scope set below. The `ConfigPush.preferences` payload schema is extended in D-GRH-72.
 
 **Tier 2 — `Rule` (conditional behavior).** New entity. D-GRH-47 shape `{scope, condition, action}`. Authored when operator wants conditional/contextual behavior beyond bare bar attributes: coverage targeting, content weighting, ad timing modifiers.
 
@@ -5121,9 +5121,119 @@ No OR or NOT phase 1 — author multiple rules instead. Empty `condition: {}` me
 
 **Rationale:** PRD framing — "rules-driven scheduling with overrides, not hand-authored screen-by-screen" — pinned this two-tier split. Bar-config and conditional-rule lifecycles are different (static identity vs ongoing tuning); collapsing them into one rule entity would force everything through `{scope, condition, action}` including attributes that have no condition (a bar's timezone has no condition, just a value). Closed enums on scope, action, and condition predicates keep gateway validation tight and scheduler dispatch deterministic; each closed set is cheap to extend when concrete need lands. Specificity-based conflict resolution matches operator mental model (broad rules at `all`, narrow overrides at `bar`) without an explicit priority field that operators would have to author and reason about.
 
-**Open architectural gap (out of scope, separate grill):** `cover` rules at scopes broader than `bar` (e.g., `all` "cover NFL") imply some service maps coverage rules + the fixture catalog to recording-workflow spawns. No locked decision currently identifies that service. D-GRH-34/D-GRH-45 define per-game recording lifecycle but not who decides which `game_id` gets a workflow. Candidates: extend `BarPlayerSchedulerService` to also plan recordings; new singleton `GameRecordingPlannerService` mirroring D-GRH-40 architecture; or trigger from `AdminGatewayService` on rule write. To be locked in a follow-up grill round.
+**Open architectural gap (out of scope, separate grill):** `cover` rules at scopes broader than `bar` (e.g., `all` "cover NFL") imply some service maps coverage rules + the fixture catalog to recording-workflow spawns. No locked decision currently identifies that service. D-GRH-34/D-GRH-45 define per-game recording lifecycle but not who decides which `game_id` gets a workflow. Candidates: extend `BarPlayerSchedulerService` to also plan recordings; new singleton `GameRecordingPlannerService` mirroring D-GRH-40 architecture; or trigger from `AdminGatewayService` on rule write. Locked in D-GRH-71.
 
 **Pins:** Surface 2 of the Admin UI grill (`ADMIN_UI_GRILL.md`). Closes Open Question: Admin UI Design bullets "Rules authoring API" and "Bar preference write API" (latter is addressed by the `BarPreferences` schema addition above).
+
+---
+
+### D-GRH-71 — GameScheduler Coverage Driver: Rule-Driven, Not Bar-Preference-Aggregated
+
+**Date:** 2026-05-13
+**Status:** decided
+**Supersedes:** none
+**Amends:** D-GRH-35, D-GRH-36
+**Amended by:** none
+
+#### Decision
+
+The GameScheduler responsibility originally stated in D-GRH-35 — "aggregates all bar preference profiles (sports, local teams, leagues, tournaments) from the central bar profile store" and "filters the fixture feed against aggregated preferences to determine which games need recording" — is **retracted**. Bar preference profiles no longer drive recording-coverage decisions.
+
+**New coverage input: `cover` rules (D-GRH-70).** GameScheduler reads the `Rule` table, selects rules whose `action.type == "cover"`, and resolves them against the fixture catalog using D-GRH-70's specificity-aware conflict-resolution model. The union of fixtures matched by any in-force `cover` rule at any applicable scope is the recording-coverage set. Admin intent for what to record is now expressed exclusively through `cover` rules, never inferred from aggregated bar preferences.
+
+**Other D-GRH-35 responsibilities stand unchanged:**
+
+1. Schedules `temporal.StartWorkflow(game_id)` at `scheduled_at - lead_time`. System-wide lead-time configuration (default 15–30 min) is unchanged.
+2. Temporal workflow idempotency via `game_id` as workflow ID is unchanged.
+3. Manual operator force-record requests (any `game_id` regardless of rule match) are unchanged. Force-record is the third coverage input alongside rules; it does not flow through the rule table.
+4. Local durable schedule snapshot for DB-outage resilience is unchanged. The snapshot now caches the resolved rules table (plus fixture catalog) instead of aggregated preferences, but the resilience semantics (continue operating on last-known local state during DB outage, replay missed events on reconnect) are identical.
+
+**Amended trigger model (supersedes the D-GRH-36 trigger list for GameScheduler):**
+
+`BarPreferencesChanged` events **no longer trigger** GameScheduler reprocess. (Bar players and GameDeliveryService still consume `BarPreferencesChanged` per D-GRH-38 and D-GRH-60 — the delivery-side filter path is untouched. Only the coverage-recording consumer drops the subscription.)
+
+New GameScheduler triggers:
+
+1. **`CoverRuleChanged{rule_id}`** — emitted by `AdminGatewayService` (D-GRH-68) on any write (create / update / enable / disable / delete) to a rule whose `action.type == "cover"`. GameScheduler re-resolves the coverage set for fixtures whose match status could be affected.
+2. **Fixture catalog change** — new fixture, cancellation, or reschedule events emitted by whichever service publishes `FixtureList` (D-GRH-18). GameScheduler re-resolves any newly relevant fixtures against the current rules table.
+3. **Daily cron reconciliation** — defensive sweep over the full forward fixture horizon against the current rules table. Catches any missed event or rule-evaluation drift.
+4. **Service restart bootstrap scan** — on cold start, GameScheduler runs a full resolution pass against the current rules table + fixture catalog before consuming live NATS events.
+
+**Hash-reconciliation backstop:** the D-GRH-36 hash-based fallback model is preserved structurally, but the hashed entity is the rules-table snapshot (filtered to `cover`-action rows), not the bar-preferences snapshot. On DB reconnect, GameScheduler compares the current rules-table hash against its local cached hash and re-resolves the coverage set if they differ. The bar-preferences hash continues to feed `ConfigPush` drift detection (D-GRH-60) for the delivery path — same hash mechanism, different consumer responsibilities.
+
+**D-GRH-38 reinforced, not amended.** GameDeliveryService continues to filter per-player by bar preferences. Bar preferences keep their delivery-filter role; only their recording-coverage role is removed.
+
+#### Rationale
+
+D-GRH-35 predated both D-GRH-47 (rules engine) and D-GRH-70 (rules authoring API). When D-GRH-35 was authored, aggregating bar preference profiles was the only available proxy for admin intent about coverage. Now that rules exist as an explicit, operator-authored, conditional surface for coverage targeting (D-GRH-70 `cover` action), aggregating bar preferences as a coverage proxy is both redundant and incorrect:
+
+1. **Conflation of concerns.** Bar preferences describe what a bar wants to *consume*; `cover` rules describe what the operator wants the system to *record*. These are two different decisions. A bar can consume the EPL stream without the operator wanting to record EPL globally, and an operator can choose to record NFL archivally for a future bar that has no current consumers. Coupling them through aggregation prevents either case.
+2. **Operator authoring surface.** Rules are now the single explicit authoring surface for conditional behavior. Routing coverage decisions through preference aggregation hides admin intent behind a derived calculation that no operator wrote and no UI surfaces directly.
+3. **Bar onboarding simplification.** With coverage decoupled, bar onboarding focuses purely on consumption-side `BarPreferences` (D-GRH-72 schema). Operators do not have to think about "if I onboard this bar, will the scheduler start recording new content?" — coverage stays stable across bar churn unless a `cover` rule is explicitly authored or scoped to change.
+
+This is an evolution of D-GRH-35 in light of decisions that were not yet locked when D-GRH-35 was written, not a contradiction of D-GRH-35's architectural intent (single-responsibility coverage planner ahead of Temporal recording). The single-responsibility framing is preserved; only the input source shifts from "aggregated bar preferences" to "cover rules".
+
+**Pins:** Surface 3 (recording-trigger) of the admin UI grill session 2026-05-13. Closes the open architectural gap surfaced in D-GRH-70.
+
+---
+
+### D-GRH-72 — BarPreferences Schema Lock + ConfigPush.preferences Payload Extension
+
+**Date:** 2026-05-13
+**Status:** decided
+**Supersedes:** none
+**Amends:** D-GRH-60
+**Amended by:** none
+
+#### Decision
+
+The `BarPreferences` row schema (per bar, single row, central CROWDAQ DB per D-GRH-37) and the `ConfigPush.preferences` wire payload (D-GRH-60) are locked to the following field set:
+
+| Field | Type | Notes |
+|---|---|---|
+| `theme_id` | string (nullable / `"__unset__"` per D-GRH-51) | Resolved theme. Unchanged from D-GRH-60. |
+| `sports` | string array | Sport slugs the bar shows. Unchanged from D-GRH-60. |
+| `leagues` | string array | League slugs. Unchanged from D-GRH-60. |
+| `region` | string | Region code (e.g., `us-midwest`). Unchanged from D-GRH-60. |
+| `state` | string | State / province code. **Added.** Required by D-GRH-70 rule scope `state:{code}` resolution. |
+| `city` | string | City slug. **Added.** Required by D-GRH-70 rule scope `city:{slug}` resolution. |
+| `timezone` | string (IANA TZ, e.g., `America/New_York`) | **Added.** Required by D-GRH-70 condition predicates `time_range` and `day_of_week`, which resolve in bar-local TZ. |
+| `business_hours` | array of `{day_of_week, start_local, end_local}` | **Added.** Required because D-GRH-70 locked it as part of the Tier-1 `BarPreferences` schema. |
+| `local_team_list` | string array | Team slugs. **Added.** Required because D-GRH-70 locked it as part of the Tier-1 `BarPreferences` schema and because team-tier weight rules (D-GRH-47 example) resolve against it. |
+
+**`ConfigPush.preferences` payload (extends D-GRH-60 schema):**
+
+```json
+{
+  "message_type": "ConfigPush",
+  "bar_id": "...",
+  "display_id": "...",
+  "preferences": {
+    "theme_id": "dark_sport",
+    "sports": ["soccer", "basketball"],
+    "leagues": ["EPL", "NBA"],
+    "region": "us-midwest",
+    "state": "IL",
+    "city": "chicago",
+    "timezone": "America/Chicago",
+    "business_hours": [
+      {"day_of_week": "fri", "start_local": "16:00", "end_local": "02:00"}
+    ],
+    "local_team_list": ["chicago-bears", "chicago-bulls"]
+  },
+  "config_hash": "abc123"
+}
+```
+
+All other D-GRH-60 framing — when sent (reconnect re-push, initial DeviceRegistration, standalone on `BarPreferencesChanged`), `config_hash` semantics, "rules not included" — is unchanged. Only the resolved preference field set on the wire grows.
+
+**Scope of this amendment:** D-GRH-37 (storage location: central CROWDAQ DB) is **not** amended. Where the data lives is unchanged; only the field set carried in `BarPreferences` rows and the corresponding `ConfigPush.preferences` payload changes.
+
+#### Rationale
+
+D-GRH-70 introduced rule scopes (`state:{code}`, `city:{slug}`) and condition predicates (`time_range`, `day_of_week`) whose resolution depends on bar-side data fields that D-GRH-60's original four-field payload (`theme_id`, `sports`, `leagues`, `region`) did not carry. Tier-1 `BarPreferences` in D-GRH-70 already enumerated the broader field set (`timezone`, `business_hours`, `local_team_list`, plus the schema addition of `state` and `city`), but the `ConfigPush` wire schema was never updated in step. Locking both the row schema and the wire payload in a single decision gives downstream consumers — `AdminGatewayService` write validation, `GameScheduler` rule resolution, `GameDeliveryService` per-player filtering, and the bar-player `ConfigPush` handler — one authoritative reference for the field set instead of forcing each consumer to re-derive it from a scattered combination of D-GRH-37, D-GRH-60, and D-GRH-70.
+
+**Pins:** D-GRH-70 BarPreferences Tier-1 schema. Closes the cross-decision drift flagged in the scribe report 2026-05-13.
 
 ---
 
