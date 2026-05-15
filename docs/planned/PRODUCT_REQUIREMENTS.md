@@ -965,6 +965,163 @@ Two symmetric presence events published to `bar.<bar_id>.control` (BAR_CONTROL s
 
 `reconnect: false` on first-ever registration for `display_id`; `true` on all subsequent connects. Ops monitoring only in v1 — no backend business logic depends on these events.
 
+## Vertical slices — implementation sequence
+
+This section enumerates the thin end-to-end functional cuts that compose CROWDAQ. Each slice delivers observable behavior end-to-end; together S0–S13 cover the full backend-orchestrated bar-signage pipeline. Plane mirror: project `CROWDAQ`, parent epic `CRWDQ-1`.
+
+### Strategy
+
+- **S0** — recording baseline (LIVE, reference only).
+- **S1, S2, S3** — three parallelizable tracks layered on S0.
+- **S4** — first true end-to-end demo. Integrates S1 + S2 + S3.
+- **S5–S13** — fan-out features after S4, picked by product priority.
+
+### Critical path to first end-to-end demo
+
+`S0 (done) → max(S1, S2, S3) → S4 integration glue`
+
+### Slices
+
+#### S0 — Recording baseline (LIVE)
+
+- **Surfaces:** crowdaq-backend Hono HTTP trigger; Temporal `RecordFixtureWorkflow`; JSONL artifact persisted to PVC.
+- **Demonstrates:** game ingest from upstream sport feed → durable artifact on disk. No admin path, no player.
+- **Depends on:** nothing.
+- **Builds:** N/A — already LIVE. Captured for dependency graph completeness.
+- **Status:** DONE.
+
+#### S1 — Coverage authoring → recording fanout
+
+- **Surfaces:** AdminGatewayService skeleton (D-GRH-69); Rule entity persistence with two-tier model (D-GRH-71); GameScheduler coverage driver, rule-driven (D-GRH-72).
+- **Demonstrates:** admin writes `cover NFL` rule → GameScheduler scans + spawns RecordFixtureWorkflow per matching fixture. No player.
+- **Depends on:** S0.
+- **Builds:** AdminGatewayService HTTPS surface, audit log stream, Rule table schema + write path, GameScheduler service, Temporal signal dispatch.
+
+#### S2 — Bar onboarding (BarPreferences + ConfigPush)
+
+- **Surfaces:** AdminGatewayService (extended); BarPreferences entity (D-GRH-60 + D-GRH-73); ConfigPush channel.
+- **Demonstrates:** admin registers bar, writes BarPreferences → player receives config push + acks. No content rendering.
+- **Depends on:** S1.
+- **Builds:** BarPreferences table + write path, ConfigPush lane, player config sync handler.
+
+#### S3 — Single-game render (no admin path)
+
+- **Surfaces:** BarPlayerSchedulerService skeleton (D-GRH-40); GameDeliveryService (D-GRH-42); Widget v2 single_game render path; wire-protocol envelope (D-GRH-21, D-GRH-62).
+- **Demonstrates:** hardcoded BarPreferences + one S0 recording artifact → scheduler emits PlannedState (single_game) → delivery pushes over WS → Widget v2 renders. No admin path.
+- **Depends on:** S0.
+- **Builds:** BarPlayerSchedulerService, GameDeliveryService, versioned wire-protocol envelope, single_game template.
+- **Parallelizable with S1, S2.**
+
+#### S4 — Coverage → record → render (end-to-end)
+
+- **Surfaces:** all of S1 + S2 + S3 active together.
+- **Demonstrates:** admin authors `cover NFL` rule AND onboards bar → recording fires → scheduler picks up artifact + BarPreferences → ScheduleWindow flows to player → render. First true end-to-end demo.
+- **Depends on:** S1, S2, S3.
+- **Builds:** integration glue only.
+
+#### S5 — Weight rule + multi-game render
+
+- **Surfaces:** rule action `weight` (D-GRH-71); scheduler ordering by weight; multiple_games template.
+- **Demonstrates:** admin authors `weight {team: Eagles, delta: +50}` → scheduler re-orders → player renders 2×2 grid with Eagles first.
+- **Depends on:** S4.
+- **Builds:** weight rule processor, multi-game template + dwell logic.
+
+#### S6 — Fixtures mode (pre-game catalog render)
+
+- **Surfaces:** FixtureList 7-day lookahead (D-GRH-18); fixtures template; automatic mode selection.
+- **Demonstrates:** no live game → player renders fixtures mode.
+- **Depends on:** S3.
+- **Builds:** FixtureList sync, fixtures template, first iteration of automatic-mode-selection.
+
+#### S7 — Slot pin (one-off admin override)
+
+- **Surfaces:** AdminGatewayService slot-pin endpoint (D-GRH-70 path 1); DB hot-tier direct write with `pinned: true`; scheduler pin-skip logic.
+- **Demonstrates:** admin pins a row in pre-computed ScheduleWindow → scheduler preserves on reprocess → 24h auto-expiry.
+- **Depends on:** S4.
+- **Builds:** pin write path, scheduler pin-aware reprocess.
+
+#### S8 — Ad inventory + AdSlot render
+
+- **Surfaces:** ad creative upload; AdSlot entity (D-GRH-62); rule action `ad_window` (D-GRH-71); fixtures_with_ads template.
+- **Demonstrates:** operator uploads creative + authors `ad_window {mode: force, ...}` → scheduler interleaves AdSlot rows → player renders ad.
+- **Depends on:** S4, S6.
+- **Builds:** creative blob store, AdSlot interleave logic, ad_window rule processor, ad template.
+
+#### S9 — Post-game recap
+
+- **Surfaces:** RecordFixtureWorkflow completion signal → BarPlayerSchedulerService (D-GRH-68); recap window computation; recap PlannedState + recap template.
+- **Demonstrates:** game finishes → signal → scheduler emits recap PlannedState → player renders recap.
+- **Depends on:** S4.
+- **Builds:** recap signal path, recap window calculator, recap render template.
+
+#### S10 — MessagingLane (out-of-band text overlay)
+
+- **Surfaces:** AdminGatewayService MessagingLane endpoint (D-GRH-57); NATS subject `bar.<bar_id>.control` (D-GRH-65); player overlay renderer.
+- **Demonstrates:** admin publishes text overlay → NATS → player renders overlay on top of current PlannedState. No reprocess.
+- **Depends on:** S3, S1.
+- **Builds:** MessagingLane entity + NATS publish, player overlay layer.
+
+#### S11 — Safe / ambient fallback
+
+- **Surfaces:** scheduler fallback mode selection; safe + ambient templates.
+- **Demonstrates:** no rules cover anything → scheduler emits safe-mode PlannedState → player renders ambient.
+- **Depends on:** S3.
+- **Builds:** safe template, ambient template, automatic-mode-selection completion (D-GRH-22 gap-fill).
+
+#### S12 — Auth / RBAC hardening
+
+- **Surfaces:** AdminGatewayService real auth (login, session, scopes); RBAC scope model + delegation; audit log actor.
+- **Demonstrates:** operator logs in, scoped token writes only within scope, audit log shows actor.
+- **Depends on:** S1.
+- **Builds:** real auth (e.g., OIDC + session), RBAC scope evaluator, audit log actor field.
+
+#### S13 — Journal access + metrics
+
+- **Surfaces:** journal read API; metrics emission; dashboard hosting.
+- **Demonstrates:** admin queries journal; dashboard shows per-bar render counts, reprocess timings, recording success rate.
+- **Depends on:** S4.
+- **Builds:** journal query API, metrics instrumentation, dashboard scaffolding.
+
+### Sequence + dependency graph
+
+```
+S0 (DONE)
+ │
+ ├──► S1 ──┐
+ │         ├──► S4 ──┬──► S5
+ ├──► S2 ──┤          ├──► S7
+ │         │          ├──► S8 (also needs S6)
+ ├──► S3 ──┘          ├──► S9
+ │   │                ├──► S10
+ │   ├──► S6 ─────────┤
+ │   └──► S11         └──► S12 (parallel)
+ │                    └──► S13 (parallel)
+```
+
+Parallelization: S1, S2, S3 are three parallel tracks after S0; converge at S4. S5–S13 fan out after S4.
+
+### Dependency table
+
+| Slice | Depends on | Unlocks |
+|-------|-----------|---------|
+| S1 | S0 | S2, S4 |
+| S2 | S1 | S4 |
+| S3 | S0 | S4, S6, S10, S11 |
+| S4 | S1, S2, S3 | S5, S7, S9, S10, S13 |
+| S5 | S4 | — |
+| S6 | S3 | S8 |
+| S7 | S4 | — |
+| S8 | S4, S6 | — |
+| S9 | S4 | — |
+| S10 | S3, S1 | — |
+| S11 | S3 | — |
+| S12 | S1 | — |
+| S13 | S4 | — |
+
+### Plane mirror
+
+Each slice corresponds to a Plane epic under parent `CRWDQ-1` (CROWDAQ project). Plane epics carry the same surfaces / demonstrates / depends-on / builds bullets; `blocked_by` relations mirror this dependency table. Plane is the work-tracking surface; this PRD section is the source-of-truth narrative.
+
 ## Open Items Remaining After This PRD
 
 The following still need follow-up specs:
