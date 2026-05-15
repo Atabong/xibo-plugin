@@ -988,6 +988,9 @@ This section enumerates the thin end-to-end functional cuts that compose CROWDAQ
 - **Demonstrates:** game ingest from upstream sport feed → durable artifact on disk. No admin path, no player.
 - **Depends on:** nothing.
 - **Builds:** N/A — already LIVE. Captured for dependency graph completeness.
+- **Repos:**
+  - `crowdaq-backend` — Hono trigger, Temporal RecordFixtureWorkflow, worker pod.
+  - `proxmox-infra` — k8s deployment manifests, PVC for JSONL storage.
 - **Status:** DONE.
 
 #### S1 — Coverage authoring → recording fanout
@@ -996,6 +999,10 @@ This section enumerates the thin end-to-end functional cuts that compose CROWDAQ
 - **Demonstrates:** admin writes `cover NFL` rule → GameScheduler scans + spawns RecordFixtureWorkflow per matching fixture. No player.
 - **Depends on:** S0.
 - **Builds:** AdminGatewayService HTTPS surface, audit log stream, Rule table schema + write path, GameScheduler service, Temporal signal dispatch.
+- **Repos:**
+  - `crowdaq-backend` — AdminGatewayService (new Go process), Rule entity schema + migrations, GameScheduler service, Temporal signal dispatch, audit-log stream.
+  - `proxmox-infra` — k8s deployment manifests for AdminGatewayService + GameScheduler pods, secrets scaffolding.
+  - `founding` — CF Tunnel + CF Access policy only if AdminGateway becomes public-facing; default phase-1 is tailnet-only (skip until S12).
 
 #### S2 — Bar onboarding (BarPreferences + ConfigPush)
 
@@ -1003,6 +1010,10 @@ This section enumerates the thin end-to-end functional cuts that compose CROWDAQ
 - **Demonstrates:** admin registers bar, writes BarPreferences → player receives config push + acks. No content rendering.
 - **Depends on:** S1.
 - **Builds:** BarPreferences table + write path, ConfigPush lane, player config sync handler.
+- **Repos:**
+  - `crowdaq-backend` — BarPreferences entity + migrations, AdminGatewayService /bar-preferences endpoints, ConfigPush publisher (NATS or WS sender).
+  - `xibo-plugin` — player-side ConfigPush consumer in Widget v2, BarPreferences local cache + apply.
+  - `proxmox-infra` — NATS subject definitions for `bar.<id>.config` if NATS path chosen, ConfigMap secrets.
 
 #### S3 — Single-game render (no admin path)
 
@@ -1010,6 +1021,10 @@ This section enumerates the thin end-to-end functional cuts that compose CROWDAQ
 - **Demonstrates:** hardcoded BarPreferences + one S0 recording artifact → scheduler emits PlannedState (single_game) → delivery pushes over WS → Widget v2 renders. No admin path.
 - **Depends on:** S0.
 - **Builds:** BarPlayerSchedulerService, GameDeliveryService, versioned wire-protocol envelope, single_game template.
+- **Repos:**
+  - `crowdaq-backend` — BarPlayerSchedulerService (Temporal workflow + activities), GameDeliveryService (Go WS server), wire-protocol envelope schema + serializer.
+  - `xibo-plugin` — Widget v2 WS client, wire-protocol deserializer, single_game template render path.
+  - `proxmox-infra` — k8s manifests for BarPlayerSchedulerService + GameDeliveryService, Ingress/Service definitions, WS upgrade config.
 - **Parallelizable with S1, S2.**
 
 #### S4 — Coverage → record → render (end-to-end)
@@ -1018,6 +1033,10 @@ This section enumerates the thin end-to-end functional cuts that compose CROWDAQ
 - **Demonstrates:** admin authors `cover NFL` rule AND onboards bar → recording fires → scheduler picks up artifact + BarPreferences → ScheduleWindow flows to player → render. First true end-to-end demo.
 - **Depends on:** S1, S2, S3.
 - **Builds:** integration glue only.
+- **Repos:**
+  - `crowdaq-backend` — cross-service wiring (Rule → GameScheduler → RecordFixtureWorkflow → BarPlayerSchedulerService → GameDeliveryService), end-to-end e2e tests.
+  - `xibo-plugin` — e2e smoke test on player side (real WS, real BarPreferences).
+  - `proxmox-infra` — full-stack staging deploy, dashboards verifying flow.
 
 #### S5 — Weight rule + multi-game render
 
@@ -1025,6 +1044,9 @@ This section enumerates the thin end-to-end functional cuts that compose CROWDAQ
 - **Demonstrates:** admin authors `weight {team: Eagles, delta: +50}` → scheduler re-orders → player renders 2×2 grid with Eagles first.
 - **Depends on:** S4.
 - **Builds:** weight rule processor, multi-game template + dwell logic.
+- **Repos:**
+  - `crowdaq-backend` — weight rule processor in GameScheduler + BarPlayerSchedulerService ordering logic.
+  - `xibo-plugin` — multiple_games (2×2 grid) template + dwell handling in Widget v2.
 
 #### S6 — Fixtures mode (pre-game catalog render)
 
@@ -1032,6 +1054,9 @@ This section enumerates the thin end-to-end functional cuts that compose CROWDAQ
 - **Demonstrates:** no live game → player renders fixtures mode.
 - **Depends on:** S3.
 - **Builds:** FixtureList sync, fixtures template, first iteration of automatic-mode-selection.
+- **Repos:**
+  - `crowdaq-backend` — FixtureList entity, upstream feed sync worker, BarPlayerSchedulerService automatic-mode-selection rule (no-live-game → fixtures).
+  - `xibo-plugin` — fixtures template + render path in Widget v2.
 
 #### S7 — Slot pin (one-off admin override)
 
@@ -1039,6 +1064,7 @@ This section enumerates the thin end-to-end functional cuts that compose CROWDAQ
 - **Demonstrates:** admin pins a row in pre-computed ScheduleWindow → scheduler preserves on reprocess → 24h auto-expiry.
 - **Depends on:** S4.
 - **Builds:** pin write path, scheduler pin-aware reprocess.
+- **Repos:** `crowdaq-backend` only — slot-pin endpoint on AdminGatewayService, DB hot-tier write with pinned flag, BarPlayerSchedulerService pin-aware reprocess logic. Wire-protocol stays unchanged; player doesn't need updates.
 
 #### S8 — Ad inventory + AdSlot render
 
@@ -1046,6 +1072,10 @@ This section enumerates the thin end-to-end functional cuts that compose CROWDAQ
 - **Demonstrates:** operator uploads creative + authors `ad_window {mode: force, ...}` → scheduler interleaves AdSlot rows → player renders ad.
 - **Depends on:** S4, S6.
 - **Builds:** creative blob store, AdSlot interleave logic, ad_window rule processor, ad template.
+- **Repos:**
+  - `crowdaq-backend` — creative blob upload endpoint, creative store (S3-compatible or PVC), AdSlot entity + scheduler interleave, ad_window rule processor.
+  - `xibo-plugin` — ad render template + fixtures_with_ads composite template in Widget v2.
+  - `proxmox-infra` — blob storage provisioning (Ceph / MinIO PVC), CDN config if creatives are pre-cached to player.
 
 #### S9 — Post-game recap
 
@@ -1053,6 +1083,9 @@ This section enumerates the thin end-to-end functional cuts that compose CROWDAQ
 - **Demonstrates:** game finishes → signal → scheduler emits recap PlannedState → player renders recap.
 - **Depends on:** S4.
 - **Builds:** recap signal path, recap window calculator, recap render template.
+- **Repos:**
+  - `crowdaq-backend` — Temporal signal from RecordFixtureWorkflow → BarPlayerSchedulerService, recap window calculator, recap PlannedState emitter.
+  - `xibo-plugin` — recap template + render path in Widget v2.
 
 #### S10 — MessagingLane (out-of-band text overlay)
 
@@ -1060,6 +1093,10 @@ This section enumerates the thin end-to-end functional cuts that compose CROWDAQ
 - **Demonstrates:** admin publishes text overlay → NATS → player renders overlay on top of current PlannedState. No reprocess.
 - **Depends on:** S3, S1.
 - **Builds:** MessagingLane entity + NATS publish, player overlay layer.
+- **Repos:**
+  - `crowdaq-backend` — MessagingLane endpoint on AdminGatewayService, NATS publisher for `bar.<id>.control`.
+  - `xibo-plugin` — player overlay layer in Widget v2 (renders on top of current PlannedState without reflow).
+  - `proxmox-infra` — NATS subject ACLs + JetStream config for control channel.
 
 #### S11 — Safe / ambient fallback
 
@@ -1067,6 +1104,9 @@ This section enumerates the thin end-to-end functional cuts that compose CROWDAQ
 - **Demonstrates:** no rules cover anything → scheduler emits safe-mode PlannedState → player renders ambient.
 - **Depends on:** S3.
 - **Builds:** safe template, ambient template, automatic-mode-selection completion (D-GRH-22 gap-fill).
+- **Repos:**
+  - `crowdaq-backend` — BarPlayerSchedulerService fallback-mode selection logic (D-GRH-22 gap-fill).
+  - `xibo-plugin` — safe template + ambient template in Widget v2.
 
 #### S12 — Auth / RBAC hardening
 
@@ -1074,6 +1114,10 @@ This section enumerates the thin end-to-end functional cuts that compose CROWDAQ
 - **Demonstrates:** operator logs in, scoped token writes only within scope, audit log shows actor.
 - **Depends on:** S1.
 - **Builds:** real auth (e.g., OIDC + session), RBAC scope evaluator, audit log actor field.
+- **Repos:**
+  - `crowdaq-backend` — real auth middleware in AdminGatewayService (OIDC + session), RBAC scope evaluator, audit-log actor field, scope-token format.
+  - `founding` — CF Access policies + CF Tunnel rules if AdminGateway becomes public-facing (instead of tailnet-only).
+  - `proxmox-infra` — IdP secrets (OIDC client secret), audit-log retention storage config.
 
 #### S13 — Journal access + metrics
 
@@ -1081,6 +1125,10 @@ This section enumerates the thin end-to-end functional cuts that compose CROWDAQ
 - **Demonstrates:** admin queries journal; dashboard shows per-bar render counts, reprocess timings, recording success rate.
 - **Depends on:** S4.
 - **Builds:** journal query API, metrics instrumentation, dashboard scaffolding.
+- **Repos:**
+  - `crowdaq-backend` — journal read API on AdminGatewayService, metrics emission (OpenTelemetry / Prometheus exporters) across all services.
+  - `proxmox-infra` — Grafana dashboards, Prometheus scrape config, alert rules, log shipping.
+  - `xibo-plugin` — player-side metrics ping (render counts, dwell timing) if collected client-side.
 
 ### Sequence + dependency graph
 
