@@ -1,3 +1,9 @@
+> ⚠️ **AUTHORITATIVE COPY IN PLANE.** This disk file is a mirror of `CROWDAQ — Product Requirements (PRD)` in Plane (workspace `nadwell` → project `CROWDAQ` → Pages).
+> Plane page id: `f0f7daba-840c-4501-9215-41d7a7964246`
+> Edit in Plane first, then re-export here. Discrepancies = Plane wins.
+
+---
+
 # CROWDAQ Dynamic Layout Product Requirements Document
 
 Last updated: 2026-05-15

@@ -1,3 +1,9 @@
+> ⚠️ **AUTHORITATIVE COPY IN PLANE.** This disk file is a mirror of `CROWDAQ — Dynamic Layout Decisions Log (D-GRH)` in Plane (workspace `nadwell` → Pages, workspace-level).
+> Plane page id: `de0db156-bf91-429c-9fc7-fffcb8a772dd`
+> Edit in Plane first, then re-export here. Discrepancies = Plane wins.
+
+---
+
 # CROWDAQ Dynamic Layout Decisions Log
 
 Last updated: 2026-05-08
