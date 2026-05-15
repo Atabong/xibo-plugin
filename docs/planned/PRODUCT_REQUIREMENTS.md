@@ -1,6 +1,6 @@
 # CROWDAQ Dynamic Layout Product Requirements Document
 
-Last updated: 2026-05-12
+Last updated: 2026-05-15
 
 > Status: **planned / target architecture**.
 >
@@ -253,9 +253,12 @@ For `single_game_with_ads`: ad unit must occupy its own layout region and may no
 - **D-GRH-32** — Late-join gamestate recovery: two-phase snapshot + delta; recording container holds live GameState projection; player requests or receives snapshot on connect, then receives GameEvent deltas; GameStateRequest available for explicit pull.
 - **D-GRH-33** — Message broker is NATS JetStream (not Kafka); ~60 events/sec workload does not justify Kafka's operational overhead; NATS JetStream provides durable streams, replay, consumer groups, fan-out with single Go binary.
 - **D-GRH-34** — Recording layer uses Temporal workflows (one per game_id): durable GameState projection, PublishGameEvent activity publishes to NATS JetStream; Temporal and NATS are separate services; GameStateRequest maps to Temporal Query; supersedes "recording container" terminology in D-GRH-32.
-- **D-GRH-35** — GameScheduler service: aggregates bar preferences, filters fixtures, starts Temporal workflows at scheduled_at minus configurable lead time (default 15–30 min); accepts manual operator recording requests; maintains local durable schedule snapshot for DB-outage resilience.
-- **D-GRH-36** — Bar preference change detection: event-driven primary (BarPreferencesChanged via NATS, both players and GameScheduler subscribe) + hash-based reconciliation on startup/DB reconnect; same per-bar hash used for player ConfigPush and GameScheduler consistency check; GameScheduler operates on local state during DB outage.
+- **D-GRH-35** — GameScheduler service: aggregates bar preferences, filters fixtures, starts Temporal workflows at scheduled_at minus configurable lead time (default 15–30 min); accepts manual operator recording requests; maintains local durable schedule snapshot for DB-outage resilience. Amended by D-GRH-72: recording-trigger path is rule-driven (cover-rule scan), not bar-preferences aggregation.
+- **D-GRH-36** — Bar preference change detection: event-driven primary (BarPreferencesChanged via NATS, both players and GameScheduler subscribe) + hash-based reconciliation on startup/DB reconnect; same per-bar hash used for player ConfigPush and GameScheduler consistency check; GameScheduler operates on local state during DB outage. Amended by D-GRH-72: coverage selection is rule-driven; bar-preferences no longer aggregated for recording-fanout.
 - **D-GRH-37** — Bar preference profiles stored in central CROWDAQ DB (no dedicated service); thin write hook publishes BarPreferencesChanged to NATS; consumers query DB directly.
+
+> Two-tier model post-D-GRH-71: `BarPreferences` carries static identity (theme, sports, leagues, region, timezone, business hours, local-team list, state, city); `Rule` entities carry conditional behavior (cover/weight/ad_window) layered on top.
+
 - **D-GRH-38** — GameDeliveryService subscribes to all game.*.events subjects and filters per player at delivery; no per-player selective subscriptions.
 - **D-GRH-39** — GameDeliveryService maintains in-memory GameState projection per active game_id; primary late-join path is warm cache delivery; Temporal Query is cold-start fallback only; supersedes D-GRH-32 primary snapshot path.
 - **D-GRH-40** — BarPlayerSchedulerService generates full pre-computed schedule per bar (24h/week horizon); inputs: bar preferences, fixtures, rules-based local team weighting (numeric score), ad inventory, manual override; full reprocess on any game lifecycle event; delivers ScheduleWindow to players; supersedes "schedule service" references.
@@ -278,7 +281,7 @@ For `single_game_with_ads`: ad unit must occupy its own layout region and may no
 - **D-GRH-57** — MessagingLane content model: text-only (text, display_form, dwell_ms, valid_from, valid_until); no asset dependency; independent overlay layer, does not affect PlannedState or business mode; central admin authors; same lane_id = replace prior message
 - **D-GRH-58** — Player rendering priority stack: OverrideInjection (highest, full-screen, suppresses all MessagingLanes during dwell) > PlannedState (base layer from ScheduleWindow) > MessagingLane (overlay on PlannedState only); suppression binary — no per-override flag; lanes auto-resume after override dwell via validity window
 - **D-GRH-59** — Heartbeat: bidirectional app-level; player sends `Heartbeat` (seq) every 30s, server responds `HeartbeatAck` (seq); player reconnects if no ack within 60s; server closes + emits PlayerDisconnected if no heartbeat within 90s; heartbeat carries no payload beyond display_id + seq
-- **D-GRH-60** — ConfigPush content: bar profile snapshot (bar_id, display_id, preferences{theme_id, sports, leagues, region}, config_hash); sent on reconnect re-push, DeviceRegistration, and standalone on BarPreferencesChanged; rules not included — server resolves, player consumes resolved output only; config_hash ties to D-GRH-36 drift detection
+- **D-GRH-60** — ConfigPush content: bar profile snapshot (bar_id, display_id, preferences{theme_id, sports, leagues, region}, config_hash); sent on reconnect re-push, DeviceRegistration, and standalone on BarPreferencesChanged; rules not included — server resolves, player consumes resolved output only; config_hash ties to D-GRH-36 drift detection. Extended by D-GRH-73: BarPreferences gains `state` and `city` fields (locked-enum scope keys for region-level rules).
 - **D-GRH-61** — DeviceRegistration handshake: player sends `DeviceRegistration` (display_id, player_version, capabilities) on every connect (first + reconnect); server responds with full re-push sequence directly (ConfigPush → ScheduleWindow → AssetManifest → PlannedStates → GameStates); no RegistrationAck; ConfigPush serves as implicit ack; capabilities reserved for future negotiation
 - **D-GRH-62** — Ad window timing: AdSlot is first-class PlannedState slot in ScheduleWindow (fires_at, dwell_target_ms, business_mode="ad", ad_ref); ad timing pre-computed server-side by BarPlayerSchedulerService; player executes schedule — no ad-insertion logic, no AdWindowOpen/Close messages
 - **D-GRH-63** — GameStateRequest: player-to-server mid-connection seq gap recovery only (not used on reconnect — D-GRH-49 full re-push covers that); player detects seq gap in active game stream, sends GameStateRequest(game_id, since_seq); server responds with GameStateSnapshot (full snapshot in v1); amends D-GRH-49 "post-reconnect" wording
@@ -762,6 +765,8 @@ Likely additional useful categories:
 - compliance tier
 - hardware capability tier
 
+> **Phase-1 closed enum (D-GRH-71):** Only `all`, `bar:{id}`, `region:{code}`, `state:{code}`, `city:{slug}` accepted by AdminGatewayService rule writes. Remaining scopes (country, bar_type, display_group, market_cluster, timezone, campaign_window, sport_profile, compliance_tier, hw_tier) deferred to phase 2.
+
 ## What central admin should author
 
 Central admin UI should support:
@@ -972,44 +977,27 @@ The following still need follow-up specs:
 - exact messaging-lane composition rules
 - exact future permissions/content-author model
 
-### Post-Game Recap Trigger (architectural gap)
+### Post-Game Recap Trigger
 
-The recap layer is defined (interrupt class, dwell, ad-blocking, hand-back rules) but the trigger path is not:
+**Resolved (D-GRH-68):** Post-game recap trigger lives on `BarPlayerSchedulerService`. On `RecordFixtureWorkflow` completion → workflow signals scheduler → scheduler computes recap window + emits recap `PlannedState`. No new service.
 
-- Which service detects `game_status → final` and decides to enter the recap layer?
-- Does the recording Temporal workflow publish a `GameFinal` event to NATS → GameDeliveryService reacts?
-- Can admin manually trigger recap via UI?
-- What prevents recap from firing when no player is watching that game?
+### Admin UI — design status
 
-Must be resolved before backend implementation.
+Surfaces closed:
+- **AdminGatewayService (D-GRH-69)** — single HTTPS write surface; owns auth/RBAC, validation, audit log, multi-protocol downstream dispatch (NATS / DB / Temporal signal).
+- **Schedule authoring (D-GRH-70)** — admin does not author from scratch. Two paths: slot-level pin (one-off, 24h auto-expiry) + rule edit (persistent). Last-write-wins, audit-log only, no ETag phase-1.
+- **Rules authoring (D-GRH-71)** — two-tier model: `BarPreferences` (static identity) + `Rule` (conditional behavior). Closed enums: scope (`all|bar|region|state|city`), action (`cover|weight|ad_window`), predicate keys (sport, league, team, game_id, day_of_week, time_range, date_range). AND-only, no OR/NOT phase-1.
+- **GameScheduler coverage driver (D-GRH-72)** — rule-driven; scans cover rules + fixture catalog, spawns RecordFixtureWorkflow.
+- **BarPreferences schema (D-GRH-73)** — extended with `state`, `city`.
 
-### Admin UI (requires separate design pass)
+Surfaces still open (priority order):
+1. Ad inventory management (creative upload, AdSlot policy authoring).
+2. Auth/RBAC (login, scopes, scope delegation).
+3. Temporal workflow visibility (built-in Temporal Web UI vs custom views).
+4. Journal data access (admin reporting against journaled events).
+5. Metrics + dashboards (emission targets, dashboard hosting).
 
-The decisions log covers backend orchestration and player wire protocol. The admin/process-management/observability UI requires its own design pass. Known gaps:
-
-**API contract:**
-- No admin REST API endpoints defined
-- Admin auth/authz model undefined (login, RBAC, scopes)
-
-**Authoring operations (all lack API definition):**
-- Override injection admin path: UI → ??? → which backend component → which NATS subject
-- Rules create/edit/delete (D-GRH-47 defines runtime behavior only)
-- Schedule authoring: how admin creates ProgramSlots and ScheduleWindows
-- Bar preference write path (D-GRH-37 defines storage; no admin write endpoint)
-- Manual recording request (D-GRH-35 mentions it; no mechanism defined)
-- MessagingLane authoring (D-GRH-57 says central admin authors; no API)
-- Ad inventory management UI and API
-
-**Process management:**
-- Temporal workflow visibility: internal Temporal UI or custom admin panel?
-- Can admin pause/resume BarPlayerSchedulerService or recording workflows?
-
-**Observability:**
-- PlayerConnected/Disconnected events exist on NATS (D-GRH-64, D-GRH-67); admin query/display layer not designed
-- Journal data access for admin reporting: query API undefined
-- Metrics emission: what is emitted, to what system, not defined
-
-**Post-game recap admin trigger:** also unresolved (see above)
+Deprioritized: override-injection admin path (D-SCHEMA-08 / D-GRH-56) — no concrete operator workflow surfaced.
 
 ## How To Use This PRD Next
 
