@@ -5294,4 +5294,128 @@ D-GRH-71 introduced rule scopes (`state:{code}`, `city:{slug}`) and condition pr
 
 ---
 
+### D-GRH-74 — Ad Creative Blob Storage on Cloudflare R2
+
+**Date:** 2026-05-15
+**Status:** decided
+**Supersedes:** none
+**Amends:** D-GRH-23 (informational — extends AssetManifest backend), D-GRH-55 (informational)
+**Amended by:** none
+
+#### Decision
+
+Ad creative blobs (image, video, HTML bundle, animation files) and theme assets are stored in a Cloudflare R2 bucket named `crowdaq-creatives` provisioned via the existing `founding/infra/terraform/modules/cloudflare-r2/` module. R2 is the canonical content backend for all assets delivered via D-GRH-23 `AssetManifest`.
+
+**R2 data-plane credentials.** The R2 S3 API token is dashboard-issued — the Cloudflare Terraform provider intentionally does not manage R2 API tokens. The token is stored in SOPS-encrypted tfvars (`infra/terraform/secrets.auto.tfvars.sops.yaml` or similar), parallel to the existing pattern used for the Authentik CF Access IdP secret.
+
+**Asset URL surface.** `AssetManifest` carries fully-qualified URLs (D-GRH-23 contract unchanged). The URL host is decided per spec from the following options:
+
+| Form | Use |
+|---|---|
+| `<bucket>.<account>.r2.cloudflarestorage.com` | S3 endpoint. Requires presigning for private objects. |
+| `pub-<hash>.r2.dev` | Cloudflare public dev URL. Dev/test only. |
+| Custom subdomain via CF Worker | Production. Worker mints presigns and sets cache-control headers. |
+
+#### Rationale
+
+R2 wins over on-prem S3-compatible backends (Ceph RGW, MinIO StatefulSet) for this content tier:
+
+- **Zero egress fees.** Every bar pulls the full asset set per `AssetManifest`; on-prem S3-compat would bleed bandwidth on every pull.
+- **TF module already proven.** `founding/infra/terraform/modules/cloudflare-r2/` is in production for `cloudflare_r2_founding_backups` and `cloudflare_r2_outline_uploads`. Adding a third bucket is a config diff, not new infra.
+- **S3-compatible API.** The `AssetManifest` URL contract is unchanged — backend signers and player fetchers stay agnostic.
+- **CF Cache + Worker layer.** Trivializes CDN precache. SPEC-CRWDQ-043 (CDN edge cache) was a 10+ acceptance-criteria proxmox spec; on R2 it collapses to bucket policy + Worker stub and may merge into SPEC-CRWDQ-042.
+- **No new proxmox-side ops.** No Ceph operator, no MinIO StatefulSet, no on-prem object-store SRE burden.
+
+**Pins:** SPEC-CRWDQ-042 (creative blob bucket, founding) and SPEC-CRWDQ-043 (CDN edge cache, founding — may collapse into 042).
+
+---
+
+### D-GRH-75 — ConfigPush.intervals Payload Extension
+
+**Date:** 2026-05-15
+**Status:** decided
+**Supersedes:** none
+**Amends:** D-GRH-73 (BarPreferences schema + `ConfigPush.preferences` payload)
+**Amended by:** none
+
+#### Decision
+
+`ConfigPush` gains a new sibling field `intervals` alongside `preferences`. The `intervals` block carries player-side runtime cadences that the backend tunes without redeploying the player.
+
+**Schema (additive, backward-compatible — older players that don't read `intervals` keep using their compiled defaults):**
+
+```json
+{
+  "message_type": "ConfigPush",
+  "bar_id": "...",
+  "display_id": "...",
+  "preferences": { ... },
+  "intervals": {
+    "journal_sync_ms": 60000,
+    "heartbeat_ms": 15000,
+    "manifest_recheck_ms": 300000
+  },
+  "config_hash": "..."
+}
+```
+
+**Field set (phase 1, closed):** `journal_sync_ms`, `heartbeat_ms`, `manifest_recheck_ms`. Each is an integer milliseconds value. Adding new fields requires a D-GRH amendment. The player carries documented sensible defaults baked in for the no-`intervals` case (older `ConfigPush` payloads or fields absent in newer ones).
+
+#### Rationale
+
+Carrying `intervals` on `ConfigPush` rather than introducing a new `RuntimeConfig` wire message:
+
+- **Same channel, same lifecycle.** Push, cache, apply — identical to `preferences`.
+- **No new wire-protocol message type, no new player handler.** The existing `ConfigPush` consumer (D-GRH-60, extended in D-GRH-73) reads `intervals` alongside `preferences`.
+- **`config_hash` already covers change detection** for both `preferences` and `intervals` — one hash, one apply step, one journal entry on change.
+
+**Pins:** SPEC-CRWDQ-013 (`ConfigPush` publisher), SPEC-CRWDQ-014 (`ConfigPush` consumer), SPEC-CRWDQ-061 (player metrics ping — primary consumer of `journal_sync_ms`).
+
+---
+
+### D-GRH-76 — Safe-Mode Reason Source Split
+
+**Date:** 2026-05-15
+**Status:** decided
+**Supersedes:** none
+**Amends:** D-GRH-22 (gap-fill `safe_info`), D-SAFE-01 (connectivity fallback — implicit)
+**Amended by:** none
+
+#### Decision
+
+Safe-mode reason source is split by trigger origin: backend-planned safe carries a patron-visible reason on the wire; connectivity-fallback safe synthesizes a journal-only reason locally and renders a generic on-screen message.
+
+**Backend-planned safe (D-GRH-22 gap-fill, maintenance, regulatory blackout).** Backend includes `safe_reason` on the `PlannedState` payload when `mode == "safe_info"`. Closed enum:
+
+| `safe_reason` | Trigger |
+|---|---|
+| `scheduled_gap` | D-GRH-22 empty-schedule-window gap-fill |
+| `maintenance` | Operator-scheduled maintenance window |
+| `outage` | Backend-known upstream outage (e.g., feed provider down) |
+| `regulatory_blackout` | Regulatory or compliance content restriction |
+
+The player renders the corresponding template message (i18n bucket keyed by enum value).
+
+**Player connectivity-fallback (D-SAFE-01).** The player synthesizes a local `runtime_reason` enum when it drops to safe due to runtime conditions detected on the player side. Closed enum:
+
+| `runtime_reason` | Trigger |
+|---|---|
+| `offline` | Lost connectivity to backend; cached `PlannedState` exhausted or unsafe |
+| `stale_config` | `ConfigPush` not refreshed within tolerance; `config_hash` mismatch can't be resolved |
+| `render_error` | Template render failure; falling back to safe rather than blank |
+
+`runtime_reason` is **journal-only** — written to player metrics + journal entries, never rendered on-screen. On-screen render for connectivity-fallback safe is a generic "Currently Unavailable" template with no enum-specific copy.
+
+#### Rationale
+
+The split tracks the audience for each reason:
+
+- **Patrons don't need to see "disconnected from server."** A connectivity glitch is operator/SRE business; surfacing it on a bar TV looks broken and conveys nothing the patron can act on. Generic "Currently Unavailable" is the right patron-facing surface.
+- **Operators DO need to know why a bar dropped offline.** The journal carries the reason — `offline` vs `stale_config` vs `render_error` are very different SRE signals — and feeds metrics + alerting without leaking to-screen.
+- **Backend-planned reasons MUST be patron-visible.** `maintenance`, `regulatory_blackout`, and a scheduled `scheduled_gap` are informational signage by design — patrons are entitled to know that the bar is intentionally not showing sports content right now. These are authored by operators with the intent of being read.
+
+**Pins:** SPEC-CRWDQ-052 (`safe_info` template — renders backend `safe_reason`; never renders `runtime_reason`), SPEC-CRWDQ-061 (metrics ping — carries `runtime_reason`).
+
+---
+
 ---
