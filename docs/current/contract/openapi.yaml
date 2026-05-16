@@ -9,7 +9,7 @@
 #   Chromium runtime (see modules/crowdaq-widget.xml -> <onRender>). The
 #   wire between backend and widget is therefore the only integration
 #   surface this repo has. This file is the source of truth for that
-#   surface; datatypes/crowdaq-event.xml, docs/ARCHITECTURE.md, the widget
+#   surface; datatypes/crowdaq-event.xml, docs/current/ARCHITECTURE.md, the widget
 #   <sampleData> block, and the bar-player bootstrap all reference it.
 #
 # Scope:
@@ -37,7 +37,7 @@ info:
     stream and re-renders its DOM on every event.
 
     Five named SSE events flow on the stream. Each event's JSON payload is
-    described by a JSON Schema under `docs/contract/events/`:
+    described by a JSON Schema under `docs/current/contract/events/`:
 
     - `score-update` -- authoritative match snapshot (score, clock, excitement,
       last notable moment). Schema: `events/score-update.json`. Shape matches
@@ -207,7 +207,7 @@ paths:
                   Raw SSE stream. Each block has `event:` naming one of
                   `score-update | moment | status | heartbeat | error`
                   and a `data:` line whose body is JSON matching the
-                  corresponding schema under `docs/contract/events/`.
+                  corresponding schema under `docs/current/contract/events/`.
               examples:
                 openingFrame:
                   summary: Opening frame on a live match.

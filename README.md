@@ -4,10 +4,15 @@ An open-source [Xibo CMS](https://xibosignage.com/) custom module that renders
 [CROWDAQ](#what-is-crowdaq) sports-excitement content on Xibo-managed digital
 signage screens (typically bar TVs).
 
+> Documentation status:
+> - `README.md`, `docs/current/ARCHITECTURE.md`, `docs/current/OPERATIONS.md`, `docs/current/TARGETING.md`, and `docs/current/contract/` describe the current implemented/intended Phase-1 widget system.
+> - `docs/planned/PRODUCT_REQUIREMENTS.md`, `docs/planned/DYNAMIC_LAYOUT_DECISIONS_LOG.md`, and `docs/planned/DYNAMIC_LAYOUT_REQUIREMENTS.md` describe the planned future dynamic layout/orchestration platform.
+> - See `docs/index.md` for the map.
+
 > Status: **manifest + stencil authored** — the module manifest and
 > inline Twig stencil are real. The live backend wire-up (SSE fetch,
 > multi-bar targeting, release packaging, CI packaging) is filled in by
-> follow-up iterations (see `docs/ARCHITECTURE.md` and the
+> follow-up iterations (see `docs/current/ARCHITECTURE.md` and the
 > CROWDAQ + Xibo Delivery Infra Notion project).
 
 ---
@@ -43,7 +48,7 @@ a Xibo region. The widget:
 
 1. Fetches the latest CROWDAQ feed from the CROWDAQ backend over SSE
    (`GET /stream?display_id=…&event_id=…`) — data contract documented in
-   [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) and declared to Xibo as
+   [`docs/current/ARCHITECTURE.md`](docs/current/ARCHITECTURE.md) and declared to Xibo as
    the `crowdaq-event` datatype in [`datatypes/crowdaq-event.xml`](datatypes/crowdaq-event.xml).
 2. Renders the payload through an inline Twig stencil in
    [`modules/crowdaq-widget.xml`](modules/crowdaq-widget.xml). The
@@ -52,7 +57,7 @@ a Xibo region. The widget:
 3. Resolves per-bar values (CROWDAQ event id, backend URL) from the
    Xibo Player's local `xiboIC.info()` response so one layout can
    serve many bars. See [**Multi-bar targeting**](#multi-bar-targeting)
-   below and [`docs/TARGETING.md`](docs/TARGETING.md) for the full
+   below and [`docs/current/TARGETING.md`](docs/current/TARGETING.md) for the full
    walkthrough.
 
 Phase 1 scope is intentionally minimal (single widget, read-only). See the
@@ -63,24 +68,24 @@ Notion decision `Decide CROWDAQ plugin phase-1 scope [DECIDED]`.
 ## Data contract
 
 The CROWDAQ → widget wire protocol is specified formally under
-[`docs/contract/`](docs/contract/):
+[`docs/current/contract/`](docs/current/contract/):
 
-- [`docs/contract/openapi.yaml`](docs/contract/openapi.yaml) — OpenAPI
+- [`docs/current/contract/openapi.yaml`](docs/current/contract/openapi.yaml) — OpenAPI
   3.1 spec for the single SSE endpoint
   `GET /events/{eventId}/stream`, error responses, and Bearer-token
   auth (Phase-2).
-- [`docs/contract/events/`](docs/contract/events/) — one JSON Schema
+- [`docs/current/contract/events/`](docs/current/contract/events/) — one JSON Schema
   (Draft 2020-12) per SSE event type:
-  - [`score-update.json`](docs/contract/events/score-update.json) —
+  - [`score-update.json`](docs/current/contract/events/score-update.json) —
     primary snapshot; consumed by the widget DOM renderer. Shape mirrors
     [`datatypes/crowdaq-event.xml`](datatypes/crowdaq-event.xml) 1:1.
-  - [`moment.json`](docs/contract/events/moment.json) — standalone
+  - [`moment.json`](docs/current/contract/events/moment.json) — standalone
     notable-moment announcement.
-  - [`status.json`](docs/contract/events/status.json) — event-lifecycle
+  - [`status.json`](docs/current/contract/events/status.json) — event-lifecycle
     transitions.
-  - [`heartbeat.json`](docs/contract/events/heartbeat.json) —
+  - [`heartbeat.json`](docs/current/contract/events/heartbeat.json) —
     keepalive / liveness ping.
-  - [`error.json`](docs/contract/events/error.json) — stream-level
+  - [`error.json`](docs/current/contract/events/error.json) — stream-level
     error.
 
 Anywhere docs disagree with the formal spec, the formal spec wins. CI
@@ -147,7 +152,7 @@ apiBaseUrl = https://crowdaq.tenant-a.tailnet
 eventId    = display:displayName
 ```
 
-See [`docs/TARGETING.md`](docs/TARGETING.md) for the full walkthrough,
+See [`docs/current/TARGETING.md`](docs/current/TARGETING.md) for the full walkthrough,
 the complete list of supported `display:<field>` values, bulk setup via
 the Xibo CMS REST API, and the upstream evidence for why client-side
 substitution (not a CMS-side `%displayTag(...)%` macro) is the right
@@ -163,7 +168,7 @@ approach against Xibo CMS 4.4.2.
 | Red error pill with a `code` / `message` | Server emitted an `error` event on the stream. | Look at the code (`unauthorized`, `rate_limited`, `backend_restart`, …); the widget auto-reconnects with backoff. |
 | Theme not changing | Property cached on the player. | Publish the layout again from the CMS. |
 | Team logos not showing | `logo_url` empty in the feed, `showTeamLogos` off, or image 404. | The widget falls back to the team abbreviation in all three cases — check the feed payload or the flag. |
-| Widget streams `/events/default/stream` on a bar configured with `eventId = display:displayName` | `displayName` is blank on that display's Xibo record, or the player's `/info` endpoint is unreachable. | Check the display record in the CMS; inspect the hidden `data-crowdaq-resolved-event-id` attribute in the widget's DOM via DevTools — see [`docs/TARGETING.md`](docs/TARGETING.md#inspecting-what-a-bar-actually-rendered). |
+| Widget streams `/events/default/stream` on a bar configured with `eventId = display:displayName` | `displayName` is blank on that display's Xibo record, or the player's `/info` endpoint is unreachable. | Check the display record in the CMS; inspect the hidden `data-crowdaq-resolved-event-id` attribute in the widget's DOM via DevTools — see [`docs/current/TARGETING.md`](docs/current/TARGETING.md#inspecting-what-a-bar-actually-rendered). |
 
 ---
 
@@ -187,15 +192,18 @@ xibo-plugin/
 ├── src/
 │   └── README.md                  Why this directory is empty in phase 1.
 ├── docs/
-│   ├── ARCHITECTURE.md            Data flow + render loop + property table; links into contract/.
-│   └── contract/
-│       ├── openapi.yaml           OpenAPI 3.1 spec for the SSE endpoint.
-│       └── events/
-│           ├── score-update.json  Match-snapshot payload schema (primary tick).
-│           ├── moment.json        Notable-moment announcement schema.
-│           ├── status.json        Event-lifecycle transition schema.
-│           ├── heartbeat.json     Keepalive schema.
-│           └── error.json         Stream-level error schema.
+│   ├── index.md                   Documentation map: current vs planned.
+│   ├── current/
+│   │   ├── ARCHITECTURE.md        Current Phase-1 widget architecture.
+│   │   ├── OPERATIONS.md          Current Phase-1 widget operations.
+│   │   ├── TARGETING.md           Current Phase-1 multi-bar targeting.
+│   │   └── contract/
+│   │       ├── openapi.yaml       OpenAPI 3.1 spec for the current SSE endpoint.
+│   │       └── events/
+│   └── planned/
+│       ├── PRODUCT_REQUIREMENTS.md
+│       ├── DYNAMIC_LAYOUT_REQUIREMENTS.md
+│       └── DYNAMIC_LAYOUT_DECISIONS_LOG.md
 └── dist/                          Release artifacts (gitignored).
 ```
 

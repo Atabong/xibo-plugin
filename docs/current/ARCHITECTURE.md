@@ -1,12 +1,20 @@
 # CROWDAQ Xibo Plugin — Architecture
 
+> Status: **current implementation / Phase-1 widget architecture**.
+>
+> This document describes the current single-widget, player-side SSE architecture and its present contract assumptions.
+>
+> It does **not** describe the future backend-orchestrated dynamic layout platform in `../planned/PRODUCT_REQUIREMENTS.md`.
+>
+> See `../index.md` for the documentation map.
+
 _Status: data-contract iter. Diagrams are still textual; a rendered version
 will land in the `Author architecture diagram (D2 -> Kroki -> wiki)`
 iteration._
 
 > **Source of truth for the CROWDAQ → widget wire protocol:**
-> [`docs/contract/openapi.yaml`](contract/openapi.yaml) and the
-> per-event JSON Schemas under [`docs/contract/events/`](contract/events/).
+> [`docs/current/contract/openapi.yaml`](contract/openapi.yaml) and the
+> per-event JSON Schemas under [`docs/current/contract/events/`](contract/events/).
 > This document describes the surrounding architecture; anywhere it
 > contradicts the formal spec, the formal spec wins.
 >
@@ -107,7 +115,7 @@ no JWT, no API key in Phase-1. The endpoint accepts any caller on the
 tailnet whose source tag is permitted by the ACL.
 
 JWT bearer auth remains an optional Phase-2 upgrade and is documented
-in `docs/contract/openapi.yaml` for forward compatibility — clients can
+in `docs/current/contract/openapi.yaml` for forward compatibility — clients can
 ignore it today.
 
 ### Replay vs. live (loop replay)
@@ -126,7 +134,7 @@ A single endpoint serves both modes:
 ### Event schema (per SSE event)
 
 The authoritative CROWDAQ → widget contract is the OpenAPI + JSON
-Schema bundle under [`docs/contract/`](contract/). Five SSE event types
+Schema bundle under [`docs/current/contract/`](contract/). Five SSE event types
 are emitted on the single `/events/{eventId}/stream` endpoint:
 
 | Event name | Schema | Purpose |
@@ -212,10 +220,10 @@ only (phase 1 has no scrollback / history).
 3. `<onRender>` JS runs against that DOM:
    - If cached / sample data is available, paint it first so the screen
      is never blank. Cached / sample data MUST validate against
-     `docs/contract/events/score-update.json`.
+     `docs/current/contract/events/score-update.json`.
    - Open an `EventSource` to
      `GET <apiBaseUrl>/events/<eventId>/stream` (see
-     `docs/contract/openapi.yaml`). `apiBaseUrl` comes from the
+     `docs/current/contract/openapi.yaml`). `apiBaseUrl` comes from the
      per-widget property of the same name; if the property is empty,
      the widget falls back to `window.crowdaqBackendBase` (set by the
      bar-PC bootstrap). If both are empty, the widget shows a
@@ -257,7 +265,7 @@ Refresh cadence:
 - SSE is the primary (and only) data path in phase 1. `refreshInterval`
   is only used as the stale-detection interval (`2 * refreshInterval`).
 - A `/snapshot` fallback endpoint remains in the backlog
-  (`docs/contract/openapi.yaml` documents only the SSE endpoint today);
+  (`docs/current/contract/openapi.yaml` documents only the SSE endpoint today);
   the MVP widget does not poll.
 
 ---
@@ -302,11 +310,11 @@ Event → selector mapping (what each handler touches):
 
 | Event         | Source schema                              | DOM element(s) (data-crowdaq-*)                                                                                                                                                                                                            |
 |---------------|--------------------------------------------|----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| `score-update` | `docs/contract/events/score-update.json`   | `team-a-logo` / `team-a`, `team-b-logo` / `team-b`, `team-a-score`, `team-b-score` (with `.crowdaq-delta-flash` flash), `excitement-fill`, `excitement-value`, `excitement-trend`, `moment-text` (from `last_moment.text`), `status` pill    |
-| `moment`      | `docs/contract/events/moment.json`         | `moment-text` (from `description`, truncated to `maxMomentLength`)                                                                                                                                                                           |
-| `status`      | `docs/contract/events/status.json`         | `status-overlay` + `status-overlay-text` (banner shown for every state except `live`, which hides the banner)                                                                                                                                 |
-| `heartbeat`   | `docs/contract/events/heartbeat.json`      | None directly — resets the stale timer + keeps `status` on `live`                                                                                                                                                                            |
-| `error`       | `docs/contract/events/error.json`          | `error-pill` (shows `code` / `message`, truncated), triggers bounded reconnect                                                                                                                                                               |
+| `score-update` | `docs/current/contract/events/score-update.json`   | `team-a-logo` / `team-a`, `team-b-logo` / `team-b`, `team-a-score`, `team-b-score` (with `.crowdaq-delta-flash` flash), `excitement-fill`, `excitement-value`, `excitement-trend`, `moment-text` (from `last_moment.text`), `status` pill    |
+| `moment`      | `docs/current/contract/events/moment.json`         | `moment-text` (from `description`, truncated to `maxMomentLength`)                                                                                                                                                                           |
+| `status`      | `docs/current/contract/events/status.json`         | `status-overlay` + `status-overlay-text` (banner shown for every state except `live`, which hides the banner)                                                                                                                                 |
+| `heartbeat`   | `docs/current/contract/events/heartbeat.json`      | None directly — resets the stale timer + keeps `status` on `live`                                                                                                                                                                            |
+| `error`       | `docs/current/contract/events/error.json`          | `error-pill` (shows `code` / `message`, truncated), triggers bounded reconnect                                                                                                                                                               |
 
 ---
 
@@ -348,7 +356,7 @@ manifest currently exposes these operator-visible widget-level properties:
    default for all new widgets. Deferred to a post-MVP polish iter.
 2. **Auth token injection.** Out of scope for the MVP. The stream is
    currently open on the tailnet; JWT Bearer tokens are a phase-2
-   upgrade documented in `docs/contract/openapi.yaml`.
+   upgrade documented in `docs/current/contract/openapi.yaml`.
 3. **Multi-event streaming.** A single widget consumes one stream.
    Targeting multiple bars is a separate iter (multi-bar display tags).
 4. **Player preview / offline cache.** The CMS layout editor preview
