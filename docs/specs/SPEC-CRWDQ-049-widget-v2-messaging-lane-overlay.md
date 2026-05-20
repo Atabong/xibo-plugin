@@ -2,8 +2,8 @@
 spec_id: SPEC-CRWDQ-049
 title: Widget v2 overlay layer for MessagingLane render
 status: draft
-parent: S10
-area: player-runtime/widget-v2/overlays/messaging-lane
+owner: player-runtime/widget-v2/overlays/messaging-lane
+depends_on: [SPEC-CRWDQ-022, SPEC-CRWDQ-023]
 generated_by: catalog-expansion
 generated_at: 2026-05-15
 ---
@@ -19,7 +19,6 @@ generated_at: 2026-05-15
 | Decisions referenced | D-GRH-25, D-GRH-29, D-GRH-57, D-GRH-58 |
 | Source files | `modules/widget-v2/src/transport/Dispatcher.ts` (consumed) |
 | New files | `modules/widget-v2/src/overlays/MessagingLaneOverlay.ts`, `modules/widget-v2/src/overlays/MessagingLaneStore.ts`, `modules/widget-v2/src/overlays/OverlayLayer.ts`, `modules/widget-v2/src/overlays/messaging-lane.css`, `modules/widget-v2/tests/overlays/*.test.ts` |
-| Blocked by | SPEC-CRWDQ-022 (WS client), SPEC-CRWDQ-023 (`OverrideInjection` suppression state — shared) |
 
 ## Module
 
@@ -193,17 +192,6 @@ Test cases:
 - `MessagingLane`, `lane_id`, `display_form`, `dwell_ms`, `valid_from`, `valid_until` — D-GRH-57.
 - "rendering priority stack" — D-GRH-58.
 - "suppression" — binary, per D-GRH-58.
-
-## Dependencies
-
-**Blocked by:**
-
-- SPEC-CRWDQ-022 — `Dispatcher` for `MessagingLane` routing.
-- SPEC-CRWDQ-023 — the `OverrideInjection` suppression-state shape is established alongside the shared orchestration; this spec defines the interface this overlay reads.
-
-**Blocks (downstream):**
-
-- A future `OverrideInjection` renderer (out of catalog) — must write to the shared `overrideSuppressionState` token defined here.
 
 ## Acceptance Criteria
 

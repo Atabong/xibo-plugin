@@ -2,8 +2,8 @@
 spec_id: SPEC-CRWDQ-063
 title: Widget v2 OverrideInjection handler
 status: draft
-parent: S4
-area: player-runtime/widget-v2/overrides
+owner: player-runtime/widget-v2/overrides
+depends_on: [SPEC-CRWDQ-022, SPEC-CRWDQ-049]
 generated_by: grill-amendment
 generated_at: 2026-05-15
 ---
@@ -19,7 +19,6 @@ generated_at: 2026-05-15
 | Decisions referenced | D-GRH-24, D-SCHEMA-08, D-GRH-58, D-GRH-76 |
 | Source files | `modules/widget-v2/src/transport/Dispatcher.ts` (consumed); `modules/widget-v2/src/render/PlannedStateActivator.ts` (consumed); `modules/widget-v2/src/render/DwellTimer.ts` (consumed); `modules/widget-v2/src/render/TransitionExecutor.ts` (consumed) |
 | New files | `modules/widget-v2/src/overrides/OverrideInjectionHandler.ts`, `modules/widget-v2/src/overrides/OverrideSuppressionState.ts`, `modules/widget-v2/src/overrides/OverrideTimeoutClock.ts`, `modules/widget-v2/tests/overrides/*.test.ts` |
-| Blocked by | SPEC-CRWDQ-022 (WS client + dispatcher), SPEC-CRWDQ-049 (overlay-suppression token contract — defines `overrideSuppressionState` shape this spec writes to) |
 
 ## Module
 
@@ -189,22 +188,6 @@ Test cases:
 - `overrideSuppressionState` — shared token contract defined in SPEC-CRWDQ-049, written here.
 - `runtime_reason` — D-GRH-76, journal-only.
 - `safe_reason` — D-GRH-76, patron-visible; explicitly NOT written by this spec.
-
-## Dependencies
-
-**Blocked by:**
-
-- SPEC-CRWDQ-022 — `Dispatcher` for `OverrideInjection` routing.
-- SPEC-CRWDQ-023 — `PlannedStateActivator`, `DwellTimer`, `TransitionExecutor`, `ProgramSlotResolver` (consumed unchanged).
-- SPEC-CRWDQ-049 — `overrideSuppressionState` contract (consumer side). This spec implements the producer side of that contract.
-
-**Soft dependency (asset path):**
-
-- SPEC-CRWDQ-064 — `AssetManifestStore` for pre-fetch of override-required assets per D-SCHEMA-08. Not a hard blocker; the override path works without pre-fetch (assets resolved at mount time via the same activator miss paths).
-
-**Blocks (downstream):**
-
-- SPEC-CRWDQ-065 (`single_game_with_ads`) and SPEC-CRWDQ-066 (`fixtures_with_live_game`) — both consume the same `PlannedStateActivator`, and an override targeting either of these composite modes routes through this handler. No interface change is required; the templates are mounted via the shared activator regardless of source (regular `PlannedState` or override).
 
 ## Acceptance Criteria
 

@@ -2,8 +2,8 @@
 spec_id: SPEC-CRWDQ-053
 title: Widget v2 ambient render template
 status: draft
-parent: S11
-area: player-runtime/widget-v2/templates/ambient
+owner: player-runtime/widget-v2/templates/ambient
+depends_on: [SPEC-CRWDQ-022, SPEC-CRWDQ-052, SPEC-CRWDQ-051]
 generated_by: catalog-expansion
 generated_at: 2026-05-15
 ---
@@ -19,7 +19,6 @@ generated_at: 2026-05-15
 | Decisions referenced | D-GRH-22, D-GRH-23, D-GRH-25, D-GRH-26, D-GRH-27, D-GRH-30, D-GRH-50 |
 | Source files | `modules/widget-v2/src/render/AssetManifestStore.ts`, `PlannedStateActivator.ts`, `TransitionExecutor.ts`, `DwellTimer.ts` (consumed); `SafeInfoTemplate` (fallback target) |
 | New files | `modules/widget-v2/src/templates/ambient/AmbientTemplate.ts`, `modules/widget-v2/src/templates/ambient/AmbientPlaylist.ts`, `modules/widget-v2/src/templates/ambient/ambient.html`, `modules/widget-v2/src/templates/ambient/ambient.css`, `modules/widget-v2/tests/templates/ambient/*.test.ts` |
-| Blocked by | SPEC-CRWDQ-022 (WS client), SPEC-CRWDQ-052 (`SafeInfoTemplate` fallback target), SPEC-CRWDQ-051 (backend emits `PlannedState{ambient}`) |
 
 ## Module
 
@@ -146,19 +145,6 @@ Test cases:
 - `ambient` — D-GRH-30 mode #9.
 - "AssetManifest-driven" — D-GRH-27 content model.
 - "indefinite dwell" — per D-GRH-26: runs until next `PlannedState`.
-
-## Dependencies
-
-**Blocked by:**
-
-- SPEC-CRWDQ-022 — WS + Dispatcher (for `AssetManifest` routing).
-- SPEC-CRWDQ-023 — shared orchestration.
-- SPEC-CRWDQ-052 — `SafeInfoTemplate` (fallback target on empty manifest).
-- SPEC-CRWDQ-051 — backend fallback-mode-selection emits `PlannedState{ambient}` when appropriate.
-
-**Blocks (downstream):**
-
-- None — ambient is a leaf template.
 
 ## Acceptance Criteria
 

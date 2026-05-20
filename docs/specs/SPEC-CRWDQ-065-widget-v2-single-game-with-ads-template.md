@@ -2,8 +2,8 @@
 spec_id: SPEC-CRWDQ-065
 title: Widget v2 single_game_with_ads template
 status: draft
-parent: S8
-area: player-runtime/widget-v2/templates/with-ads
+owner: player-runtime/widget-v2/templates/with-ads
+depends_on: [SPEC-CRWDQ-023, SPEC-CRWDQ-041, SPEC-CRWDQ-064]
 generated_by: grill-amendment
 generated_at: 2026-05-15
 ---
@@ -19,7 +19,6 @@ generated_at: 2026-05-15
 | Decisions referenced | D-GRH-15, D-GRH-16, D-GRH-21, D-GRH-23, D-GRH-30, D-GRH-50, D-GRH-55, D-GRH-62 |
 | Source files | `modules/widget-v2/src/templates/single-game/SingleGameTemplate.ts` (composed), `modules/widget-v2/src/templates/with-ads/AdPanel.ts` (composed), `modules/widget-v2/src/render/AssetManifestStore.ts` (consumed), `modules/widget-v2/src/render/AdSlotResolver.ts` (consumed) |
 | New files | `modules/widget-v2/src/templates/with-ads/SingleGameWithAdsTemplate.ts`, `modules/widget-v2/src/templates/with-ads/single-game-with-ads.css`, `modules/widget-v2/tests/templates/with-ads/single-game-with-ads.test.ts` |
-| Blocked by | SPEC-CRWDQ-023 (single_game base), SPEC-CRWDQ-041 (`AdPanel` primitive + `AdSlotResolver` + composite shell pattern) |
 
 ## Module
 
@@ -169,22 +168,6 @@ Test cases:
 - `AdSlot.ad_rotation`, `rotation_cadence_ms` — additive extension introduced by this spec; backend authoring extends accordingly. No D-GRH amendment required for this purely additive surface (closed enum changes would; this does not change any enum).
 - "coexistence" — D-GRH-16 uniform rule.
 - "rotation cadence" — internal term defined in this spec.
-
-## Dependencies
-
-**Blocked by:**
-
-- SPEC-CRWDQ-023 — `SingleGameTemplate` is composed.
-- SPEC-CRWDQ-041 — `AdPanel`, `AdSlotResolver`, with-ads grid CSS, `ad_slot_rendered`/`ad_slot_completed` journal events.
-- SPEC-CRWDQ-064 — `AssetManifestStore` resolves `ad_ref` and rotation entries.
-
-**Soft dependency (orthogonal):**
-
-- SPEC-CRWDQ-063 — an `OverrideInjection` targeting `single_game_with_ads` mode routes through the override handler's `PlannedStateActivator` re-entry, which dispatches here exactly as a regular `PlannedState` would. No interface change required.
-
-**Blocks (downstream):**
-
-- None in the current xibo-plugin spec set. Future M3+ work on adaptive ad pacing or per-bar policy may extend.
 
 ## Acceptance Criteria
 

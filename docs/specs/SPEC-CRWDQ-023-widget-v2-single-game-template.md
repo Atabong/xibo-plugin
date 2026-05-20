@@ -2,8 +2,8 @@
 spec_id: SPEC-CRWDQ-023
 title: Widget v2 single_game render template
 status: draft
-parent: S3
-area: player-runtime/widget-v2/templates/single-game
+owner: player-runtime/widget-v2/templates/single-game
+depends_on: [SPEC-CRWDQ-022, SPEC-CRWDQ-014]
 generated_by: catalog-expansion
 generated_at: 2026-05-15
 ---
@@ -19,7 +19,6 @@ generated_at: 2026-05-15
 | Decisions referenced | D-GRH-09, D-GRH-12, D-GRH-14, D-GRH-21, D-GRH-23, D-GRH-28, D-GRH-30, D-GRH-31, D-GRH-50, D-GRH-51 |
 | Source files | `modules/widget-v2/src/transport/Dispatcher.ts` (consumed) |
 | New files | `modules/widget-v2/src/templates/single-game/SingleGameTemplate.ts`, `modules/widget-v2/src/templates/single-game/single-game.html`, `modules/widget-v2/src/templates/single-game/single-game.css`, `modules/widget-v2/src/render/PlannedStateActivator.ts`, `modules/widget-v2/src/render/ProgramSlotResolver.ts`, `modules/widget-v2/src/render/GameStateStore.ts`, `modules/widget-v2/src/render/DwellTimer.ts`, `modules/widget-v2/src/render/TransitionExecutor.ts`, `modules/widget-v2/tests/templates/single-game/*.test.ts` |
-| Blocked by | SPEC-CRWDQ-022 (WS client + dispatcher), SPEC-CRWDQ-014 (ConfigPush consumer for theme apply) |
 
 ## Module
 
@@ -189,20 +188,6 @@ Reference: `xibo/docs/specs/SPEC-CATALOG.md`. Uses:
 - `sport_context` — fixed per-sport schema in D-GRH-09.
 - `transition`, `animation_id`, `duration_ms` — D-GRH-50 flat catalog name.
 - `dwell_target_ms` — backend-authored per-slot dwell (D-GRH-50).
-
-## Dependencies
-
-**Blocked by:**
-
-- SPEC-CRWDQ-022 — `Dispatcher`, `GameStateStore` (sourced from frame stream), `WsClient` lifecycle.
-- SPEC-CRWDQ-014 — `pendingApply` slot consumed at boundary.
-
-**Blocks (downstream):**
-
-- SPEC-CRWDQ-031 (multi-game) — reuses `PlannedStateActivator`, `ProgramSlotResolver`, `TransitionExecutor`, extends the template-mount step.
-- SPEC-CRWDQ-034 (fixtures), 041 (with-ads composites), 046 (recap), 052 (safe), 053 (ambient) — same shared orchestration.
-- SPEC-CRWDQ-027 — e2e smoke test renders a `single_game` frame end-to-end.
-- SPEC-CRWDQ-049 (MessagingLane overlay) — reads the active host element established here.
 
 ## Acceptance Criteria
 

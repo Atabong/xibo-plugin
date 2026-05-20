@@ -2,8 +2,8 @@
 spec_id: SPEC-CRWDQ-064
 title: Widget v2 AssetManifestStore
 status: draft
-parent: S2
-area: player-runtime/widget-v2/asset-manifest
+owner: player-runtime/widget-v2/asset-manifest
+depends_on: [SPEC-CRWDQ-022]
 generated_by: grill-amendment
 generated_at: 2026-05-15
 ---
@@ -19,7 +19,6 @@ generated_at: 2026-05-15
 | Decisions referenced | D-GRH-23, D-GRH-31, D-GRH-55, D-GRH-74 |
 | Source files | `modules/widget-v2/src/transport/Dispatcher.ts` (consumed) |
 | New files | `modules/widget-v2/src/render/AssetManifestStore.ts`, `modules/widget-v2/src/render/AssetCache.ts`, `modules/widget-v2/src/render/AssetFetcher.ts`, `modules/widget-v2/src/render/AssetEvictionPolicy.ts`, `modules/widget-v2/tests/render/asset-manifest/*.test.ts` |
-| Blocked by | SPEC-CRWDQ-022 (WS deserializer for `AssetManifest` frames) |
 
 ## Module
 
@@ -286,23 +285,6 @@ Test cases:
 - "animation definition assets" — D-GRH-31 (in-scope of this cache).
 - "R2 backend" — D-GRH-74 (informational: the URL host; this spec is backend-agnostic for fetch).
 - "stale version", "hot map" — internal terms defined in this spec.
-
-## Dependencies
-
-**Blocked by:**
-
-- SPEC-CRWDQ-022 — `Dispatcher` for `AssetManifest` routing, wire-protocol deserializer for the frame shape.
-
-**Blocks (downstream):**
-
-- SPEC-CRWDQ-014 — references theme stylesheet asset (delivered via this store).
-- SPEC-CRWDQ-023 — `TransitionExecutor` falls back to `AssetManifest` cache for animation assets.
-- SPEC-CRWDQ-034 — fixture badges and team logos resolved via this store.
-- SPEC-CRWDQ-041 — ad creatives resolved via this store (`AssetManifestStore.resolve("ad:" + ad_ref)` — note: SPEC-CRWDQ-041 currently uses a `resolve()` method name; this spec normalizes to `get()` / `ensure()`. The SPEC-CRWDQ-041 acceptance criteria will be reconciled in implementation — see Dependencies note in 041.).
-- SPEC-CRWDQ-052 — safe template assets (background, copy art).
-- SPEC-CRWDQ-053 — ambient template assets (full set).
-- SPEC-CRWDQ-063 — override-side pre-fetch path (D-SCHEMA-08 alongside AssetManifest).
-- SPEC-CRWDQ-065 — ad creative resolution inside `single_game_with_ads`.
 
 ## Acceptance Criteria
 

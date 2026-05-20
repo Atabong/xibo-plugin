@@ -2,8 +2,8 @@
 spec_id: SPEC-CRWDQ-061
 title: Widget v2 player-side metrics ping
 status: draft
-parent: S13
-area: player-runtime/widget-v2/observability/journal-sync
+owner: player-runtime/widget-v2/observability/journal-sync
+depends_on: [SPEC-CRWDQ-022, SPEC-CRWDQ-014]
 generated_by: catalog-expansion
 generated_at: 2026-05-15
 ---
@@ -19,7 +19,6 @@ generated_at: 2026-05-15
 | Decisions referenced | D-GRH-25, D-GRH-29, D-GRH-43, D-GRH-52, D-GRH-60 |
 | Source files | `modules/widget-v2/src/transport/WsClient.ts`, `Dispatcher.ts` (consumed); every template (journal emitters) |
 | New files | `modules/widget-v2/src/observability/JournalStore.ts`, `modules/widget-v2/src/observability/JournalSyncClient.ts`, `modules/widget-v2/src/observability/JournalBatcher.ts`, `modules/widget-v2/src/observability/types.ts`, `modules/widget-v2/tests/observability/*.test.ts` |
-| Blocked by | SPEC-CRWDQ-022 (WS client + `ConfigPush.intervals.journal_sync` interval delivery), SPEC-CRWDQ-014 (ConfigPush consumer for the interval value) |
 
 ## Module
 
@@ -194,17 +193,6 @@ Test cases:
 - `seq` — monotonic per-display journal counter (D-GRH-29 + D-GRH-52).
 - "JournalSync" — HTTP POST endpoint per D-GRH-52.
 - "ACKed prefix" — contiguous seq range the server has confirmed accepting.
-
-## Dependencies
-
-**Blocked by:**
-
-- SPEC-CRWDQ-022 — WS lifecycle events (for connectivity-triggered sync) and `Dispatcher` for `ConfigPush` routing.
-- SPEC-CRWDQ-014 — `ConfigPush` consumer hands off `intervals.journal_sync` (when present).
-
-**Blocks (downstream):**
-
-- All template specs (014, 022, 023, 027, 031, 034, 041, 046, 049, 052, 053) reference `emit(eventType, payload)`; this spec is the implementation behind that import. The other specs do not strictly block on this — they can run with a no-op journal sink during development — but the e2e SPEC-CRWDQ-027 will need the real implementation for the end-to-end journal-arrived assertions added in S13.
 
 ## Acceptance Criteria
 

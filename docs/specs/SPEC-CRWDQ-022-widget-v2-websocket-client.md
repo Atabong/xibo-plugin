@@ -2,8 +2,8 @@
 spec_id: SPEC-CRWDQ-022
 title: Widget v2 WebSocket client + wire-protocol deserializer
 status: draft
-parent: S3
-area: player-runtime/widget-v2/transport
+owner: player-runtime/widget-v2/transport
+depends_on: [SPEC-CRWDQ-017]
 generated_by: catalog-expansion
 generated_at: 2026-05-15
 ---
@@ -19,7 +19,6 @@ generated_at: 2026-05-15
 | Decisions referenced | D-GRH-12, D-GRH-25, D-GRH-29, D-GRH-42, D-GRH-43, D-GRH-48, D-GRH-49, D-GRH-59, D-GRH-61, D-GRH-63, D-GRH-65 |
 | Source files | `modules/crowdaq-widget.xml` (legacy v1 SSE — unchanged) |
 | New files | `modules/widget-v2/src/transport/WsClient.ts`, `modules/widget-v2/src/transport/Deserializer.ts`, `modules/widget-v2/src/transport/Dispatcher.ts`, `modules/widget-v2/src/transport/Heartbeat.ts`, `modules/widget-v2/src/transport/types.ts`, `modules/widget-v2/src/transport/GameStateRequest.ts`, `modules/widget-v2/tests/transport/*.test.ts` |
-| Blocked by | SPEC-CRWDQ-017 (Go serializer + generated TS twin) |
 
 ## Module
 
@@ -202,20 +201,6 @@ Reference: `xibo/docs/specs/SPEC-CATALOG.md` common vocabulary.
 - `seq` — monotonic per-source counter; per-`game_id` on `GameEvent`/`GameState`; per-connection on `Heartbeat`.
 - `re-push sequence` — the server's authoritative ordered set of frames after `DeviceRegistration` (D-GRH-49 + D-GRH-61).
 - `ack-timeout` — `2 × heartbeatIntervalMs`, reconnect trigger (D-GRH-59).
-
-## Dependencies
-
-**Blocked by:**
-
-- SPEC-CRWDQ-017 — shared wire-protocol module (Go canonical + generated TS twin). This spec consumes the TS twin's types directly.
-
-**Blocks (downstream — every plugin render template):**
-
-- SPEC-CRWDQ-014 — registers `ConfigPush` handler.
-- SPEC-CRWDQ-023, 031, 034, 041, 046, 052, 053 — register `PlannedState` + per-mode handlers.
-- SPEC-CRWDQ-049 — registers `MessagingLane` handler.
-- SPEC-CRWDQ-027 — e2e smoke test exercises this client against a staging `GameDeliveryService`.
-- SPEC-CRWDQ-061 — journal ping shares the journal sink and lifecycle events.
 
 ## Acceptance Criteria
 
