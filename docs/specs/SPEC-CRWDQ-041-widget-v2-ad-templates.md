@@ -2,8 +2,8 @@
 spec_id: SPEC-CRWDQ-041
 title: Widget v2 ad render template + fixtures_with_ads composite
 status: draft
-parent: S8
-area: player-runtime/widget-v2/templates/with-ads
+owner: player-runtime/widget-v2/templates/with-ads
+depends_on: [SPEC-CRWDQ-031, SPEC-CRWDQ-034, SPEC-CRWDQ-039]
 generated_by: catalog-expansion
 generated_at: 2026-05-15
 ---
@@ -19,7 +19,6 @@ generated_at: 2026-05-15
 | Decisions referenced | D-GRH-15, D-GRH-16, D-GRH-21, D-GRH-23, D-GRH-25, D-GRH-30, D-GRH-50, D-GRH-55, D-GRH-62 |
 | Source files | `modules/widget-v2/src/render/AssetManifestStore.ts` (consumed); `MultiGameTemplate.ts`, `FixturesTemplate.ts` (composed) |
 | New files | `modules/widget-v2/src/templates/with-ads/AdPanel.ts`, `modules/widget-v2/src/templates/with-ads/MultiGameWithAdsTemplate.ts`, `modules/widget-v2/src/templates/with-ads/FixturesWithAdsTemplate.ts`, `modules/widget-v2/src/templates/with-ads/with-ads.css`, `modules/widget-v2/src/render/AdSlotResolver.ts`, `modules/widget-v2/tests/templates/with-ads/*.test.ts` |
-| Blocked by | SPEC-CRWDQ-031 (multi-game), SPEC-CRWDQ-034 (fixtures), SPEC-CRWDQ-039 (backend AdSlot interleave) |
 
 ## Module
 
@@ -188,19 +187,6 @@ Test cases:
 - `multiple_games_with_ads`, `fixtures_with_ads` — D-GRH-30 #6, #4.
 - `AdSlot.ad_ref` — opaque pointer; phase-1 `ad_ref_type === 'asset_id'` (D-GRH-55).
 - "coexistence" — D-GRH-16 uniform rule: ad does not displace content.
-
-## Dependencies
-
-**Blocked by:**
-
-- SPEC-CRWDQ-031 — `MultiGameTemplate` is composed.
-- SPEC-CRWDQ-034 — `FixturesTemplate` is composed.
-- SPEC-CRWDQ-022 — `AdSlot` dispatch routing.
-- SPEC-CRWDQ-039 — backend emits `PlannedState` with `ad_slot_id` and interleaved `AdSlot` frames.
-
-**Blocks (downstream):**
-
-- A future `single_game_with_ads` spec (not in this catalog) — re-uses `AdPanel` against `SingleGameTemplate`.
 
 ## Acceptance Criteria
 

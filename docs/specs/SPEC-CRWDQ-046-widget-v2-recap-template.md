@@ -2,8 +2,8 @@
 spec_id: SPEC-CRWDQ-046
 title: Widget v2 recap render template
 status: draft
-parent: S9
-area: player-runtime/widget-v2/templates/recap
+owner: player-runtime/widget-v2/templates/recap
+depends_on: [SPEC-CRWDQ-022, SPEC-CRWDQ-023, SPEC-CRWDQ-045]
 generated_by: catalog-expansion
 generated_at: 2026-05-15
 ---
@@ -19,7 +19,6 @@ generated_at: 2026-05-15
 | Decisions referenced | D-GRH-21, D-GRH-25, D-GRH-29, D-GRH-30, D-GRH-50, D-GRH-68 |
 | Source files | `modules/widget-v2/src/render/GameStateStore.ts`, `PlannedStateActivator.ts`, `ProgramSlotResolver.ts`, `TransitionExecutor.ts`, `DwellTimer.ts` (consumed) |
 | New files | `modules/widget-v2/src/templates/recap/RecapTemplate.ts`, `modules/widget-v2/src/templates/recap/recap.html`, `modules/widget-v2/src/templates/recap/recap.css`, `modules/widget-v2/tests/templates/recap/*.test.ts` |
-| Blocked by | SPEC-CRWDQ-022 (WS client), SPEC-CRWDQ-023 (shared orchestration), SPEC-CRWDQ-045 (backend recap PlannedState emitter) |
 
 ## Module
 
@@ -138,18 +137,6 @@ Test cases:
 - `recap` — `business_mode` enum value added by D-GRH-68.
 - `winner` — derived from `home_score` vs `away_score`; not a wire field.
 - `headline moment` — significant entry from `GameState.events` filtered by closed event-type set.
-
-## Dependencies
-
-**Blocked by:**
-
-- SPEC-CRWDQ-022 — frame dispatch.
-- SPEC-CRWDQ-023 — shared orchestration.
-- SPEC-CRWDQ-045 — backend `BarPlayerSchedulerService` emits the recap `PlannedState` after `GameLifecycleEvent(live → final)`.
-
-**Blocks (downstream):**
-
-- None — recap is a leaf template.
 
 ## Acceptance Criteria
 

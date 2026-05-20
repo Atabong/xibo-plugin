@@ -2,8 +2,8 @@
 spec_id: SPEC-CRWDQ-031
 title: Widget v2 multiple_games (2x2 grid) render template + dwell handling
 status: draft
-parent: S5
-area: player-runtime/widget-v2/templates/multi-game
+owner: player-runtime/widget-v2/templates/multi-game
+depends_on: [SPEC-CRWDQ-022, SPEC-CRWDQ-030]
 generated_by: catalog-expansion
 generated_at: 2026-05-15
 ---
@@ -19,7 +19,6 @@ generated_at: 2026-05-15
 | Decisions referenced | D-GRH-12, D-GRH-13, D-GRH-14, D-GRH-21, D-GRH-30, D-GRH-50 |
 | Source files | `modules/widget-v2/src/render/PlannedStateActivator.ts`, `ProgramSlotResolver.ts`, `GameStateStore.ts`, `DwellTimer.ts`, `TransitionExecutor.ts` (consumed from SPEC-CRWDQ-023) |
 | New files | `modules/widget-v2/src/templates/multi-game/MultiGameTemplate.ts`, `modules/widget-v2/src/templates/multi-game/multi-game.html`, `modules/widget-v2/src/templates/multi-game/multi-game.css`, `modules/widget-v2/src/templates/multi-game/CardSet.ts`, `modules/widget-v2/tests/templates/multi-game/*.test.ts` |
-| Blocked by | SPEC-CRWDQ-022 (WS client), SPEC-CRWDQ-030 (backend `PlannedState{multiple_games}` with ordered `game_ids[]`) |
 
 ## Module
 
@@ -176,18 +175,6 @@ Reference: `xibo/docs/specs/SPEC-CATALOG.md`.
 - `game_ids[]` — ordered list on `ProgramSlot` (D-GRH-21).
 - `primary_game_id` — `ProgramSlot` field; the visually-distinguished card.
 - "multiplexed stream" — D-GRH-12 single WS carrying N games' events.
-
-## Dependencies
-
-**Blocked by:**
-
-- SPEC-CRWDQ-022 — WS + Dispatcher + GameStateStore.
-- SPEC-CRWDQ-023 — `PlannedStateActivator`, `ProgramSlotResolver`, `TransitionExecutor`, `DwellTimer` shared orchestration; multi-game registers as a second mode handler against the same activator.
-- SPEC-CRWDQ-030 — backend `PlannedState` with ordered `game_ids[]`.
-
-**Blocks (downstream):**
-
-- SPEC-CRWDQ-041 — `multiple_games_with_ads` composite template reuses this grid + adds an ad panel.
 
 ## Acceptance Criteria
 

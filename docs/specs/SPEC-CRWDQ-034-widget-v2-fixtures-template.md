@@ -2,8 +2,8 @@
 spec_id: SPEC-CRWDQ-034
 title: Widget v2 fixtures render template
 status: draft
-parent: S6
-area: player-runtime/widget-v2/templates/fixtures
+owner: player-runtime/widget-v2/templates/fixtures
+depends_on: [SPEC-CRWDQ-022, SPEC-CRWDQ-033]
 generated_by: catalog-expansion
 generated_at: 2026-05-15
 ---
@@ -19,7 +19,6 @@ generated_at: 2026-05-15
 | Decisions referenced | D-GRH-08, D-GRH-17, D-GRH-18, D-GRH-20, D-GRH-21, D-GRH-22, D-GRH-23, D-GRH-25, D-GRH-30, D-GRH-50, D-GRH-73 |
 | Source files | `modules/widget-v2/src/render/PlannedStateActivator.ts`, `ProgramSlotResolver.ts`, `TransitionExecutor.ts`, `DwellTimer.ts` (consumed) |
 | New files | `modules/widget-v2/src/templates/fixtures/FixturesTemplate.ts`, `modules/widget-v2/src/templates/fixtures/fixtures.html`, `modules/widget-v2/src/templates/fixtures/fixtures.css`, `modules/widget-v2/src/render/FixtureListStore.ts`, `modules/widget-v2/src/render/AssetManifestStore.ts`, `modules/widget-v2/tests/templates/fixtures/*.test.ts` |
-| Blocked by | SPEC-CRWDQ-022 (WS client), SPEC-CRWDQ-033 (backend `PlannedState{fixtures}` emission) |
 
 ## Module
 
@@ -184,18 +183,6 @@ Test cases:
 - `FixtureList`, `Fixture.status` — D-GRH-18, D-GRH-20.
 - `AssetManifest` — D-GRH-23.
 - `timezone` — D-GRH-73 IANA-validated bar preference.
-
-## Dependencies
-
-**Blocked by:**
-
-- SPEC-CRWDQ-022 — WS + Dispatcher + frame routing for `FixtureList`, `AssetManifest`, `PlannedState`, `ProgramSlot`.
-- SPEC-CRWDQ-023 — shared orchestration: `PlannedStateActivator`, `ProgramSlotResolver`, `TransitionExecutor`, `DwellTimer`.
-- SPEC-CRWDQ-033 — backend `PlannedState{fixtures}` emission with non-empty `fixture_ids[]`.
-
-**Blocks (downstream):**
-
-- SPEC-CRWDQ-041 — `fixtures_with_ads` composite reuses this list and adds the ad panel.
 
 ## Acceptance Criteria
 

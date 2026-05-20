@@ -2,8 +2,8 @@
 spec_id: SPEC-CRWDQ-027
 title: Widget v2 e2e smoke test on player side (real WS, real BarPreferences)
 status: draft
-parent: S4
-area: player-runtime/widget-v2/tests/e2e
+owner: player-runtime/widget-v2/tests/e2e
+depends_on: [SPEC-CRWDQ-026, SPEC-CRWDQ-023, SPEC-CRWDQ-014]
 generated_by: catalog-expansion
 generated_at: 2026-05-15
 ---
@@ -19,7 +19,6 @@ generated_at: 2026-05-15
 | Decisions referenced | D-GRH-29, D-GRH-42, D-GRH-49, D-GRH-59, D-GRH-61 |
 | Source files | `modules/widget-v2/**` (consumed end-to-end) |
 | New files | `modules/widget-v2/tests/e2e/smoke.spec.ts`, `modules/widget-v2/tests/e2e/playwright.config.ts`, `modules/widget-v2/tests/e2e/fixtures/staging.env`, `modules/widget-v2/tests/e2e/page-objects/WidgetPage.ts`, `.github/workflows/widget-v2-e2e.yml` |
-| Blocked by | SPEC-CRWDQ-026 (backend e2e suite — provides staging stack invariants), SPEC-CRWDQ-023 (single_game template), SPEC-CRWDQ-014 (ConfigPush consumer) |
 
 ## Module
 
@@ -143,20 +142,6 @@ Reference: `xibo/docs/specs/SPEC-CATALOG.md`.
 - "real WS" — actual `wss://` connection to the staging `GameDeliveryService`, not a Node-side fake.
 - "real `BarPreferences`" — the staging Postgres `crowdaq.bar_preferences` row, written by SPEC-CRWDQ-028 ops scripts.
 - "snapshot DOM assertion" — `expect(locator).toHaveText(...)` and `toMatchSnapshot(...)` over the score-panel subtree; serialized to `tests/e2e/__snapshots__/single-game.snap`.
-
-## Dependencies
-
-**Blocked by:**
-
-- SPEC-CRWDQ-026 — provides the staging stack (NATS/Temporal/Postgres/services) + the deterministic `e2e-fake-nfl-1` game fixture.
-- SPEC-CRWDQ-023 — single_game template exists and renders.
-- SPEC-CRWDQ-014 — ConfigPush consumer is wired (else the theme swap assertion is meaningless).
-- SPEC-CRWDQ-022 — WS client and dispatcher are wired (else nothing connects).
-
-**Blocks (downstream):**
-
-- SPEC-CRWDQ-028 — staging dashboards include the e2e job's pass/fail signal.
-- Every subsequent widget-v2 template spec (031, 034, 041, 046, 049, 052, 053) extends this e2e — they each add a matching smoke test case under `tests/e2e/` once the corresponding backend slice lands.
 
 ## Acceptance Criteria
 

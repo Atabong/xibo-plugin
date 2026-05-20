@@ -2,8 +2,8 @@
 spec_id: SPEC-CRWDQ-052
 title: Widget v2 safe_info render template
 status: draft
-parent: S11
-area: player-runtime/widget-v2/templates/safe
+owner: player-runtime/widget-v2/templates/safe
+depends_on: [SPEC-CRWDQ-022, SPEC-CRWDQ-051]
 generated_by: catalog-expansion
 generated_at: 2026-05-15
 ---
@@ -19,7 +19,6 @@ generated_at: 2026-05-15
 | Decisions referenced | D-GRH-21, D-GRH-22, D-GRH-23, D-GRH-25, D-GRH-30, D-GRH-50, D-GRH-51, D-GRH-73, D-SAFE-01 |
 | Source files | `modules/widget-v2/src/render/PlannedStateActivator.ts` (consumed) |
 | New files | `modules/widget-v2/src/templates/safe-info/SafeInfoTemplate.ts`, `modules/widget-v2/src/templates/safe-info/safe-info.html`, `modules/widget-v2/src/templates/safe-info/safe-info.css`, `modules/widget-v2/src/render/SafeStateController.ts`, `modules/widget-v2/tests/templates/safe-info/*.test.ts` |
-| Blocked by | SPEC-CRWDQ-022 (WS client), SPEC-CRWDQ-051 (backend fallback-mode-selection emits `PlannedState{safe_info}`) |
 
 ## Module
 
@@ -180,19 +179,6 @@ Test cases:
 - `safe` mode — D-GRH-30 mode #8.
 - D-SAFE-01 — the player-side fallback chain established in the requirements doc.
 - "venue brand" — derived from `BarPreferences` + optional asset; no first-class wire field.
-
-## Dependencies
-
-**Blocked by:**
-
-- SPEC-CRWDQ-022 — `WsClient` lifecycle events, dispatcher.
-- SPEC-CRWDQ-023 — shared orchestration.
-- SPEC-CRWDQ-051 — backend `BarPlayerSchedulerService` fallback-mode-selection logic (the Path A driver).
-- SPEC-CRWDQ-014 — `BarPreferences` data source.
-
-**Blocks (downstream):**
-
-- SPEC-CRWDQ-053 — `ambient` mode falls back to `safe_info` if `AssetManifest` ambient creatives are empty.
 
 ## Acceptance Criteria
 

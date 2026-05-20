@@ -2,8 +2,8 @@
 spec_id: SPEC-CRWDQ-066
 title: Widget v2 fixtures_with_live_game template
 status: draft
-parent: S6
-area: player-runtime/widget-v2/templates/mixed-state
+owner: player-runtime/widget-v2/templates/mixed-state
+depends_on: [SPEC-CRWDQ-023, SPEC-CRWDQ-034]
 generated_by: grill-amendment
 generated_at: 2026-05-15
 ---
@@ -19,7 +19,6 @@ generated_at: 2026-05-15
 | Decisions referenced | D-GRH-08, D-GRH-12, D-GRH-17, D-GRH-18, D-GRH-20, D-GRH-21, D-GRH-25, D-GRH-30, D-GRH-50, D-GRH-73 |
 | Source files | `modules/widget-v2/src/templates/fixtures/FixturesTemplate.ts` (composed), `modules/widget-v2/src/templates/single-game/SingleGameTemplate.ts` (re-used as inline live tile), `modules/widget-v2/src/render/PlannedStateActivator.ts` (consumed), `modules/widget-v2/src/render/ProgramSlotResolver.ts` (consumed), `modules/widget-v2/src/render/FixtureListStore.ts` (consumed), `modules/widget-v2/src/render/GameStateStore.ts` (consumed) |
 | New files | `modules/widget-v2/src/templates/mixed-state/FixturesWithLiveGameTemplate.ts`, `modules/widget-v2/src/templates/mixed-state/LiveFixtureTile.ts`, `modules/widget-v2/src/templates/mixed-state/fixtures-with-live-game.css`, `modules/widget-v2/tests/templates/mixed-state/*.test.ts` |
-| Blocked by | SPEC-CRWDQ-023 (single_game base — composed inside the live tile), SPEC-CRWDQ-034 (fixtures template — composed for the static tiles) |
 
 ## Module
 
@@ -210,21 +209,6 @@ Test cases:
 - `primary_game_id`, `fixture_ids[]` — D-GRH-21.
 - `Fixture.game_id`, `Fixture.status: 'live'` — D-GRH-20.
 - "promoted tile", "demote" — internal terms defined in this spec.
-
-## Dependencies
-
-**Blocked by:**
-
-- SPEC-CRWDQ-023 — `SingleGameTemplate` shape is the reference for `LiveFixtureTile`'s `GameStateStore` wiring; shared orchestration is consumed.
-- SPEC-CRWDQ-034 — fixture-card primitive (static tiles), `FixtureListStore`, asset resolution path; SPEC-CRWDQ-034's reconcile path is reused for the static portion.
-
-**Soft dependency:**
-
-- SPEC-CRWDQ-063 — an `OverrideInjection` may target this mode and routes through the same `PlannedStateActivator`. No interface change required.
-
-**Blocks (downstream):**
-
-- None in the current xibo-plugin spec set.
 
 ## Acceptance Criteria
 

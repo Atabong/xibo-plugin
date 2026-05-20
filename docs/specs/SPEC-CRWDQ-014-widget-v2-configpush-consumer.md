@@ -2,8 +2,8 @@
 spec_id: SPEC-CRWDQ-014
 title: Widget v2 ConfigPush consumer with local cache + apply
 status: draft
-parent: S2
-area: player-runtime/widget-v2/config
+owner: player-runtime/widget-v2/config
+depends_on: [SPEC-CRWDQ-013]
 generated_by: catalog-expansion
 generated_at: 2026-05-15
 ---
@@ -19,7 +19,6 @@ generated_at: 2026-05-15
 | Decisions referenced | D-GRH-23, D-GRH-36, D-GRH-49, D-GRH-51, D-GRH-60, D-GRH-61, D-GRH-73 |
 | Source files | `modules/crowdaq-widget.xml` (legacy v1 SSE stencil — untouched) |
 | New files | `modules/widget-v2/src/config/ConfigPushHandler.ts`, `modules/widget-v2/src/config/PreferenceStore.ts`, `modules/widget-v2/src/config/ApplyPreferenceState.ts`, `modules/widget-v2/src/config/types.ts`, `modules/widget-v2/tests/config/ConfigPushHandler.test.ts`, `modules/widget-v2/tests/config/PreferenceStore.test.ts` |
-| Blocked by | SPEC-CRWDQ-013 (backend `ConfigPush` publisher) |
 
 ## Module
 
@@ -160,18 +159,6 @@ Shared protocol vocabulary is defined in `C:/Users/Atabong/Documents/GitHub/xibo
 - `config_hash` — server-computed bar-profile hash (D-GRH-36).
 - `dwell boundary` — the instant the current `PlannedState.dwell_target_ms` elapses (D-GRH-21).
 - `preference-derived cache` — any client cache entry whose key derives from preferences (theme CSS, sport badge sets, local_team_list filter results).
-
-## Dependencies
-
-**Blocked by:**
-
-- SPEC-CRWDQ-013 — backend `ConfigPush` publisher must emit the D-GRH-73 payload over `bar.<bar_id>.control` before this consumer has anything to read.
-
-**Blocks (downstream):**
-
-- SPEC-CRWDQ-022 — WS client dispatches `ConfigPush` frames to this handler.
-- SPEC-CRWDQ-023, 031, 034, 041, 046, 052, 053 — render templates that read the applied theme + filter state.
-- SPEC-CRWDQ-027 — e2e smoke test asserts the full re-push sequence includes a `ConfigPush` first frame.
 
 ## Acceptance Criteria
 
