@@ -128,8 +128,8 @@ Test cases:
 
 - Happy recap: `GameState{status: final, home_score: 3, away_score: 1}` → DOM shows FULL TIME label, `data-winner="home"`, scores 3/1, team logos rendered.
 - Draw: `home_score: 2, away_score: 2` → `data-winner="draw"`.
-- Headline moments cap: feed `gameState.events` with 5 significant events → exactly 3 most-recent rendered.
-- Empty moments: `gameState.events: []` → `<ul.cdq-headline-moments>` omitted from DOM.
+- Headline moments cap: `GameStateStore.significantEvents` returns 5 significant events → exactly 3 most-recent rendered.
+- Empty moments: `GameStateStore.significantEvents` returns `[]` → `<ul.cdq-headline-moments>` omitted from DOM.
 - Team-asset cache miss: `assetManifestStore.get("team:home-team-id")` → null → home team renders its `team_id` as a placeholder label, no `<img>`, no error.
 - `primary_game_id` null: journal `template_input_invalid`; no mount.
 - `gameState` cache miss: journal `recap_no_gamestate`; no mount (escalates to safe via downstream owner).
