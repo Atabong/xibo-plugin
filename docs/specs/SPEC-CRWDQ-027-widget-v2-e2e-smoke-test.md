@@ -3,7 +3,7 @@ spec_id: SPEC-CRWDQ-027
 title: Widget v2 e2e smoke test on player side (real WS, real BarPreferences)
 status: draft
 owner: player-runtime/widget-v2/tests/e2e
-depends_on: [SPEC-CRWDQ-026, SPEC-CRWDQ-023, SPEC-CRWDQ-014]
+depends_on: [SPEC-CRWDQ-014, SPEC-CRWDQ-022, SPEC-CRWDQ-023, SPEC-CRWDQ-026, SPEC-CRWDQ-028]
 generated_by: catalog-expansion
 generated_at: 2026-05-15
 ---
@@ -63,7 +63,10 @@ export class WidgetPage {
   /** Navigate to a static HTML host page that boots widget-v2 with the given config. */
   async open(opts: { gdsUrl: string; displayId: string }): Promise<void>;
 
-  /** Resolves when the widget has emitted its `dispatcher_ready` lifecycle event. */
+  /** Resolves when the WsClient emits its `open` lifecycle event. SPEC-CRWDQ-022's
+   *  closed lifecycle set is open|close|error|reconnect — there is no
+   *  `dispatcher_ready` event; `open` (fired when connect() resolves on the first
+   *  server frame) is the boot-ready signal. */
   async waitForDispatcherReady(): Promise<void>;
 
   /** Resolves when a PlannedState{single_game} has been activated and the score panel is in DOM. */
@@ -93,7 +96,7 @@ For the single test case:
 3. **Full re-push inbound.** The next inbound frames are, in order: `ConfigPush`, `ScheduleWindow`, `AssetManifest`, at least one `PlannedState`, at least one `GameState`. The test asserts the ordered subsequence — it does not assert other frames are absent (the server may interleave `ProgramSlot`, `Heartbeat`, etc. — those are not part of the D-GRH-61 ordered guarantee but are valid).
 4. **Single-game DOM.** Within 10 s of boot, `WidgetPage.waitForSingleGameRendered()` resolves; the score panel contains home/away team names and scores matching the staging `GameState` fixture. Snapshot DOM assertion on the `[data-testid="cdq-score"]` subtree.
 5. **Heartbeat round-trip.** Within 35 s of boot (allowing for 30 s cadence + 5 s slack), exactly one outbound `Heartbeat` and one inbound `HeartbeatAck` with matching `seq` are observed.
-6. **Graceful disconnect.** `WidgetPage.disconnect()` triggers `WsClient.close()`; an outbound `ws_close_clean` frame is observed; no `error` lifecycle event fires.
+6. **Graceful disconnect.** `WidgetPage.disconnect()` triggers `WsClient.close()`; the WebSocket closes cleanly with close reason `ws_close_clean` (per SPEC-CRWDQ-022 — a WebSocket close-control frame, NOT a JSONL message), observed via Playwright's `websocket` close event; no `error` lifecycle event fires.
 
 ### CI integration
 
