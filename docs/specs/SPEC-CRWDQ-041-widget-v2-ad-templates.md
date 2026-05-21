@@ -188,7 +188,7 @@ Test cases:
 ## Vocabulary
 
 - `multiple_games_with_ads`, `fixtures_with_ads` — D-GRH-30 #6, #4.
-- `AdSlot.ad_ref` — opaque pointer; phase-1 `ad_ref_type === 'asset_id'` (D-GRH-55).
+- `AdSlot.ad_ref` — opaque pointer; phase-1 `ad_ref_type === 'creative_asset'` (D-GRH-55).
 - "coexistence" — D-GRH-16 uniform rule: ad does not displace content.
 
 ## Acceptance Criteria
