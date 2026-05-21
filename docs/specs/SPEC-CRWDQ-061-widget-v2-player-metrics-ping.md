@@ -16,13 +16,13 @@ generated_at: 2026-05-15
 |-------|-------|
 | Parent slice | S13 — Journal access + metrics |
 | Plane epic | CRWDQ-14 |
-| Decisions referenced | D-GRH-25, D-GRH-29, D-GRH-43, D-GRH-52, D-GRH-60 |
+| Decisions referenced | D-GRH-25, D-GRH-29, D-GRH-43, D-GRH-52, D-GRH-60, D-GRH-73, D-GRH-75 |
 | Source files | `modules/widget-v2/src/transport/WsClient.ts`, `Dispatcher.ts` (consumed); every template (journal emitters) |
 | New files | `modules/widget-v2/src/observability/JournalStore.ts`, `modules/widget-v2/src/observability/JournalSyncClient.ts`, `modules/widget-v2/src/observability/JournalBatcher.ts`, `modules/widget-v2/src/observability/types.ts`, `modules/widget-v2/tests/observability/*.test.ts` |
 
 ## Module
 
-`player-runtime :: widget-v2 :: observability/journal-sync` — player-side metrics emission per D-GRH-29 journal scope. Collects per-`PlannedState` render counts, dwell timing (actual vs target), transition errors, template fallback reasons. Batches into JSONL. POSTs (gzip) to the `/journal/sync` endpoint per D-GRH-52 at the cadence configured in `ConfigPush.intervals.journal_sync`. Transport is HTTP — explicitly NOT the WS — per D-GRH-52's transport separation rationale.
+`player-runtime :: widget-v2 :: observability/journal-sync` — player-side metrics emission per D-GRH-29 journal scope. Collects per-`PlannedState` render counts, dwell timing (actual vs target), transition errors, template fallback reasons. Batches into JSONL. POSTs (gzip) to the `/journal/sync` endpoint per D-GRH-52 at the cadence configured in `ConfigPush.intervals.journal_sync_ms` (the `intervals` block locked by D-GRH-75). Transport is HTTP — explicitly NOT the WS — per D-GRH-52's transport separation rationale.
 
 ## Current shape
 
@@ -43,7 +43,7 @@ export interface JournalEntry {
 }
 
 export interface JournalConfig {
-  syncIntervalMs: number;                      // from ConfigPush.intervals.journal_sync; default 60000
+  syncIntervalMs: number;                      // from ConfigPush.intervals.journal_sync_ms (D-GRH-75); default 60000
   maxBatchSize: number;                        // default 500 entries per POST
   maxBatchBytes: number;                       // default 256 KiB pre-gzip
   retainAckedMaxRows: number;                  // default 10000 (7-day / 250 MB ceiling per D-GRH-29; rough proxy)
@@ -143,13 +143,13 @@ Per D-GRH-29: 7-day / 250 MB for ACKed rows; unsynced uncapped. The `retainAcked
 
 ### Cadence
 
-- **Periodic.** Every `syncIntervalMs` (default 60 000; configurable via `ConfigPush.intervals.journal_sync`).
+- **Periodic.** Every `syncIntervalMs` (default 60 000; configurable via `ConfigPush.intervals.journal_sync_ms`, D-GRH-75).
 - **Backlog-triggered.** If `JournalStore.unsynced({maxRows: maxBatchSize})` returns the full `maxBatchSize`, sync fires immediately rather than waiting for the interval. This prevents under-provisioning the journal under burst load.
 - **Connectivity-triggered.** On `WsClient.on('reconnect')` after a `connectivity_lost` event, sync fires once shortly after — backend visibility into the gap matters.
 
-### Interaction with `ConfigPush.intervals.journal_sync`
+### Interaction with `ConfigPush.intervals.journal_sync_ms`
 
-Per D-GRH-60 + D-GRH-73 the locked ConfigPush schema does not currently carry an `intervals` field. The text of the SPEC-CRWDQ-061 catalog row references `ConfigPush.intervals.journal_sync` directly, so this spec assumes an extension is on the way. Conservative bootstrap: if `intervals.journal_sync` is absent from `ConfigPush.preferences`, the default `60 000 ms` is used. This unblocks the player even before the extension lands; once D-GRH-74-or-whatever ships, the value flows through `JournalSyncClient.updateInterval(...)`.
+D-GRH-75 locked an `intervals` block on `ConfigPush` carrying `journal_sync_ms`, `heartbeat_ms`, and `manifest_recheck_ms` (amending D-GRH-73). This spec reads `intervals.journal_sync_ms`. `intervals` is a sibling of `preferences` on the `ConfigPush` frame — NOT nested inside `preferences` — and is persisted by SPEC-CRWDQ-014's `PreferenceStore` as part of the full `ConfigPushPayload`. Conservative bootstrap: if `intervals` or `intervals.journal_sync_ms` is absent (a pre-D-GRH-75 frame), the default `60 000 ms` is used. On every `ConfigPush` the current value flows through `JournalSyncClient.updateInterval(...)`.
 
 ### Out of scope
 
@@ -184,7 +184,7 @@ Test cases:
 - Gzip failure: simulate `CompressionStream` throw → `failed: gzip_error`; entries remain unsynced; alarm via `console.error` AND journal (recursive: append a `journal_sync_gzip_error` entry — yes, the journal can journal its own faults; the retry will eventually drain).
 - ACK partial: server returns smaller `ack_seq_max` than `seqMax` → only the ACKed range is marked; remainder retries next interval.
 - ACK out of order: ignore (next sync naturally extends the ACK range).
-- ConfigPush interval update: dispatch a `ConfigPush` with `intervals.journal_sync: 30000` → `updateInterval(30000)` fires; next interval tick is 30 s.
+- ConfigPush interval update: dispatch a `ConfigPush` with `intervals.journal_sync_ms: 30000` → `updateInterval(30000)` fires; next interval tick is 30 s.
 - Retention prune: after ACK, with `retainAckedMaxRows: 5`, store has 10 ACKed rows → 5 oldest pruned; `prune` returns `{ pruned: 5 }`; journal `journal_retention_pruned`.
 - Bootstrap from reload: pre-seed IndexedDB with seq 1..100 (50 ACKed, 50 unsynced) → `JournalStore` resumes; next emit assigns seq 101; next sync sends seq 51..100.
 
@@ -198,7 +198,7 @@ Test cases:
 
 - [ ] `JournalStore.append({ts, event_type, payload})` assigns the next monotonic `seq`, persists the entry to IndexedDB under `crowdaq.widgetV2.journal`, and returns the assigned seq.
 - [ ] `seq` is monotonic per-display, persists across widget reloads (bootstrap reads the highest stored seq and continues from there).
-- [ ] `JournalSyncClient.start()` runs a periodic loop that ticks at `syncIntervalMs` (default 60 000; updated via `updateInterval(...)` on `ConfigPush` arrival when `intervals.journal_sync` is present).
+- [ ] `JournalSyncClient.start()` runs a periodic loop that ticks at `syncIntervalMs` (default 60 000; updated via `updateInterval(...)` on `ConfigPush` arrival when `intervals.journal_sync_ms` is present, per D-GRH-75).
 - [ ] Each sync POSTs gzip-compressed JSONL to `/journal/sync` with `Content-Encoding: gzip`, `Content-Type: application/x-ndjson`, `X-Display-Id`, `X-Seq-Min`, `X-Seq-Max` headers; body decodes to one JSON object per line.
 - [ ] Server `200` with `{ack_seq_min, ack_seq_max}` triggers `JournalStore.ack(...)`; ACKed prefix is then prunable.
 - [ ] Backlog trigger: when `JournalStore.unsynced(...)` reaches `maxBatchSize`, sync fires immediately without waiting for the interval.
