@@ -30,7 +30,7 @@ generated_at: 2026-05-15
 - D-GRH-57 specifies the `MessagingLane` schema: `lane_id`, `text`, `display_form`, `dwell_ms`, `valid_from`, `valid_until`. New message with same `lane_id` replaces prior. Backend `AdminGatewayService` publishes to `bar.<bar_id>.control`; `GameDeliveryService` forwards over the WS.
 - D-GRH-58 specifies the rendering priority stack: `OverrideInjection` > `PlannedState` > `MessagingLane`. Binary suppression — all overrides suppress all lanes; no per-override flag.
 
-The override-suppression hook needs a shared state token because `OverrideInjection` rendering is owned by a later spec (out of this slice). This spec defines the contract for that shared token; the actual override-rendering owner (out of scope here) writes it.
+The override-suppression hook needs a shared state token because `OverrideInjection` rendering is owned by **SPEC-CRWDQ-063** (the override-injection handler), not this slice. This spec defines the contract for that shared token (`overrideSuppressionState`); SPEC-CRWDQ-063 is the writer that flips it.
 
 ## Proposed deep interface
 
@@ -70,7 +70,7 @@ export interface MessagingLaneStore {
 export interface MessagingLaneEntry {
   lane_id: string;
   text: string;
-  display_form: 'overlay' | 'lower_third' | 'ticker' | 'side_rail';
+  display_form: 'overlay' | 'lower_third' | 'ticker' | 'side_rail';  // provisional set — D-GRH-57 marks the display_form enum "specific enum TBD"; revisit when D-GRH-57 is finalized
   dwell_ms: number;             // 0 = sticky until next update (D-GRH-57)
   valid_from: string;           // ISO 8601 UTC
   valid_until: string;          // ISO 8601 UTC
@@ -157,7 +157,7 @@ Text overlays are plain `<span>` content (D-GRH-57 text-only); no HTML interpret
 
 ### Out of scope
 
-- `OverrideInjection` rendering itself — owned by a later spec (S10+ or S11).
+- `OverrideInjection` rendering itself — owned by SPEC-CRWDQ-063 (override-injection handler).
 - Multiple-`bar_id` filtering — the WS connection is per-display, so all `MessagingLane` frames arriving on it are for the connected bar. Per-display routing (if a bar has multiple screens authored differently in the future) is not in this iteration.
 - Rich media overlays (images, video) — D-GRH-57 explicitly defers asset-bearing messaging.
 - Click / tap interaction — bar screens are passive (same constraint as the ad panel).
