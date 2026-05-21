@@ -3,7 +3,7 @@ spec_id: SPEC-CRWDQ-046
 title: Widget v2 recap render template
 status: draft
 owner: player-runtime/widget-v2/templates/recap
-depends_on: [SPEC-CRWDQ-022, SPEC-CRWDQ-023, SPEC-CRWDQ-045]
+depends_on: [SPEC-CRWDQ-022, SPEC-CRWDQ-023, SPEC-CRWDQ-064]
 generated_by: catalog-expansion
 generated_at: 2026-05-15
 ---
@@ -17,7 +17,7 @@ generated_at: 2026-05-15
 | Parent slice | S9 — Post-game recap |
 | Plane epic | CRWDQ-10 |
 | Decisions referenced | D-GRH-21, D-GRH-25, D-GRH-29, D-GRH-30, D-GRH-50, D-GRH-68 |
-| Source files | `modules/widget-v2/src/render/GameStateStore.ts`, `PlannedStateActivator.ts`, `ProgramSlotResolver.ts`, `TransitionExecutor.ts`, `DwellTimer.ts` (consumed) |
+| Source files | `modules/widget-v2/src/render/GameStateStore.ts`, `PlannedStateActivator.ts`, `ProgramSlotResolver.ts`, `TransitionExecutor.ts`, `DwellTimer.ts` (consumed from SPEC-CRWDQ-023); `AssetManifestStore.ts` (consumed from SPEC-CRWDQ-064) |
 | New files | `modules/widget-v2/src/templates/recap/RecapTemplate.ts`, `modules/widget-v2/src/templates/recap/recap.html`, `modules/widget-v2/src/templates/recap/recap.css`, `modules/widget-v2/tests/templates/recap/*.test.ts` |
 
 ## Module
@@ -28,7 +28,13 @@ generated_at: 2026-05-15
 
 - No recap rendering in v1.
 - D-GRH-68 finalized recap as a normal `business_mode = "recap"` value rather than a separate "post-game recap layer" or `interrupt_class`. The recap `PlannedState` reuses the same `program_slot_id` that drove the preceding live-game slot, so the template resolves `primary_game_id` from the existing in-memory `ProgramSlot` (D-GRH-21).
-- By the time a recap slot becomes active, the backend has already pushed `GameState` with `status: "final"` for the game. The recap template reads `final_score`, `winner` (derivable from scores), and headline moments (events with elevated significance — goals, lead changes, red cards, etc.) from `GameState`. There's no separate recap content frame.
+- By the time a recap slot becomes active, the backend has already pushed `GameState` with `status: "final"` for the game. The recap template reads `final_score`, `winner` (derivable from scores), and headline moments from the player's existing in-memory state. There's no separate recap content frame.
+
+> **Dependencies.** Built on the shared render orchestration of **SPEC-CRWDQ-023** (`GameStateStore`, `PlannedStateActivator`, `ProgramSlotResolver`, `TransitionExecutor`, `DwellTimer`) and the asset cache of **SPEC-CRWDQ-064** (`AssetManifestStore`, for team name/logo) — both hard build dependencies in `depends_on`. **SPEC-CRWDQ-045** (`BarPlayerSchedulerService` recap-window calculator + recap `PlannedState` emitter) is the cross-repo `crowdaq-backend` *producer* of the recap `PlannedState`s this template consumes — a wire-contract counterpart, not a build dependency, so it is not in `depends_on`.
+
+> **Open contract gaps (consumed-side).** This template reads two things the SPEC-CRWDQ-017 wire types do not currently carry:
+> 1. **Team identity.** The recap renders team names + logos, which require a team identifier. D-GRH-08 states *"`GameState` references `team_id`"*, but SPEC-CRWDQ-017's `GameStatePayload` field list omits `home_team_id` / `away_team_id`. This spec consumes `gameState.home_team_id` / `gameState.away_team_id` on the assumption that SPEC-CRWDQ-017 is amended to list them (a D-GRH-08 mandate). Team display name + logo are resolved from `AssetManifestStore` by `team_id` (D-GRH-08 — team name/logo/colors are AssetManifest-delivered assets, not wire fields).
+> 2. **Headline-moment history.** SPEC-CRWDQ-017's `GameStatePayload` has no `events` array. The recap's headline moments are read from a bounded per-game significant-`GameEvent` history that `GameStateStore` accumulates during the live game — this requires SPEC-CRWDQ-023's `GameStateStore` to expose a `significantEvents(gameId)` accessor (SPEC-CRWDQ-023 follow-up).
 
 ## Proposed deep interface
 
@@ -42,6 +48,7 @@ export interface RecapContext {
   programSlot: ProgramSlot;        // same slot as the preceding live-game slot; primary_game_id is the recap target
   themeId: string | null;
   gameStateStore: GameStateStore;
+  assetManifestStore: AssetManifestStore;  // SPEC-CRWDQ-064 — team name/logo resolution
   pendingApply: PendingPreferenceApply | null;
 }
 
@@ -86,8 +93,8 @@ For `PlannedState` with `mode: "recap"` and `program_slot_id: X`:
 1. **Resolve `ProgramSlot`.** Same shared resolver. `primary_game_id` MUST be non-null — recap requires a target game. Null → journal `template_input_invalid` and fall through to safe.
 2. **Read `GameState`.** `gameStateStore.get(primary_game_id)`. Cache miss (no in-memory state — shouldn't happen because the game was just live; D-GRH-49 re-push guarantees it on reconnect, D-GRH-12 multiplex on steady-state) → journal `recap_no_gamestate` and fall through to safe.
 3. **Validate final state.** `gameState.status === "final"`. If not (recap fired before final flip — backend authoring bug) → journal `recap_premature` but proceed; we'll show whatever state we have. Don't crash on backend timing edge cases.
-4. **Compose final composition.** Read `home_score`, `away_score`, team identifiers from `gameState`. Compute `winner = home_score > away_score ? "home" : away_score > home_score ? "away" : "draw"`.
-5. **Headline moments.** Filter `gameState.events` (the per-game event log carried in the `GameState` snapshot, if present) by significance. Significance heuristic for v1: events with `event_type ∈ {"goal", "red_card", "lead_change", "overtime_start", "penalty"}` — the closed set per D-GRH-68's `recap_signals`. Cap at 3 moments, most recent first.
+4. **Compose final composition.** Read `home_score`, `away_score`, and `home_team_id` / `away_team_id` from `gameState` (see Open contract gaps). Resolve each team's display name + logo from `AssetManifestStore` by `team_id` (D-GRH-08). Compute `winner = home_score > away_score ? "home" : away_score > home_score ? "away" : "draw"`.
+5. **Headline moments.** Read the per-game significant-event history from `GameStateStore.significantEvents(primary_game_id)` (SPEC-CRWDQ-017's `GameStatePayload` has no `events` field — the history is accumulated by `GameStateStore` from `GameEvent` deltas during the live game; see Open contract gaps). Filter by `GameEvent.kind ∈ {"goal", "card", "var", "penalty", "period"}` (the SPEC-CRWDQ-017 `GameEventKind` members mapping to D-GRH-68's `recap_signals`). Cap at 3 moments, most recent first.
 6. **Resolve theme + assets.** Same path as single-game (D-GRH-23, D-GRH-51).
 7. **Run transition.** Default `fade_scale_up` if catalog miss.
 8. **Mount.** Build the DOM as above.
@@ -98,8 +105,8 @@ For `PlannedState` with `mode: "recap"` and `program_slot_id: X`:
 
 If any of the following are missing, render a reduced composition rather than fall through to safe:
 
-- Team logos cache miss → text-only team names.
-- `gameState.events` absent or empty → omit the `<ul class="cdq-headline-moments">` block. The final score alone is still useful.
+- Team-asset cache miss → the team renders its `team_id` as a placeholder label (team name itself is an AssetManifest asset per D-GRH-08), no logo.
+- `GameStateStore.significantEvents(...)` returns an empty history → omit the `<ul class="cdq-headline-moments">` block. The final score alone is still useful.
 - `sport_context` absent → empty header badge slot.
 
 Only the "no `GameState`" or "null `primary_game_id`" cases fall through to safe. Everything else degrades in place.
@@ -114,7 +121,7 @@ Per D-GRH-68 the recap composition is built once at mount. Late `GameEvent` delt
 |-----------|----------|--------------|
 | `PlannedStateActivator`, `ProgramSlotResolver`, `GameStateStore`, `TransitionExecutor`, `DwellTimer` | 1 in-process | Real shared instances. |
 | DOM | 1 in-process | jsdom. |
-| Asset manifest lookup | 2 local-substitutable | `AssetManifestStore` with pre-seeded team logos. |
+| `AssetManifestStore` (SPEC-CRWDQ-064) | 1 in-process | Real instance, pre-seeded with team assets; `AssetFetcher` substituted per SPEC-CRWDQ-064. |
 | Journal sink | 2 local-substitutable | In-memory. |
 
 Test cases:
@@ -123,7 +130,7 @@ Test cases:
 - Draw: `home_score: 2, away_score: 2` → `data-winner="draw"`.
 - Headline moments cap: feed `gameState.events` with 5 significant events → exactly 3 most-recent rendered.
 - Empty moments: `gameState.events: []` → `<ul.cdq-headline-moments>` omitted from DOM.
-- Logo cache miss: `assetManifestStore.resolve("team_logo:home-team-id")` → null → home team renders name text without `<img>`, no error.
+- Team-asset cache miss: `assetManifestStore.get("team:home-team-id")` → null → home team renders its `team_id` as a placeholder label, no `<img>`, no error.
 - `primary_game_id` null: journal `template_input_invalid`; no mount.
 - `gameState` cache miss: journal `recap_no_gamestate`; no mount (escalates to safe via downstream owner).
 - `gameState.status !== "final"`: journal `recap_premature`; mount proceeds with whatever data exists.
@@ -142,7 +149,7 @@ Test cases:
 
 - [ ] `RecapTemplate.mount(host, ctx)` renders `<section class="crowdaq-recap" data-theme data-game-id data-winner="home|away|draw">` with header (FULL TIME label + sport_context), final score block (home/away with logos, names, scores), and optional headline moments list.
 - [ ] `data-winner` is derived from `gameState.home_score` vs `gameState.away_score` — `home`, `away`, or `draw`; not read from the wire.
-- [ ] Headline moments are filtered to event types `{goal, red_card, lead_change, overtime_start, penalty}` and capped at 3, most recent first; absent events block produces no `<ul>` in DOM.
+- [ ] Headline moments are read from `GameStateStore.significantEvents(primary_game_id)`, filtered to `GameEvent.kind ∈ {goal, card, var, penalty, period}`, capped at 3, most recent first; an empty history produces no `<ul>` in DOM.
 - [ ] Asset cache miss on team logos falls back to text-only team names; no `<img>` placeholder, no error.
 - [ ] Null `primary_game_id` journals `template_input_invalid` and does not mount.
 - [ ] `gameStateStore.get(primary_game_id)` miss journals `recap_no_gamestate` and does not mount (escalation owned by safe template).
