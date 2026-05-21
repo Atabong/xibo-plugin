@@ -24,7 +24,7 @@ generated_at: 2026-05-15
 
 `player-runtime :: widget-v2 :: render/asset-manifest` — the player-side cache of all asset blobs delivered via `AssetManifest` (D-GRH-23): theme stylesheets, font files, sport/league badges, team logos, animation definition files (D-GRH-31), ad creatives (D-GRH-55). Hash-keyed cache, lazy fetch on `ensure()`, eager pre-fetch on manifest receipt, in-flight de-duplication, version-bump invalidation, eviction by LRU + version-staleness, persistence to IndexedDB for cross-restart survival.
 
-This spec consolidates the `AssetManifestStore` interface that several other specs already declare as a consumed surface (SPEC-CRWDQ-034, 041, 053). Those specs reference the type without owning its full lifecycle. This spec owns it.
+This spec consolidates the `AssetManifestStore` interface that several other specs declare as a consumed surface (SPEC-CRWDQ-034, 041, 046, 052, 053, 063, 065, 066). Those specs reference the type without owning its full lifecycle. This spec owns it.
 
 ## Current shape
 
@@ -94,8 +94,21 @@ export interface AssetManifestStore {
    * of currently-referenced assets after a version bump.
    */
   subscribeManifest(listener: (version: string) => void): () => void;
+
+  /**
+   * The full entry list of the currently applied manifest. Used by
+   * consumers that must enumerate a family of assets rather than look
+   * one up by exact id — e.g. SPEC-CRWDQ-053's AmbientPlaylist filters
+   * every `ambient:`-prefixed entry. Returns a read-only snapshot;
+   * callers must not mutate it.
+   */
+  manifestEntries(): readonly AssetManifestEntry[];
 }
 
+// The on-the-wire AssetManifest frame. Conceptually this is
+// SPEC-CRWDQ-017's `Envelope<AssetManifestPayload>` — `message_type`
+// and `bar_id` are envelope-level, `version` + `entries` the payload.
+// The flat shape here is what the dispatcher hands `apply()`.
 export interface AssetManifestFrame {
   message_type: 'AssetManifest';
   bar_id: string;
@@ -282,6 +295,7 @@ Test cases:
 ## Vocabulary
 
 - `AssetManifest`, `asset_id`, `content_hash`, `version`, `needed_by` — D-GRH-23, D-GRH-55.
+- `asset_id` is an opaque backend-minted string; this store treats it as a flat key. Consuming specs and the backend publisher agree on prefix conventions: `badge:<sport>:<league>` (SPEC-CRWDQ-034), `team:<team_id>` (SPEC-CRWDQ-046 / 066), `venue_brand:<bar_id>` (SPEC-CRWDQ-052), `ambient:<NNN>` (SPEC-CRWDQ-053), and ad creative ids carried directly as `AdSlot.ad_ref` (SPEC-CRWDQ-041 / 065). These conventions are not enforced by this store.
 - "animation definition assets" — D-GRH-31 (in-scope of this cache).
 - "R2 backend" — D-GRH-74 (informational: the URL host; this spec is backend-agnostic for fetch).
 - "stale version", "hot map" — internal terms defined in this spec.
@@ -299,6 +313,7 @@ Test cases:
 - [ ] Persistence: cache survives a "restart" (new `AssetManifestStore` over a seeded `AssetCache` instance) — assets cached pre-restart are returned by `get()` after the same manifest is re-applied.
 - [ ] IndexedDB-unavailable degradation: `ensure()` still resolves (in-memory only); journals `asset_cache_persistence_unavailable` at boot; cross-restart persistence is lost.
 - [ ] `invalidate(version)` flags non-matching-version entries for eviction; subsequent `get()` returns null for those ids until next `ensure()` re-fetches.
+- [ ] `manifestEntries()` returns the full applied-manifest entry list as a read-only snapshot, enabling prefix-family enumeration (e.g. SPEC-CRWDQ-053's `ambient:` filter).
 - [ ] Eviction policy: stale-version entries evict first; same-version eviction is LRU by `lastAccessAt`; eviction continues until total size ≤ 90% of `maxBytes`; journals `asset_cache_evicted` with the evicted ids and reclaimed bytes.
 - [ ] Tests cover: apply happy path, cache hit/miss, version-bump re-fetch, concurrent ensure de-dup, eager pre-fetch + concurrency cap, stale eviction, LRU within same version, content-hash mismatch, persisted store survives restart, IndexedDB-unavailable degradation, idempotent apply, subscribeManifest fanout.
 - [ ] No mocks of `AssetCache`, `AssetEvictionPolicy`, or hash verifier (INV-FACTORY-16); only `AssetFetcher` (HTTP boundary) and clock are substituted (INV-FACTORY-17).
