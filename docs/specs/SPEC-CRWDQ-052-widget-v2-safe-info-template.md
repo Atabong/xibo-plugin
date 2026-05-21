@@ -3,7 +3,7 @@ spec_id: SPEC-CRWDQ-052
 title: Widget v2 safe_info render template
 status: draft
 owner: player-runtime/widget-v2/templates/safe
-depends_on: [SPEC-CRWDQ-022, SPEC-CRWDQ-051]
+depends_on: [SPEC-CRWDQ-014, SPEC-CRWDQ-022, SPEC-CRWDQ-023, SPEC-CRWDQ-064]
 generated_by: catalog-expansion
 generated_at: 2026-05-15
 ---
@@ -16,15 +16,19 @@ generated_at: 2026-05-15
 |-------|-------|
 | Parent slice | S11 — Safe / ambient fallback |
 | Plane epic | CRWDQ-12 |
-| Decisions referenced | D-GRH-21, D-GRH-22, D-GRH-23, D-GRH-25, D-GRH-30, D-GRH-50, D-GRH-51, D-GRH-73, D-SAFE-01 |
-| Source files | `modules/widget-v2/src/render/PlannedStateActivator.ts` (consumed) |
+| Decisions referenced | D-GRH-21, D-GRH-22, D-GRH-23, D-GRH-25, D-GRH-30, D-GRH-50, D-GRH-51, D-GRH-73, D-GRH-76, D-SAFE-01 |
+| Source files | `modules/widget-v2/src/render/PlannedStateActivator.ts`, `GameStateStore.ts` (consumed from SPEC-CRWDQ-023); `AssetManifestStore.ts` (consumed from SPEC-CRWDQ-064) |
 | New files | `modules/widget-v2/src/templates/safe-info/SafeInfoTemplate.ts`, `modules/widget-v2/src/templates/safe-info/safe-info.html`, `modules/widget-v2/src/templates/safe-info/safe-info.css`, `modules/widget-v2/src/render/SafeStateController.ts`, `modules/widget-v2/tests/templates/safe-info/*.test.ts` |
 
 ## Module
 
-`player-runtime :: widget-v2 :: templates/safe` — the `safe` business-mode template family, instance: `safe_info` (D-GRH-30 mode #8). A static, sport-neutral, theme-aware information panel with venue branding from `BarPreferences` (D-GRH-73). No game data dependencies; always renders; offline-safe per D-SAFE-01.
+`player-runtime :: widget-v2 :: templates/safe-info` — the `safe_info` business-mode template (one of the nine `business_mode` values per `SPEC-CATALOG.md`, which SPEC-CRWDQ-017's `PlannedStatePayload.business_mode` cites as the closed enum). A static, sport-neutral, theme-aware information panel with venue branding from `BarPreferences` (D-GRH-73). No game data dependencies; always renders; offline-safe per D-SAFE-01.
 
-The catalog row names this spec `safe_info render template` — the broader `safe` mode dispatch on `business_mode` is shared with the player-side D-SAFE-01 fallback path (loss of connectivity, stale data) and the backend's explicit `safe` emission. Both paths converge on this same template family per D-GRH-30.
+`safe_info` is reached two ways — a backend-authored `PlannedState{business_mode: "safe_info"}` and the player-side D-SAFE-01 fallback path (loss of connectivity, stale data). Both converge on this template. (`ambient`, SPEC-CRWDQ-053, is a separate `business_mode` value, not a sibling variant under a `safe` family — there is no `safe` super-family or `sub` field; `business_mode` carries `safe_info` directly.)
+
+> **Dependencies.** Consumes the shared orchestration of SPEC-CRWDQ-023 (`PlannedStateActivator`, `GameStateStore`), the `AssetManifestStore` of SPEC-CRWDQ-064 (venue-brand asset), and the `BarPreferences` of SPEC-CRWDQ-014 — all in `depends_on`. SPEC-CRWDQ-051 (`BarPlayerSchedulerService` fallback-mode selection) is the cross-repo `crowdaq-backend` producer of backend-authored `safe_info` `PlannedState`s — a wire-contract counterpart, not a build dependency.
+
+> **Flag — D-GRH-76 reason visibility.** D-GRH-76 splits the safe-mode reason into a backend-planned `safe_reason` (patron-visible enum) and a player `runtime_reason` (journal-only enum). The footer status table below currently renders the player-fallback `runtime_reason` (`control_channel_lost` → "Reconnecting…", etc.) as on-screen text — that conflicts with D-GRH-76's "journal-only" classification of `runtime_reason`. This needs reconciliation against D-GRH-76's full text (Plane / the disk D-GRH log): either the footer shows only a generic calm indicator for player-fallback and journals the specific reason, or D-GRH-76 permits these calm phrasings. Left as-is pending that confirmation.
 
 ## Current shape
 
@@ -104,7 +108,7 @@ The DOM is intentionally minimal. The content is a venue-aware "stay tuned" pane
 **Path A — backend `PlannedState{safe_info}`:**
 
 1. Routed by `PlannedStateActivator` like any other mode.
-2. `source = { kind: 'backend_planned', reason: 'scheduled' }` (the catalog row maps `PlannedState` flags onto the reason enum; an extension of D-SCHEMA-05 + D-GRH-30 to carry `safe_reason` is a backend concern — out of scope here. Default `'scheduled'`).
+2. `source = { kind: 'backend_planned', reason: <safe_reason> }` — the backend-planned `safe_reason` is the patron-visible enum decided by D-GRH-76; the player reads it from the `PlannedState`. Default `'scheduled'` if absent.
 3. Standard transition + dwell.
 
 **Path B — player fallback via `SafeStateController`:**
@@ -113,7 +117,7 @@ The DOM is intentionally minimal. The content is a venue-aware "stay tuned" pane
    - `WsClient` lifecycle: connection-lost ≥ 30 s and no successful reconnect → `'control_channel_lost'`.
    - `GameStateStore` per-active-game staleness: no `GameEvent` for any active game ≥ 120 s while in a content mode → `'data_stale'`.
    - `PlannedStateActivator` no-state timer: no active `PlannedState` ≥ 60 s after WS open → `'no_recent_state'`.
-2. When any trigger fires, controller calls `PlannedStateActivator.activate(syntheticPlannedState({mode: 'safe', sub: 'safe_info'}))`. The synthetic state carries `program_slot_id: null`, theme = last-known theme, transition = `fade_scale_up` default.
+2. When any trigger fires, the controller calls `PlannedStateActivator.activate(syntheticPlannedState({business_mode: 'safe_info'}))`. The synthetic state is a client-built `PlannedState` filling the SPEC-CRWDQ-017 required fields with sentinels: a generated `state_id`, `program_slot_id: null`, `theme_id` = last-known theme, `transition` = `fade_scale_up`, `dwell_target_ms` = 0 (infinite — see Dwell).
 3. `SafeInfoTemplate.mount(...)` runs with `source = { kind: 'player_fallback', reason }`.
 4. On D-SAFE-01 recovery (connection back, GameEvent received, real PlannedState arrives), the controller cancels the synthetic state — the real activation supersedes it via the normal supersede path.
 
@@ -121,7 +125,7 @@ The DOM is intentionally minimal. The content is a venue-aware "stay tuned" pane
 
 The venue name is rendered from a small fallback chain:
 
-1. If `AssetManifestStore.resolve("venue_brand:" + barPreferences.bar_id)` returns an image asset → render `<img>` instead of text.
+1. If `AssetManifestStore.get("venue_brand:" + barPreferences.bar_id)` returns a cached image asset → render `<img>` instead of text (`get()` is the synchronous cache read; SPEC-CRWDQ-064).
 2. Else if `barPreferences.city` + `barPreferences.state` populated → render `<span>${city.toUpperCase()}, ${state.toUpperCase()}</span>`.
 3. Else → render the literal `"CROWDAQ"` brand only.
 
@@ -161,12 +165,12 @@ If entered via Path A, dwell is `plannedState.dwell_target_ms`. If entered via P
 
 Test cases:
 
-- Path A backend-planned: dispatch `PlannedState{mode: safe, sub: safe_info, reason: scheduled}` → DOM contains `data-source="backend_planned"`, `data-reason="scheduled"`, status footer empty.
+- Path A backend-planned: dispatch `PlannedState{business_mode: "safe_info", safe_reason: "scheduled"}` → DOM contains `data-source="backend_planned"`, `data-reason="scheduled"`, status footer empty.
 - Path B control-channel-lost: fire WS close, advance clock 30 s, no reconnect → controller triggers safe_info with `data-source="player_fallback"`, `data-reason="control_channel_lost"`, footer "Reconnecting…".
 - Path B data-stale: simulate active content mode + age last GameEvent past 120 s → controller triggers `data_stale` safe; footer "Refreshing…".
 - Path B no-recent-state: WS open + 60 s without a `PlannedState` arrival → controller triggers `no_recent_state`; footer "Loading…".
 - D-SAFE-01 recovery: in Path B safe, real `PlannedState{single_game}` arrives → supersede transitions to the new mode; safe instance detaches; controller's `state().inSafe` flips to `false`.
-- Venue brand asset present: `AssetManifestStore.resolve("venue_brand:bar-007")` returns URL → DOM contains `<img>` not city/state text.
+- Venue brand asset present: `AssetManifestStore.get("venue_brand:bar-007")` returns a cached asset → DOM contains `<img>` not city/state text.
 - Venue brand asset miss + city/state present: DOM contains text like "CHICAGO, IL".
 - Venue brand asset miss + city/state empty: DOM falls back to "CROWDAQ" wordmark only.
 - No motion: assert no `transition`, `animation`, `keyframes` CSS properties are applied to any descendant of `.cdq-safe-body` after mount.
@@ -176,7 +180,7 @@ Test cases:
 
 ## Vocabulary
 
-- `safe` mode — D-GRH-30 mode #8.
+- `safe_info` mode — a `business_mode` value (SPEC-CATALOG; D-GRH-30 names the same fallback mode `safe`).
 - D-SAFE-01 — the player-side fallback chain established in the requirements doc.
 - "venue brand" — derived from `BarPreferences` + optional asset; no first-class wire field.
 
@@ -184,12 +188,12 @@ Test cases:
 
 - [ ] `SafeInfoTemplate.mount(host, ctx)` renders `<section class="crowdaq-safe-info" data-theme data-source data-reason>` with header (venue brand), body (CROWDAQ wordmark + tagline), footer (status text from the reason map).
 - [ ] Venue brand fallback chain: asset → city/state text → wordmark only, in that order; the first non-null wins.
-- [ ] Path A: `PlannedState{mode: safe, sub: safe_info}` routed by `PlannedStateActivator` with standard transition + dwell; `data-source="backend_planned"`.
+- [ ] Path A: `PlannedState{business_mode: "safe_info"}` routed by `PlannedStateActivator` with standard transition + dwell; `data-source="backend_planned"`.
 - [ ] Path B: `SafeStateController` triggers safe_info on `control_channel_lost` (WS down ≥ 30 s, no reconnect), `data_stale` (no GameEvent ≥ 120 s in content mode), `no_recent_state` (WS open + no PlannedState ≥ 60 s); the trigger constructs a synthetic PlannedState and routes via the normal activator.
 - [ ] On D-SAFE-01 recovery, the real PlannedState arrival supersedes the synthetic safe state via the standard supersede flow; controller's `state().inSafe` flips to false.
 - [ ] No motion is applied to any descendant of `.cdq-safe-body` after mount: assertions on computed `animation-name` / `transition-property` / `@keyframes` are negative.
 - [ ] Footer status text matches the reason map exactly: `scheduled`/`no_content` empty, `maintenance` "Brief pause", `control_channel_lost` "Reconnecting…", `data_stale` "Refreshing…", `no_recent_state` "Loading…".
 - [ ] Path A honors `plannedState.dwell_target_ms`; Path B does NOT arm the dwell timer (infinite until recovery).
-- [ ] Always offline-safe: the template makes no fetch calls; venue brand asset, if needed, is resolved synchronously from `AssetManifestStore.resolve(...)` cache; cache miss falls back to text per the chain.
+- [ ] Always offline-safe: the template makes no fetch calls; venue brand asset, if needed, is read synchronously from `AssetManifestStore.get(...)` cache; cache miss falls back to text per the chain.
 - [ ] Tests cover both paths, each reason, each fallback rung in the brand chain, D-SAFE-01 recovery supersede, no-motion assertion, theme apply at boundary (Path A only), Path B no-dwell.
 - [ ] No mocks of `PlannedStateActivator`, `GameStateStore`, `AssetManifestStore`, `BarPreferences`, or `SafeStateController` internals (INV-FACTORY-16); only the `WsClient` lifecycle and clock are substituted.
