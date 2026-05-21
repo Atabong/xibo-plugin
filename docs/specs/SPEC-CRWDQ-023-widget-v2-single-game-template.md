@@ -59,10 +59,14 @@ export interface ProgramSlotResolver {
 ```ts
 // modules/widget-v2/src/render/GameStateStore.ts
 export interface GameStateStore {
-  upsertSnapshot(snapshot: GameStateFrame | GameStateSnapshotFrame): void;
+  upsertSnapshot(snapshot: GameStateFrame): void;
   applyEvent(event: GameEventFrame): void;
   get(gameId: string): GameState | null;
-  /** Subscribe to mutations for a specific game; returns unsubscribe. */
+  /** The most recent GameEvent applied for this game, or null if none
+   *  seen. Source for the single_game "last moment" overlay text. */
+  lastEvent(gameId: string): GameEventFrame | null;
+  /** Subscribe to mutations for a specific game; returns unsubscribe.
+   *  Fires on both snapshot upserts and event applies. */
   subscribe(gameId: string, listener: (state: GameState) => void): () => void;
 }
 ```
@@ -82,14 +86,18 @@ export interface DwellTimer {
 // modules/widget-v2/src/render/TransitionExecutor.ts
 export interface TransitionExecutor {
   /**
-   * Execute the named transition. Resolves the animation_id against
-   * the pre-baked catalog (D-GRH-28); falls back to AssetManifest
-   * cache; falls back to default fade if both miss (D-GRH-31). Returns
-   * when the transition completes (after duration_ms).
+   * Execute the named transition. `transitionName` is the catalog-name
+   * string carried by `PlannedState.transition` (SPEC-CRWDQ-017 — a
+   * closed-enum string, NOT an object). Resolves the name against the
+   * pre-baked catalog (D-GRH-28 / D-GRH-50) to a `TransitionSpec`;
+   * falls back to the AssetManifest cache; falls back to default fade
+   * if both miss (D-GRH-31). Returns when the transition completes.
    */
-  run(transition: TransitionSpec, target: HTMLElement): Promise<void>;
+  run(transitionName: string, target: HTMLElement): Promise<void>;
 }
 
+/** Resolved catalog entry — the internal result of resolving a
+ *  `PlannedState.transition` name against the pre-baked catalog. */
 export interface TransitionSpec {
   animation_id: string;
   duration_ms: number;
@@ -121,8 +129,8 @@ export interface SingleGameInstance {
 A single `<section class="crowdaq-single-game" data-theme="<theme_id>">` containing:
 
 - `<header class="cdq-sport-context">` — sport, league, optional venue badge (resolved from `GameState.sport_context` per D-GRH-09). Empty if `sport_context` absent.
-- `<div class="cdq-score">` — two team blocks (home/away) each with team name and score, plus a center clock/period indicator. Driven entirely by `GameState.home_score`, `GameState.away_score`, and `GameState.sport_context.period_clock`.
-- `<aside class="cdq-overlay">` — last notable moment text (capped at `maxMomentLength` per existing widget convention), shown only when `GameState.last_moment` non-empty.
+- `<div class="cdq-score">` — two team blocks (home/away) each with team name and score, plus a center clock/period indicator. Driven entirely by `GameState.home_score`, `GameState.away_score`, and the top-level `GameState.period` / `GameState.clock` fields (SPEC-CRWDQ-017 `GameStatePayload`).
+- `<aside class="cdq-overlay">` — last notable moment text (capped at `maxMomentLength` per existing widget convention). SPEC-CRWDQ-017's `GameStatePayload` carries no moment field, so the text is derived in-widget from the most recent `GameEvent` for `primary_game_id` (`GameStateStore.lastEvent(gameId)`; the template maps the event's `kind` + `delta` + `at_clock` to display text). Shown only when a `GameEvent` has been seen for the game.
 
 No multi-game grid logic, no ad panel, no fixtures, no recap. Those are separate templates that share the same orchestration (`PlannedStateActivator`, `ProgramSlotResolver`, `GameStateStore`, `DwellTimer`, `TransitionExecutor`).
 
@@ -151,7 +159,7 @@ When a new `PlannedState` arrives (different `state_id`):
 
 - `PlannedState` with the same `state_id` arriving twice (re-push artifact): no-op. The activator stores the active `state_id` and short-circuits.
 - `ProgramSlot` upserts: last-write-wins per `program_slot_id`. Mid-session updates to a referenced slot trigger a soft re-render of the active template (`GameState` listener re-fires with current state) without re-running the transition.
-- `GameState` snapshot ordering: store keeps the highest `seq` seen per `game_id`; out-of-order arrivals are dropped (with journal).
+- `GameState` snapshots carry no `seq` (SPEC-CRWDQ-017) — every snapshot is a recovery point and is always applied, resetting the per-`game_id` seq baseline. Only `GameEvent` deltas carry `seq`: a delta whose `seq` is ≤ the last applied seq for that `game_id` is dropped (journal `game_event_seq_regression`).
 
 ## Test strategy
 
@@ -176,7 +184,8 @@ Test cases:
 - `primary_game_id` null: placeholder DOM, journal `template_render_fallback`, dwell still armed.
 - Pending preference apply at boundary: `pendingApply` non-null at mount → `StyleSheetRegistry` records the new `theme_id`; `data-theme` attribute updates; `pendingApply` is consumed.
 - Out-of-order `GameEvent` (seq 5 then seq 3): seq 3 dropped; journal `game_event_seq_regression`.
-- Transition catalog miss: `animation_id: "nonexistent"` → `TransitionExecutor` falls back to default fade; journal `transition_catalog_miss`.
+- Last-moment overlay: a `GameEvent` (kind `goal`) for `primary_game_id` → `<aside class="cdq-overlay">` renders text derived from the event's `kind`/`delta`/`at_clock`; with no `GameEvent` seen the overlay is absent.
+- Transition catalog miss: `PlannedState.transition: "nonexistent"` → `TransitionExecutor` falls back to default fade; journal `transition_catalog_miss`.
 - Dwell boundary: `DwellTimer.arm(30000)`; advance fake clock 30s → boundary callback fires; journal `dwell_boundary_reached` with `actualDwellMs` close to 30000 (∆ ≤ 1ms).
 
 ## Vocabulary
@@ -195,9 +204,9 @@ Reference: `xibo/docs/specs/SPEC-CATALOG.md`. Uses:
 - [ ] `PlannedStateActivator.activate(...)` is the registered `PlannedState` dispatcher handler (from SPEC-CRWDQ-022); same `state_id` arriving twice triggers exactly one transition and one mount.
 - [ ] `ProgramSlotResolver` resolves `program_slot_id` to the current upserted slot; last-write-wins on per-id updates; resolution is synchronous.
 - [ ] When `PlannedState` arrives before its referenced `ProgramSlot`, the activator buffers for up to 5 s and proceeds on arrival; otherwise journals `template_buffer_timeout` and emits `template_render_fallback`.
-- [ ] `GameStateStore` accepts snapshots (full state, replaces) and events (per-field delta); subscribers fire on every applied change; out-of-order seq drops with `game_event_seq_regression` journal entry.
+- [ ] `GameStateStore` accepts `GameState` snapshots (full state, always applied — no `seq`, resets the baseline) and `GameEvent` deltas (per-field, `seq`-ordered); subscribers fire on every applied change; a `GameEvent` whose `seq` regresses is dropped with a `game_event_seq_regression` journal entry; `lastEvent(gameId)` exposes the most recent applied event.
 - [ ] Per D-GRH-21, `primary_game_id` is read from `ProgramSlot`, NOT from `PlannedState`. The template never reads `PlannedState.game_id` (singular) — fields not defined post-D-GRH-21.
-- [ ] `TransitionExecutor.run({animation_id, duration_ms}, host)` resolves the pre-baked catalog first, then `AssetManifest` asset cache, then default fade; catalog miss is journaled but the transition still completes.
+- [ ] `TransitionExecutor.run(transitionName, host)` takes the `PlannedState.transition` catalog-name string, resolves it against the pre-baked catalog first, then the `AssetManifest` asset cache, then default fade; a catalog miss is journaled but the transition still completes.
 - [ ] `DwellTimer.arm(dwell_target_ms, onBoundary)` fires `onBoundary` after the elapsed wall-clock duration ±1 ms in tests; `cancel()` prevents firing; re-arming replaces the prior schedule.
 - [ ] Theme CSS swap occurs only on a dwell boundary when `pendingApply` is non-null; the swap consumes the pending slot; the active `PlannedState` is never forcibly re-mounted by a `ConfigPush` arrival.
 - [ ] No multi-game, no ad panel, no fixture rendering: the template's DOM has no `.cdq-card-grid`, no `.cdq-ad-panel`, no `.cdq-fixture-card`. Other templates own those.
