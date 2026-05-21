@@ -52,12 +52,13 @@ The template reuses `SingleGameContext` from SPEC-CRWDQ-023 verbatim — no new 
 ### Ad rotation extension to AdSlot (additive, backward-compatible)
 
 ```ts
-// extends AdSlot from SPEC-CRWDQ-041
+// extends the AdSlot wire type (SPEC-CRWDQ-017 AdSlotPayload, surfaced via SPEC-CRWDQ-041).
+// `ad_rotation` + `rotation_cadence_ms` are NEW optional fields — see the flag below.
 export interface AdSlot {
   ad_slot_id: string;
   ad_class: string;
-  ad_ref: string;                // phase-1: asset_id key into AssetManifest
-  ad_ref_type: 'asset_id';
+  ad_ref: string;                // phase-1: an AssetManifest asset_id (D-GRH-55)
+  ad_ref_type: 'creative_asset' | 'external_uri';  // SPEC-CRWDQ-017; always 'creative_asset' in phase-1
   policy: Record<string, unknown>;
 
   /**
@@ -66,12 +67,14 @@ export interface AdSlot {
    * absent, the panel renders only `ad_ref` for the full slot
    * (existing SPEC-CRWDQ-041 behavior). Backend-authored.
    */
-  ad_rotation?: ReadonlyArray<{ ad_ref: string; ad_ref_type: 'asset_id' }>;
+  ad_rotation?: ReadonlyArray<{ ad_ref: string; ad_ref_type: 'creative_asset' | 'external_uri' }>;
   rotation_cadence_ms?: number;  // default 8000 if `ad_rotation` present and field omitted
 }
 ```
 
 `ad_rotation` is optional; SPEC-CRWDQ-041 templates ignore it (`AdPanel.mount` reads only `ad_ref`). This spec's `SingleGameWithAdsTemplate` consults it. Future SPEC may also opt SPEC-CRWDQ-041 templates into rotation by passing the rotation context to the panel — out of scope here.
+
+> **Flag — SPEC-CRWDQ-017 wire follow-up.** `AdSlot` is the wire type `AdSlotPayload`, owned by SPEC-CRWDQ-017. `ad_rotation` and `rotation_cadence_ms` are NEW fields this spec introduces. They are *optional*, so per SPEC-CRWDQ-017's §Versioning additive rule they need no `schema_version` bump — but they MUST still be declared on `AdSlotPayload` in SPEC-CRWDQ-017's `src/wire/types.ts`, and the backend `AdSlot` producer (SPEC-CRWDQ-039) must author them. SPEC-CRWDQ-017 follow-up required.
 
 ### DOM shape — composite
 
@@ -93,7 +96,7 @@ Identical to SPEC-CRWDQ-041's grid shell, mode value differs:
 For `PlannedState` with `mode: "single_game_with_ads"` and `ad_slot_id: A`, `program_slot_id: X`:
 
 1. **Resolve `ProgramSlot`** + **resolve `AdSlot`.** Same as SPEC-CRWDQ-041. Either missing → journal `template_input_invalid` and fall through to safe.
-2. **Validate ad asset(s).** If `adSlot.ad_rotation` is absent: same as SPEC-CRWDQ-041 — resolve `adSlot.ad_ref` via `AssetManifestStore.ensure("ad:" + ad_ref)`. Cache miss → journal `ad_asset_cache_miss` and fall back to mounting `SingleGameTemplate` directly (no composite shell, no ad panel). If `adSlot.ad_rotation` is present: resolve EVERY referenced `ad_ref` in the rotation (parallel `ensure()`). Any single miss does NOT fall back — the rotation skips missed entries with `journal ad_rotation_entry_cache_miss`. If ALL entries miss, fall back to non-ad single_game (same path as the single-ref miss).
+2. **Validate ad asset(s).** If `adSlot.ad_rotation` is absent: same as SPEC-CRWDQ-041 — `AssetManifestStore.get(adSlot.ad_ref)` (`ad_ref` is the asset_id directly, no key prefix), with `ensure(adSlot.ad_ref)` on a miss. Cache miss → journal `ad_asset_cache_miss` and fall back to mounting `SingleGameTemplate` directly (no composite shell, no ad panel). If `adSlot.ad_rotation` is present: resolve EVERY referenced `ad_ref` in the rotation (parallel `ensure(ref.ad_ref)`). Any single miss does NOT fall back — the rotation skips missed entries with `journal ad_rotation_entry_cache_miss`. If ALL entries miss, fall back to non-ad single_game (same path as the single-ref miss).
 3. **Run transition.** Same shared `TransitionExecutor`.
 4. **Mount composite shell.** Build the `<section>` with content + ad-panel children. (Same DOM shape as SPEC-CRWDQ-041; only `data-mode` differs.)
 5. **Mount content child.** `SingleGameTemplate.mount(contentHost, ctx)` — unchanged behavior from SPEC-CRWDQ-023.
