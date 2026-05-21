@@ -1,5 +1,6 @@
 {
   "reviewed": {
-    "SPEC-CRWDQ-014": { "last_reviewed": "2026-05-21T07:02:48-06:00", "confidence": 0.3 }
+    "SPEC-CRWDQ-014": { "last_reviewed": "2026-05-21T07:02:48-06:00", "confidence": 0.3 },
+    "SPEC-CRWDQ-022": { "last_reviewed": "2026-05-21T11:23:34-06:00", "confidence": 0.5 }
   }
 }

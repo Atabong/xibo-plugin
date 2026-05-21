@@ -70,11 +70,27 @@ export interface ReconnectPolicy {
 export interface Deserializer {
   /**
    * Parse one JSONL line. Returns a typed envelope or a parse-error
-   * marker. Never throws — bad frames are journaled and dropped per
-   * D-GRH-29 (`schema_violation_received`).
+   * marker. Never throws — internally wraps the SPEC-CRWDQ-017
+   * `parseLine` (which throws typed `WireError`s), catching every
+   * `WireError` and converting it to a `parse_error` marker. The
+   * JSONL/envelope parse is NOT reimplemented here. Bad frames are
+   * journaled and dropped per D-GRH-29 (`schema_violation_received`).
    */
   parse(line: string): ServerFrame | { kind: 'parse_error'; raw: string; reason: ParseErrorReason };
 }
+
+/**
+ * Parse-failure reason — the `code` of the SPEC-CRWDQ-017 `WireError`
+ * the wrapped `parseLine` threw.
+ */
+export type ParseErrorReason =
+  | 'malformed_frame'
+  | 'unknown_channel'
+  | 'unknown_message_type'
+  | 'unpinned_channel'
+  | 'unsupported_schema_version'
+  | 'missing_seq'
+  | 'unexpected_seq';
 
 export type ServerFrame =
   | ConfigPushFrame
@@ -88,7 +104,6 @@ export type ServerFrame =
   | HeartbeatAckFrame
   | SyncRequestFrame
   | GameStateFrame
-  | GameStateSnapshotFrame
   | GameEventFrame
   | DisplayEventFrame
   | FixtureListFrame;
@@ -114,8 +129,13 @@ export interface Heartbeat {
   start(): void;   // begin 30s outbound cadence
   stop(): void;
   onAck(seq: number): void;
-  /** Returns the seq of the last unacked outbound heartbeat, or null. */
-  outstanding(): number | null;
+  /**
+   * Returns the last unacked outbound heartbeat as { seq, sentAt }
+   * (sentAt = the clock time the heartbeat was sent), or null when
+   * none is outstanding. The caller compares `now - sentAt` against
+   * `ackTimeoutMs` to decide the reconnect trigger.
+   */
+  outstanding(): { seq: number; sentAt: number } | null;
 }
 ```
 
@@ -128,7 +148,7 @@ export interface GameStateRequester {
    * currently in the active ProgramSlot. Coalesces concurrent requests
    * for the same game_id (one outstanding request per game).
    */
-  requestForGap(gameId: string, sinceSeq: number): void;
+  requestForGap(gameId: string, fromSeq: number): void;
 }
 ```
 
@@ -148,7 +168,7 @@ export interface GameStateRequester {
    ```
    The server replies with `HeartbeatAck { seq }`. If `Heartbeat.outstanding()` indicates a `seq` older than `ackTimeoutMs` ago has not been acked, the client closes the WS with `ws_close_clean` and triggers reconnect.
 7. **Reconnect.** Backoff per `ReconnectPolicy`. Every reconnect re-emits `DeviceRegistration` (D-GRH-61 — single-message handshake for first connect and reconnects alike). The dispatcher's per-type handlers consume the full re-push sequence idempotently (each handler is responsible for hash/seq deduplication; SPEC-CRWDQ-014 already specifies this for `ConfigPush`).
-8. **Seq-gap recovery.** Per D-GRH-63: the dispatcher records the highest seen `seq` per `game_id` (only for `game_id`s currently in the active `ProgramSlot`). When a `GameEvent` arrives with `seq > lastSeq + 1`, `GameStateRequester.requestForGap(gameId, lastSeq)` fires. The request payload is `{ "message_type": "GameStateRequest", "game_id": "...", "since_seq": <lastSeq> }`. Outstanding requests are coalesced per `game_id` (only one in flight). On `GameStateSnapshot` response, the per-game seq tracker resets to the snapshot's seq.
+8. **Seq-gap recovery.** Per D-GRH-63: the dispatcher records the highest seen `seq` per `game_id` (only for `game_id`s currently in the active `ProgramSlot`). When a `GameEvent` arrives with `seq > lastSeq + 1`, `GameStateRequester.requestForGap(gameId, lastSeq)` fires. The request payload is `{ "message_type": "GameStateRequest", "game_id": "...", "from_seq": <lastSeq> }` (field name `from_seq` per SPEC-CRWDQ-017 `GameStateRequestPayload`). Outstanding requests are coalesced per `game_id` (only one in flight). A `GameState` frame is itself a full snapshot and a recovery point (SPEC-CRWDQ-017 — `GameState` carries no `seq`): on receipt the per-game gap detector for that `game_id` resets, and the next `GameEvent` seq becomes the new baseline.
 9. **Wire format.** Outbound frames are encoded as a single JSON object per line via `JSON.stringify(frame) + '\n'`. Binary frames are rejected (drop + journal).
 
 ### Logical channels
@@ -158,7 +178,7 @@ There is one physical WS. Routing into logical channels is purely a function of 
 | Logical channel | Frames |
 |-----------------|--------|
 | control | `ConfigPush`, `ScheduleWindow`, `PlannedState`, `ProgramSlot`, `AdSlot`, `OverrideInjection`, `AssetManifest`, `MessagingLane`, `HeartbeatAck`, `SyncRequest` |
-| game_data | `GameState`, `GameStateSnapshot`, `GameEvent`, `DisplayEvent`, `FixtureList` |
+| game_data | `GameState`, `GameEvent`, `DisplayEvent`, `FixtureList` |
 | player → server | `DeviceRegistration`, `GameStateRequest`, `Heartbeat` |
 
 The `JournalSync` POST path is explicitly out of scope here — D-GRH-52 routes it via HTTP, owned by SPEC-CRWDQ-061.
@@ -188,7 +208,8 @@ Test cases:
 - Heartbeat cadence: at t=30s exactly one `Heartbeat` outbound; at t=60s with no ack the client closes WS and emits `reconnect` lifecycle event.
 - Heartbeat ack: ack with matching seq clears the outstanding marker; ack with stale seq is ignored (no crash).
 - Reconnect: `FakeWebSocket` rejects open once, then succeeds; backoff delay observed; `DeviceRegistration` re-emitted exactly once per successful open.
-- Seq-gap recovery: feed `GameEvent` seq 1, 2, 3, then 7 for game G in active `ProgramSlot` → exactly one `GameStateRequest { game_id: G, since_seq: 3 }` outbound. Second concurrent gap on same G during outstanding request → coalesced (no second outbound).
+- Seq-gap recovery: feed `GameEvent` seq 1, 2, 3, then 7 for game G in active `ProgramSlot` → exactly one `GameStateRequest { game_id: G, from_seq: 3 }` outbound. Second concurrent gap on same G during outstanding request → coalesced (no second outbound).
+- After a `GameState` snapshot for game G, the gap detector resets: a following `GameEvent` at any seq re-baselines without emitting a `GameStateRequest`.
 - Game-id not in active `ProgramSlot`: seq gap observed but no `GameStateRequest` issued (per D-GRH-63 "triggered only for games currently being rendered").
 - Binary frame: dropped + journaled.
 - Frame larger than 1 MB: dropped + journaled (defensive cap, prevents OOM on a runaway server).
@@ -206,9 +227,9 @@ Reference: `xibo/docs/specs/SPEC-CATALOG.md` common vocabulary.
 
 - [ ] `modules/widget-v2/src/transport/WsClient.ts` exports `WsClient`, `WsClientConfig`, `ReconnectPolicy` matching the interface above; `connect()` resolves on the first server-pushed frame (per D-GRH-61 the `ConfigPush` arrival implicitly acknowledges registration).
 - [ ] On every successful WS open (first connect and reconnect), the client emits exactly one `DeviceRegistration` frame as the first outbound message, with `display_id`, `player_version`, and `capabilities: ["jsonl"]`.
-- [ ] `Deserializer.parse(line)` returns a typed envelope for every `message_type` in D-GRH-25 + D-GRH-42 (15 server-to-player types) and a `{kind: 'parse_error', reason}` for invalid JSON, missing `message_type`, unknown `message_type`, or per-type schema violation; never throws.
+- [ ] `Deserializer.parse(line)` returns a typed `ServerFrame` for every server-to-player `message_type` in the SPEC-CRWDQ-017 closed enum (the 14 in the `ServerFrame` union) and a `{kind: 'parse_error', reason}` for invalid JSON, missing/unknown `message_type`, channel or seq violations, or unsupported `schema_version`; it never throws — it wraps the SPEC-CRWDQ-017 `parseLine` and catches every `WireError`.
 - [ ] `Dispatcher.register(messageType, handler, channel)` allows exactly one handler per `message_type`; a second registration throws. Handlers are invoked synchronously in receipt order per logical channel.
-- [ ] The dispatcher tracks per-`game_id` `seq` only for `game_id`s in the active `ProgramSlot`; seq gaps trigger exactly one `GameStateRequest` per gap, coalesced per `game_id` while outstanding; `GameStateSnapshot` response resets the per-game seq baseline.
+- [ ] The dispatcher tracks per-`game_id` `seq` only for `game_id`s in the active `ProgramSlot`; seq gaps trigger exactly one `GameStateRequest` per gap, coalesced per `game_id` while outstanding; a `GameState` snapshot frame resets the per-game gap detector (the next `GameEvent` re-baselines the seq).
 - [ ] `Heartbeat` emits at `heartbeatIntervalMs` cadence with monotonic `seq`; if `outstanding()` exceeds `ackTimeoutMs` the client closes the socket (`ws_close_clean`) and triggers reconnect via `ReconnectPolicy`.
 - [ ] Reconnect uses exponential backoff with full jitter bounded by `initialDelayMs..maxDelayMs`; the `reconnect` lifecycle event fires before each attempt.
 - [ ] All schema violations and unknown-type frames produce a `schema_violation_received` journal entry (extending D-GRH-29) and never reach a registered handler.
