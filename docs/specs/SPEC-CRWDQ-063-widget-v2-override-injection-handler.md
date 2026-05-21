@@ -3,7 +3,7 @@ spec_id: SPEC-CRWDQ-063
 title: Widget v2 OverrideInjection handler
 status: draft
 owner: player-runtime/widget-v2/overrides
-depends_on: [SPEC-CRWDQ-022, SPEC-CRWDQ-049]
+depends_on: [SPEC-CRWDQ-022, SPEC-CRWDQ-023, SPEC-CRWDQ-049, SPEC-CRWDQ-064]
 generated_by: grill-amendment
 generated_at: 2026-05-15
 ---
@@ -30,7 +30,7 @@ This spec owns the override path. The shared render orchestration (`PlannedState
 
 - No override handling in v1. The MVP widget has no out-of-band interrupt path; SSE events mutate text in place.
 - D-GRH-24 establishes three override trigger categories (game lifecycle transition, excitement threshold, human operator) and the dwell-bypass rule: overrides bypass D-DWELL-01 (15s minimum dwell for mode change) and D-DWELL-02 (8s minimum for in-mode switch). The player implements bypass; the backend owns trigger semantics.
-- D-SCHEMA-08 establishes the wire shape: `override_id`, `fires_at`, `interrupt_class` (`exceptional_override | major_sports_moment`), `business_mode`, `template_id`, `theme_id`, `dwell_target_ms`, `transition`, `program_slot_id`, `ad_slot_id`. The same fields a `PlannedState` carries, plus override-specific framing.
+- D-SCHEMA-08 establishes the wire shape: `override_id`, `fires_at`, `interrupt_class`, `business_mode`, `template_id`, `theme_id`, `dwell_target_ms`, `transition`, `program_slot_id`, `ad_slot_id` — the same render fields a `PlannedState` carries (D-GRH-56), plus override-specific framing. **Note:** the render-field *types* follow SPEC-CRWDQ-017's `PlannedStatePayload` — `transition` is a catalog-name `string` (not the `{animation_id, duration_ms}` object of D-GRH-50/56), `theme_id` is `string | null`, and `interrupt_class` is constrained to SPEC-017's `InterruptClass` (`scheduled | exceptional_override`). D-SCHEMA-08's `major_sports_moment` value is not in SPEC-017's `InterruptClass`; SPEC-017, the wire spec, governs — an override is `exceptional_override`.
 - D-GRH-58 establishes the rendering priority stack: `OverrideInjection` > `PlannedState` > `MessagingLane`. The override suppresses messaging-lane overlays for its full lifetime.
 - D-GRH-76 splits safe-mode reasons: backend-planned safe (`safe_reason`) is patron-visible; player-runtime safe (`runtime_reason`) is journal-only. Override TTL/timeout-driven safe falls in the runtime bucket — journal it; do not render an enum-specific copy on screen.
 
@@ -49,16 +49,19 @@ export interface OverrideInjectionHandler {
   handle(frame: OverrideInjectionFrame): Promise<void>;
 }
 
+// OverrideInjectionFrame mirrors SPEC-CRWDQ-017's OverrideInjection wire type
+// (Envelope<OverrideInjectionPayload>) — consumed, not independently owned.
+// Its render fields mirror PlannedStatePayload (D-GRH-56).
 export interface OverrideInjectionFrame {
   message_type: 'OverrideInjection';
   override_id: string;
   fires_at: string;                      // ISO 8601 UTC; D-SCHEMA-08
-  interrupt_class: 'exceptional_override' | 'major_sports_moment';
+  interrupt_class: 'exceptional_override';  // SPEC-CRWDQ-017 InterruptClass is 'scheduled'|'exceptional_override'; an override is always 'exceptional_override' (D-SCHEMA-08 also lists 'major_sports_moment', which SPEC-017 does not — SPEC-017 governs)
   business_mode: string;                 // routed through PlannedStateActivator
   template_id: string;
-  theme_id: string | null | '__unset__';
+  theme_id: string | null;               // SPEC-CRWDQ-017 PlannedStatePayload.theme_id (null = default theme)
   dwell_target_ms: number;
-  transition: { variant: string; duration_ms: number };
+  transition: string;                    // catalog-name string — SPEC-CRWDQ-017 PlannedStatePayload.transition is a string, not an object
   program_slot_id: string | null;
   ad_slot_id: string | null;
 }
@@ -115,11 +118,11 @@ For an incoming `OverrideInjection`:
 3. **Set suppression.** `overrideSuppressionState.setActive(true)` fires listeners synchronously; SPEC-CRWDQ-049's overlay layer flips to `data-suppressed="true"` in the same tick.
 4. **Resolve embedded `ProgramSlot` / `AdSlot` (if any).** If `program_slot_id` is non-null and the slot is not in `ProgramSlotResolver`, the override is one of the D-SCHEMA-08 "inline" forms — the server is expected to push the matching `ProgramSlot` frame adjacently. Apply the same 5s buffer rule as SPEC-CRWDQ-023 step 1.
 5. **Run override transition.** `TransitionExecutor.run(frame.transition, host)`. Per D-GRH-24 the override's `transition` field is the wire-specified one; default fall-back uses the same catalog miss path as SPEC-CRWDQ-023.
-6. **Mount via shared activator.** Build a `PlannedState`-shaped object from the override (`business_mode → mode`, `template_id`, `theme_id`, `program_slot_id`, `ad_slot_id`, `dwell_target_ms`, `transition`) plus a synthetic `state_id = "override:" + override_id` and route through `PlannedStateActivator.activate(...)`. The activator runs the mount and pending-apply paths exactly as for a regular `PlannedState` — overrides reuse, do not duplicate, the template families.
+6. **Mount via shared activator.** Build a `PlannedState`-shaped object from the override (carrying `business_mode`, `template_id`, `theme_id`, `program_slot_id`, `ad_slot_id`, `dwell_target_ms`, `transition` straight through — the override's render fields ARE `PlannedStatePayload` fields per D-GRH-56) plus a synthetic `state_id = "override:" + override_id`, and route through `PlannedStateActivator.activate(...)`. The activator runs the mount and pending-apply paths exactly as for a regular `PlannedState` — overrides reuse, do not duplicate, the template families.
 7. **Arm override dwell.** `DwellTimer.arm(frame.dwell_target_ms, onOverrideBoundary)`. On boundary, the player re-evaluates wall clock against the active `ScheduleWindow` (per D-SCHEMA-08 no explicit resume pointer) and clears suppression (step 9).
 8. **Arm TTL.** `OverrideTimeoutClock.armUntil(fires_at + dwell_target_ms + GRACE_MS, onTimeout)`. `GRACE_MS = 2000`. If the wall-clock end passes without `onOverrideBoundary` firing (clock skew, suspended tab, etc.), `onTimeout` forces the resolve path. Journals `override_ttl_timeout`.
 9. **Resolve.** On natural dwell boundary OR TTL OR supersede by a new `PlannedState`:
-   - Run outgoing transition (per the override's `transition.variant` exit form; default mapping in `TransitionExecutor`).
+   - Run outgoing transition (the exit form is derived by `TransitionExecutor` from the override's `transition` catalog name; default mapping on catalog miss).
    - Detach the override's mounted instance.
    - `overrideSuppressionState.setActive(false)` — overlay listeners resume.
    - Journal `override_resolved` with `override_id`, `resolved_by: 'dwell' | 'ttl' | 'supersede'`, `actual_dwell_ms`.
@@ -177,12 +180,12 @@ Test cases:
 - **PlannedState arriving during override is buffered.** Mount override. Send a `PlannedState` (different `state_id`). Assert: NOT applied; journal `planned_state_buffered_during_override`. Resolve override (advance clock). Assert: buffered `PlannedState` dispatched; journal `planned_state_resumed_after_override`.
 - **Two PlannedStates buffered → last wins.** As above, then send a second `PlannedState`. Assert: first dropped; only second dispatched on resolve.
 - **Override with inline `program_slot_id` not in resolver.** Send override referencing an unknown `program_slot_id` without an adjacent `ProgramSlot` frame. Within 5s send the matching `ProgramSlot`. Assert: override mounts. Same flow, no `ProgramSlot` arrival within 5s. Assert: journal `template_buffer_timeout` (reused from SPEC-CRWDQ-023); fall-through to safe per the standard activator path.
-- **Transition catalog miss.** Override `transition.variant: 'nonexistent'`. Assert: default fade runs; journal `transition_catalog_miss`; mount still completes.
+- **Transition catalog miss.** Override `transition: 'nonexistent'` (an unknown catalog name). Assert: default fade runs; journal `transition_catalog_miss`; mount still completes.
 - **runtime_reason is journal-only (D-GRH-76).** TTL fires. Assert: journal contains `runtime_reason: 'render_error'`; the rendered DOM does NOT contain the string `"render_error"`, `"unavailable"`, or any enum-specific copy outside of the generic safe template (handled by the next valid frame, not this spec).
 
 ## Vocabulary
 
-- `OverrideInjection`, `override_id`, `interrupt_class`, `fires_at` — D-SCHEMA-08.
+- `OverrideInjection`, `override_id`, `interrupt_class`, `fires_at` — D-SCHEMA-08; wire-field types per SPEC-CRWDQ-017 `OverrideInjectionPayload` / `PlannedStatePayload`.
 - "dwell bypass" — D-GRH-24.
 - "rendering priority stack", "binary suppression" — D-GRH-58.
 - `overrideSuppressionState` — shared token contract defined in SPEC-CRWDQ-049, written here.
