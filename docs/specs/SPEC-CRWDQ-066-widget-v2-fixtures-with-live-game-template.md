@@ -3,7 +3,7 @@ spec_id: SPEC-CRWDQ-066
 title: Widget v2 fixtures_with_live_game template
 status: draft
 owner: player-runtime/widget-v2/templates/mixed-state
-depends_on: [SPEC-CRWDQ-023, SPEC-CRWDQ-034]
+depends_on: [SPEC-CRWDQ-023, SPEC-CRWDQ-034, SPEC-CRWDQ-064]
 generated_by: grill-amendment
 generated_at: 2026-05-15
 ---
@@ -17,7 +17,7 @@ generated_at: 2026-05-15
 | Parent slice | S6 — Fixtures mode (mixed-state extension); ranges into S7 — Mixed-state semantics |
 | Plane epic | CRWDQ-7 |
 | Decisions referenced | D-GRH-08, D-GRH-12, D-GRH-17, D-GRH-18, D-GRH-20, D-GRH-21, D-GRH-25, D-GRH-30, D-GRH-50, D-GRH-73 |
-| Source files | `modules/widget-v2/src/templates/fixtures/FixturesTemplate.ts` (composed), `modules/widget-v2/src/templates/single-game/SingleGameTemplate.ts` (re-used as inline live tile), `modules/widget-v2/src/render/PlannedStateActivator.ts` (consumed), `modules/widget-v2/src/render/ProgramSlotResolver.ts` (consumed), `modules/widget-v2/src/render/FixtureListStore.ts` (consumed), `modules/widget-v2/src/render/GameStateStore.ts` (consumed) |
+| Source files | `modules/widget-v2/src/templates/fixtures/FixturesTemplate.ts` (composed), `modules/widget-v2/src/templates/single-game/SingleGameTemplate.ts` (re-used as inline live tile), `modules/widget-v2/src/render/PlannedStateActivator.ts`, `ProgramSlotResolver.ts`, `FixtureListStore.ts`, `GameStateStore.ts` (consumed); `modules/widget-v2/src/render/AssetManifestStore.ts` (consumed from SPEC-CRWDQ-064) |
 | New files | `modules/widget-v2/src/templates/mixed-state/FixturesWithLiveGameTemplate.ts`, `modules/widget-v2/src/templates/mixed-state/LiveFixtureTile.ts`, `modules/widget-v2/src/templates/mixed-state/fixtures-with-live-game.css`, `modules/widget-v2/tests/templates/mixed-state/*.test.ts` |
 
 ## Module
@@ -25,6 +25,10 @@ generated_at: 2026-05-15
 `player-runtime :: widget-v2 :: templates/mixed-state` — the `fixtures_with_live_game` business-mode template (D-GRH-30 mode #7). Renders a pre-game fixture grid (SPEC-CRWDQ-034 shape) where exactly one fixture tile is promoted to a live game render (SPEC-CRWDQ-023 shape). The promoted tile is driven by `GameState` for the matching `game_id` and receives `GameEvent` deltas; the other tiles stay static fixture cards (`FixtureListStore`-driven).
 
 This is the canonical "mixed-state" composite: D-GRH-30 #7 is what S7 ("mixed-state semantics") opens, and this spec is the player-side rendering of it.
+
+> **Open contract gaps (consumed-side).** Like SPEC-CRWDQ-046, this template reads two things the SPEC-CRWDQ-017 / SPEC-CRWDQ-032 wire types do not currently carry:
+> 1. **`Fixture.game_id`.** Promoted-fixture identification matches `fixture.game_id === programSlot.primary_game_id`. D-GRH-20 states the `FixtureList` entry "gains a `game_id` field", but SPEC-CRWDQ-032's `FixtureListEntry` omits it. `fixtures_with_live_game` is unbuildable without it — SPEC-CRWDQ-032's `FixtureListEntry` MUST add `game_id` (D-GRH-20 mandate). This spec reads `Fixture.game_id` on that assumption.
+> 2. **Team identity on `GameState`.** The live tile renders team logos by `team_id`. D-GRH-08 states "`GameState` references `team_id`", but SPEC-CRWDQ-017's `GameStatePayload` field list omits `home_team_id` / `away_team_id`. This spec reads `gameState.home_team_id` / `away_team_id` on the assumption SPEC-CRWDQ-017 is amended (the same gap flagged by SPEC-CRWDQ-046). Team display name + logo are AssetManifest-delivered assets keyed by `team_id` (D-GRH-08).
 
 ## Current shape
 
@@ -126,7 +130,7 @@ The promoted tile gets the `cdq-tile-live` class and the additional `data-game-i
 For `PlannedState` with `mode: "fixtures_with_live_game"` and `program_slot_id: X`:
 
 1. **Resolve `ProgramSlot`.** Shared resolver. `programSlot.fixture_ids[]` MUST be non-empty AND `programSlot.primary_game_id` MUST be non-null. Either constraint violation → journal `template_input_invalid` and fall through to safe.
-2. **Identify the promoted fixture.** Find `fixture` in `fixture_ids` such that `FixtureListStore.resolve(fixture_id).game_id === programSlot.primary_game_id`. If no fixture matches (backend authoring error — the live game must correspond to one of the listed fixtures), journal `template_input_invalid` and fall through to safe.
+2. **Identify the promoted fixture.** Find `fixture` in `fixture_ids` such that `FixtureListStore.resolve(fixture_id).game_id === programSlot.primary_game_id` (`Fixture.game_id` — see Open contract gaps; D-GRH-20 mandates it on the `FixtureList` entry). If no fixture matches (backend authoring error — the live game must correspond to one of the listed fixtures), journal `template_input_invalid` and fall through to safe.
 3. **Resolve fixtures.** For each `fixture_id`, `FixtureListStore.resolve(fixture_id)`. Same cache-miss handling as SPEC-CRWDQ-034 (placeholder card, journal `fixture_cache_miss`).
 4. **Resolve assets.** Same path as SPEC-CRWDQ-034 (sport badges, team logos).
 5. **Format times** for the STATIC tiles only. The promoted tile shows a score block, not a `scheduled_at` time. Same formatter rules as SPEC-CRWDQ-034.
@@ -140,8 +144,8 @@ For `PlannedState` with `mode: "fixtures_with_live_game"` and `program_slot_id: 
 
 The `LiveFixtureTile` is a small, focused render:
 
-- Reads `GameState.home.score`, `GameState.away.score`, `GameState.clock`, `GameState.period` (D-SCHEMA-09 fields).
-- Renders home + away team logos (resolved via `AssetManifestStore.get("team_logo:" + team_id)`) using the same lookup the static fixture card already uses for the matching fixture's home/away `team_id` (the team metadata source is the `Fixture` frame, not `GameState`).
+- Reads `GameState.home_score`, `GameState.away_score`, `GameState.clock`, `GameState.period` — the flat top-level fields of SPEC-CRWDQ-017's `GameStatePayload` (NOT nested `home.score` objects).
+- Renders home + away team logos via `AssetManifestStore.get("team:" + team_id)`, where the `team_id`s come from `GameState.home_team_id` / `GameState.away_team_id` (D-GRH-08 — "GameState references team_id"; see Open contract gaps — SPEC-CRWDQ-017's `GameStatePayload` does not yet list these fields). Team display name + logo are AssetManifest-delivered assets (D-GRH-08), not wire fields.
 - Initial DOM populated from current `GameStateStore.get(primary_game_id)` snapshot. Per D-GRH-21 + the SPEC-CRWDQ-023 ordering rule, by the time `PlannedState{fixtures_with_live_game}` arrives, the backend has already pushed `GameState` for `primary_game_id` over the game-data channel.
 - Subsequent `GameEvent` deltas mutate the score/clock/period text nodes in place. No transition runs on per-event updates.
 - The tile does NOT render `sport_context` (no period_clock overlay, no venue badge) — those are full-surface-only.
@@ -191,8 +195,8 @@ Standard SPEC-CRWDQ-023 supersede path: outgoing transition, detach, new activat
 
 Test cases:
 
-- **Happy mount.** `programSlot = { fixture_ids: [fA, fB, fC], primary_game_id: G1 }`; `fA.game_id === G1, status: live`; `fB, fC: scheduled`. Pre-seed `GameStateStore.get(G1) = { home.score: 14, away.score: 7, period: "Q3", clock: "8:12" }`. Mount. Assert: `<li data-fixture-id="fA" data-status="live" data-game-id="G1" class="cdq-fixture-card cdq-tile-live">` is present; `.cdq-tile-home-score` = "14", `.cdq-tile-away-score` = "7"; LIVE pill on fA only; fB and fC are static fixture cards with bar-local times.
-- **GameEvent updates live tile in place.** Mount as above; send `GameEvent` for G1 raising `home.score` to 21. Assert: `.cdq-tile-home-score` mutates to "21"; no other tile re-renders; no transition runs.
+- **Happy mount.** `programSlot = { fixture_ids: [fA, fB, fC], primary_game_id: G1 }`; `fA.game_id === G1, feedStatus: live`; `fB, fC: scheduled`. Pre-seed `GameStateStore.get(G1) = { home_score: 14, away_score: 7, period: "Q3", clock: "8:12" }`. Mount. Assert: `<li data-fixture-id="fA" data-status="live" data-game-id="G1" class="cdq-fixture-card cdq-tile-live">` is present; `.cdq-tile-home-score` = "14", `.cdq-tile-away-score` = "7"; LIVE pill on fA only; fB and fC are static fixture cards with bar-local times.
+- **GameEvent updates live tile in place.** Mount as above; send `GameEvent` for G1 raising `home_score` to 21. Assert: `.cdq-tile-home-score` mutates to "21"; no other tile re-renders; no transition runs.
 - **FixtureList re-push updates a static tile.** Mount as above; re-push `FixtureList` with `fB.status: "live"`. Assert: fB's `data-status` flips to `"live"`, LIVE pill renders; fB does NOT auto-promote to a live tile (`<li>` still uses the static-card layout, no `cdq-tile-live` class).
 - **primary_game_id not in any fixture.** `programSlot = { fixture_ids: [fA, fB], primary_game_id: G_GHOST }`. Assert: journal `template_input_invalid`; no mount; fall-through to safe.
 - **primary_game_id null.** Constraint violation. Assert: journal `template_input_invalid`; no mount.
@@ -200,7 +204,7 @@ Test cases:
 - **Reconcile to new promoted game.** Mount with promoted = fA/G1. Send revised `ProgramSlot` (same `program_slot_id`) with `primary_game_id: G2` where `fB.game_id === G2`. Assert: fA tile demotes to static card (now renders `fA.status`, e.g., `final`, with score-frozen layout per SPEC-CRWDQ-034 final-status card); fB tile promotes to `cdq-tile-live` with `data-game-id="G2"`; old `GameStateStore` subscription for G1 unsubscribed; new subscription on G2; dwell timer NOT reset; journal `live_tile_reconciled` with the right payload.
 - **Reconcile: same promoted game, fixture_ids changed.** Same `primary_game_id`, added `fD` and removed `fC`. Assert: no structural change to live tile; SPEC-CRWDQ-034 reconcile path runs for the static portion.
 - **GameState status → final mid-slot.** Mount with G1 live. Send `GameEvent` flipping `G1.status = "final"`. Assert: tile pill changes from LIVE to FINAL; score block freezes; tile still in the promoted cell (no auto-demote).
-- **Asset cache miss for team logo (live tile).** `assetManifestStore.get("team_logo:" + home_team_id)` returns null. Assert: text-only initials fallback per D-GRH-08; the tile still renders the score; journal-less (same path as SPEC-CRWDQ-034).
+- **Asset cache miss for team logo (live tile).** `assetManifestStore.get("team:" + home_team_id)` returns null. Assert: text-only team-name fallback per D-GRH-08; the tile still renders the score; journal-less (same path as SPEC-CRWDQ-034).
 - **Supersede.** Send new `PlannedState` (different `state_id`). Assert: outgoing transition runs on the section; `LiveFixtureTile.detach()` unsubscribes from `GameStateStore`; every static tile unsubscribes from `FixtureListStore`.
 
 ## Vocabulary
