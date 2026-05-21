@@ -3,7 +3,7 @@ spec_id: SPEC-CRWDQ-031
 title: Widget v2 multiple_games (2x2 grid) render template + dwell handling
 status: draft
 owner: player-runtime/widget-v2/templates/multi-game
-depends_on: [SPEC-CRWDQ-022, SPEC-CRWDQ-030]
+depends_on: [SPEC-CRWDQ-022, SPEC-CRWDQ-023]
 generated_by: catalog-expansion
 generated_at: 2026-05-15
 ---
@@ -23,6 +23,8 @@ generated_at: 2026-05-15
 ## Module
 
 `player-runtime :: widget-v2 :: templates/multi-game` — the `multiple_games` business-mode template (D-GRH-30 mode #2). Renders a 2x2 grid (size 2–4 cards, dictated by `ProgramSlot.game_ids[]` length, D-GRH-14). Each card subscribes independently to the multiplexed `GameState` stream (D-GRH-12) for its `game_id`. The `primary_game_id` card is visually distinguished. Add/remove of cards is backend-driven via revised `PlannedState`/`ProgramSlot` (D-GRH-13) — no player-side card lifecycle decisions.
+
+> **Dependencies.** This template is built on the shared render orchestration introduced by **SPEC-CRWDQ-023** (`PlannedStateActivator`, `ProgramSlotResolver`, `GameStateStore`, `DwellTimer`, `TransitionExecutor`) — a hard build dependency, declared in `depends_on`. **SPEC-CRWDQ-030** (the `BarPlayerSchedulerService` multi-game ordering output) is the cross-repo *backend producer* of the `multiple_games` `PlannedState`/`ProgramSlot` frames this template consumes; it is a wire-contract counterpart for shape agreement, not a build dependency, and is therefore not in `depends_on`.
 
 ## Current shape
 
@@ -102,7 +104,7 @@ Per D-GRH-13 the backend sends a new `PlannedState` AND/OR an updated `ProgramSl
 
 When the active template's `program_slot_id` is updated in place:
 
-1. `ProgramSlotResolver.upsert(newSlot)` fires.
+1. `ProgramSlotResolver.upsert(newSlot)` fires. The shared `PlannedStateActivator` (SPEC-CRWDQ-023) detects the upsert targets the *active* slot and routes it to the active instance's `reconcile(newSlot)` hook — rather than the SPEC-CRWDQ-023 "soft re-render" path used for instances that expose no `reconcile`. This presumes SPEC-CRWDQ-023's `PlannedStateActivator` supports an optional `reconcile?(slot)` dispatch on its template-instance contract: `MultiGameInstance` implements it; `SingleGameInstance` does not and keeps the soft-re-render path. (SPEC-CRWDQ-023 follow-up: its generic template-instance interface must add the optional `reconcile?` hook for this dispatch to exist.)
 2. The active instance's `reconcile(newSlot)` runs:
    - Diff `current()` vs `newSlot.game_ids`.
    - Cards no longer in the list: `removeCard(gameId)` with exit transition (`card_slide_out` default).
