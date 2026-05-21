@@ -3,7 +3,7 @@ spec_id: SPEC-CRWDQ-053
 title: Widget v2 ambient render template
 status: draft
 owner: player-runtime/widget-v2/templates/ambient
-depends_on: [SPEC-CRWDQ-022, SPEC-CRWDQ-052, SPEC-CRWDQ-051]
+depends_on: [SPEC-CRWDQ-023, SPEC-CRWDQ-052, SPEC-CRWDQ-064]
 generated_by: catalog-expansion
 generated_at: 2026-05-15
 ---
@@ -17,12 +17,16 @@ generated_at: 2026-05-15
 | Parent slice | S11 — Safe / ambient fallback |
 | Plane epic | CRWDQ-12 |
 | Decisions referenced | D-GRH-22, D-GRH-23, D-GRH-25, D-GRH-26, D-GRH-27, D-GRH-30, D-GRH-50 |
-| Source files | `modules/widget-v2/src/render/AssetManifestStore.ts`, `PlannedStateActivator.ts`, `TransitionExecutor.ts`, `DwellTimer.ts` (consumed); `SafeInfoTemplate` (fallback target) |
+| Source files | `modules/widget-v2/src/render/AssetManifestStore.ts` (consumed from SPEC-CRWDQ-064); `PlannedStateActivator.ts`, `TransitionExecutor.ts`, `DwellTimer.ts` (consumed from SPEC-CRWDQ-023); `SafeInfoTemplate` (SPEC-CRWDQ-052, fallback target) |
 | New files | `modules/widget-v2/src/templates/ambient/AmbientTemplate.ts`, `modules/widget-v2/src/templates/ambient/AmbientPlaylist.ts`, `modules/widget-v2/src/templates/ambient/ambient.html`, `modules/widget-v2/src/templates/ambient/ambient.css`, `modules/widget-v2/tests/templates/ambient/*.test.ts` |
 
 ## Module
 
 `player-runtime :: widget-v2 :: templates/ambient` — the `ambient` business-mode template (D-GRH-30 mode #9). `AssetManifest`-driven render loop of sponsor / branding / neutral creatives (D-GRH-26 + D-GRH-27). Asset rotation paced by `dwell_target_ms`. No `ProgramSlot`, no `AdSlot`, no game data — the template reads entirely from `AssetManifest` cache. Falls back to `SafeInfoTemplate` if the manifest carries no ambient creatives.
+
+> **Dependencies.** Consumes the shared orchestration of SPEC-CRWDQ-023 (`PlannedStateActivator`, `TransitionExecutor`, `DwellTimer`), the `AssetManifestStore` of SPEC-CRWDQ-064, and the `SafeInfoTemplate` of SPEC-CRWDQ-052 (the empty-manifest fallback target) — all hard build dependencies in `depends_on`. SPEC-CRWDQ-051 (`BarPlayerSchedulerService` fallback-mode selection) is the cross-repo `crowdaq-backend` producer of backend-authored `ambient` `PlannedState`s — a wire-contract counterpart, not a build dependency.
+
+> **Flag — AssetManifestStore enumeration.** `AmbientPlaylist.resolve()` must enumerate every applied `ambient:*` asset. SPEC-CRWDQ-064's `AssetManifestStore` exposes only `get(assetId)` (exact-id lookup) — no prefix query, no entry enumeration. This requires a SPEC-CRWDQ-064 follow-up to add an entry-enumeration accessor (e.g. `manifestEntries()` returning the applied `AssetManifestEntry[]`); `AmbientPlaylist` filters that list by the `ambient:` `asset_id` prefix.
 
 ## Current shape
 
@@ -57,18 +61,23 @@ export interface AmbientInstance {
 // modules/widget-v2/src/templates/ambient/AmbientPlaylist.ts
 export interface AmbientPlaylist {
   /**
-   * Resolve the playlist from AssetManifest. Pulls all assets keyed
-   * "ambient:*" from the store and orders them by their declared
-   * sequence (asset metadata key `ambient_seq`); falls back to
-   * receipt order if `ambient_seq` absent.
+   * Resolve the playlist from the applied AssetManifest. Enumerates
+   * every entry whose `asset_id` starts with the `ambient:` prefix
+   * (via the SPEC-CRWDQ-064 entry-enumeration accessor — see the
+   * Module flag) and orders them by `asset_id` lexical order — the
+   * `ambient:<NNN>` id-naming convention encodes the sequence. There
+   * is no separate `ambient_seq` metadata field on the manifest entry.
    */
   resolve(): AmbientCreative[];
 }
 
 export interface AmbientCreative {
   asset_id: string;
-  url: string;
-  content_type: 'image' | 'video';   // phase-1: image only; video deferred
+  url: string;                       // CachedAsset.url from AssetManifestStore.get()
+  /** Coarse category derived from the SPEC-CRWDQ-064 manifest entry's
+   *  MIME content_type (`image/*` -> 'image', `video/*` -> 'video').
+   *  Phase-1: image only; video deferred. */
+  content_type: 'image' | 'video';
   duration_ms: number | null;        // for video; image uses dwellTargetMs
 }
 ```
@@ -90,8 +99,8 @@ A single render slot — one creative visible at a time. Rotation happens by swa
 
 For `PlannedState` with `mode: "ambient"`:
 
-1. **Resolve playlist.** `AmbientPlaylist.resolve()`. If empty → journal `ambient_empty_manifest` and fall through to `SafeInfoTemplate` mount (NOT a no-op — D-GRH-27 says "falls back to safe_info if AssetManifest empty"; the activator hands off cleanly).
-2. **Filter by content_type.** Phase-1: keep `image` entries only. `video` entries are journaled `ambient_video_deferred` and skipped. If after filtering the playlist is empty → same fallback as step 1.
+1. **Resolve playlist.** `AmbientPlaylist.resolve()`. If empty → journal `ambient_empty_manifest` and mount `SafeInfoTemplate` (SPEC-CRWDQ-052) into this template's host instead, building a `SafeInfoContext` whose `source = { kind: 'backend_planned', reason: 'no_content' }` (the ambient slot was authored but carries no creatives). NOT a no-op — D-GRH-27 says "falls back to safe_info if AssetManifest empty".
+2. **Filter by category.** Phase-1: keep entries whose derived `content_type` is `image`. `video` entries are journaled `ambient_video_deferred` and skipped. If after filtering the playlist is empty → same fallback as step 1.
 3. **Run transition.** Same shared `TransitionExecutor`. Default `fade_scale_up` if catalog miss.
 4. **Mount.** Build `<section class="crowdaq-ambient">` with one stage element. Set initial `<img src>` to first creative; record `data-active-index="0"`.
 5. **Apply pending preferences.** Same dwell-boundary contract. Theme swap takes effect; the stage element re-renders with new `data-theme`.
@@ -149,7 +158,7 @@ Test cases:
 ## Acceptance Criteria
 
 - [ ] `AmbientTemplate.mount(host, ctx)` renders `<section class="crowdaq-ambient" data-theme>` containing a `<div class="cdq-ambient-stage" data-active-index>` with one `<img class="cdq-ambient-creative" data-asset-id>` reflecting the first creative.
-- [ ] `AmbientPlaylist.resolve()` returns creatives ordered by `ambient_seq` metadata (or receipt order fallback); `image` entries kept; `video` entries skipped with `ambient_video_deferred` journaled.
+- [ ] `AmbientPlaylist.resolve()` enumerates `ambient:`-prefixed manifest entries (via the SPEC-CRWDQ-064 entry-enumeration accessor), orders them by `asset_id` lexical order, keeps `image`-category entries, and skips `video` entries with `ambient_video_deferred` journaled.
 - [ ] Empty playlist (no `ambient:*` assets, or all filtered out) journals `ambient_empty_manifest` and routes the `ambient` activation to `SafeInfoTemplate` in the same host — the DOM ends with `<section class="crowdaq-safe-info">` not `<section class="crowdaq-ambient">`.
 - [ ] At each `dwellTargetMs` boundary the `data-active-index` advances modulo playlist length, `<img src>` and `data-asset-id` swap, and journal `ambient_creative_advanced` is emitted with from/to/index/total payload.
 - [ ] Mid-mount `AssetManifest` update is picked up on the next dwell boundary via `AmbientPlaylist.resolve()`; the new playlist starts at index 0; journal `ambient_playlist_refreshed`.
