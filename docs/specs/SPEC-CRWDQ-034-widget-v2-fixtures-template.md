@@ -45,7 +45,7 @@ generated_at: 2026-05-15
 ## Backend wire-contract facts (SPEC-CRWDQ-032 / -033 cross-check)
 
 - **`FixtureListEntry` shape** (SPEC-CRWDQ-032) is exactly `{ eventId, sport, leagueId, leagueName, homeTeam, awayTeam, kickoffUtc, feedStatus }`. This template consumes that shape verbatim and redefines nothing.
-- **`feedStatus` value range:** SPEC-CRWDQ-032's per-bar `projectFixtureList` filters the published list to `feedStatus ∈ {scheduled, live, final}` — `postponed` / `cancelled` fixtures never reach the player. This template handles exactly those three values.
+- **`feedStatus` value range:** SPEC-CRWDQ-032's per-bar `projectFixtureList` filters the published `FixtureList` to `feedStatus ∈ {scheduled, live, final}` — `postponed` / `cancelled` fixtures never reach the player. SPEC-CRWDQ-033's caller-side filter narrows the `ProgramSlot.fixture_ids` subset *further*: it also drops `final` fixtures whose kickoff is older than 12h (stale-final filter). So a recent (`< 12h`) `final` fixture CAN legitimately appear in `fixture_ids` and the player must render it. This template handles exactly the three values `scheduled | live | final`; a `final` card carries no LIVE pill but is otherwise a normal card.
 - **`fixtures` `PlannedState` discriminator** is `business_mode === "fixtures"` (SPEC-CRWDQ-017 field name `business_mode`, NOT `mode`).
 - **`fixtures` `PlannedState.transition`** is backend-authored, default `"cut"` (SPEC-CRWDQ-033). The PlannedState-level transition is therefore `"cut"` on the wire; the card-level `card_slide_in` / `card_slide_out` transitions named in this spec are a **separate, player-internal** concept used only inside `reconcile()` — they are not `PlannedStatePayload.transition` values and are never read off the wire.
 - **`fixtures` `ProgramSlot`** has `primary_game_id === null`, `game_ids === []`, and a populated `fixture_ids[]` capped at `maxFixturesShown` (default 8), ordered by kickoff ascending (SPEC-CRWDQ-033). This template reads `fixture_ids[]` and ignores `game_ids` / `primary_game_id` for this mode.
@@ -54,15 +54,20 @@ generated_at: 2026-05-15
 
 > **OPEN QUESTION — `fixture_ids` member identity.** SPEC-CRWDQ-033's
 > `buildFixtures` sets `fixture_ids = selected.map(f => f.gameId)` (its
-> `FixtureRow.gameId`), while SPEC-CRWDQ-032 states the player-facing fixture
-> identifier is `event_id` and the `FixtureList` the player caches is keyed by
-> `eventId` (the `fixtures` catalog table has no `game_id` column). For the
-> player to match `ProgramSlot.fixture_ids` against its cached `FixtureList`,
-> `fixture_ids[]` entries MUST be `eventId`s. This spec assumes that — it is
-> the only consistent reading — but the backend `FixtureRow.gameId` /
-> `event_id` naming is internally inconsistent across SPEC-CRWDQ-032 and -033.
-> Confirm with the backend owner that `ProgramSlot.fixture_ids` carries
-> `eventId`s before implementation.
+> `FixtureRow.gameId`, a `string`), and its inline comment calls `game_id`
+> "the canonical identifier" with "fixture" a "domain alias". But
+> SPEC-CRWDQ-032's catalog has **no `game_id` column** — its composite PK is
+> `(sport, provider, fixture_id, season)` and the player-facing addressable id
+> is `event_id` (`<yyyy-mm-dd>-<home-slug>-<away-slug>`). The `FixtureList`
+> the player caches and SPEC-CRWDQ-032's `FixtureListEntry` are keyed by
+> `eventId`. For the player to match `ProgramSlot.fixture_ids` against its
+> cached `FixtureList`, `fixture_ids[]` entries MUST be `eventId`s. This spec
+> assumes that — it is the only consistent reading — but the backend
+> `FixtureRow.gameId` / `event_id` naming is internally inconsistent across
+> SPEC-CRWDQ-032 and -033. Confirm with the backend owner that
+> `ProgramSlot.fixture_ids` carries `eventId`s (and that SPEC-CRWDQ-033's
+> `FixtureRow.gameId` field is renamed or its mapping corrected) before
+> implementation.
 
 ## Wire contract (consumed, not defined here)
 
@@ -233,6 +238,7 @@ Test cases:
 - Happy mount: `fixture_ids: ["eA","eB","eC"]` all resolve → 3 cards, team names + sport badge rendered, times formatted in `America/Chicago`.
 - Bar-local "Today" / "Tomorrow" / weekday / "MMM DD": pin the clock to a known UTC instant; assert each card's `time` text.
 - Live status pill: `eA.feedStatus = "live"` → `data-status="live"` and a visible LIVE pill on that card only.
+- Recent-final card: `eA.feedStatus = "final"` (a `< 12h` final that SPEC-CRWDQ-033's stale-final filter still admits) → `data-status="final"`, no LIVE pill, normal team-name + badge + time rendering.
 - Empty `fixture_ids` (defensive): journal `template_input_invalid`; no mount.
 - Re-push order: a `fixtures` `PlannedState` arrives before its `ProgramSlot` → the activator buffers and mounts on the `ProgramSlot` arrival within 5s (SPEC-CRWDQ-023 buffer path).
 - PlannedState transition: `plannedState.payload.transition: "cut"` → `TransitionExecutor` runs the `cut` transition on mount; card-level transitions are not run on mount.
