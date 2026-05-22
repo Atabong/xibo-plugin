@@ -1,7 +1,7 @@
 ---
 spec_id: SPEC-CRWDQ-014
 title: Widget v2 ConfigPush consumer with local cache + apply
-status: design-ready
+status: impl-ready
 owner: player-runtime/widget-v2/config
 depends_on: [SPEC-CRWDQ-017]
 generated_by: catalog-expansion
