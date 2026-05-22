@@ -10,6 +10,15 @@ generated_at: 2026-05-15
 
 # SPEC-CRWDQ-041 — Widget v2 ad render template + fixtures_with_ads composite
 
+> **⚠ Backend gap.** This template is not implementable yet: the backend
+> has no delivery path for the `AdSlot` payload (it is a declared wire
+> type with zero producers, absent from the re-push sequence and the NATS
+> router), and every backend builder currently emits `PlannedState.ad_slot_id`
+> as `null`. Verified against the `crowdaq-backend` source — see the
+> "HARD BACKEND GAP" note below. The `_with_ads` composite design here is
+> sound and should be kept, but implementation must wait on the backend
+> AdSlot interleaver + AdSlot delivery work.
+
 ## Metadata
 
 | Field | Value |
@@ -49,25 +58,47 @@ generated_at: 2026-05-15
 ## Backend wire-contract facts (SPEC-CRWDQ-039 / -017 cross-check)
 
 - The composite `PlannedState` discriminator is `business_mode` ∈ `{multiple_games_with_ads, fixtures_with_ads}` (SPEC-CRWDQ-017 field name `business_mode`, NOT `mode`). The closed D-GRH-30 business-mode enum has 9 members; `multiple_games_with_ads` and `fixtures_with_ads` are two of them. There is no `ad` mode and no `single_game_with_ads` mode.
-- A composite `PlannedState` carries a non-null `ad_slot_id` (the SPEC-CRWDQ-017 `PlannedStatePayload.ad_slot_id` field) referencing the attached `AdSlot`.
-- The `AdSlot` payload shape is SPEC-CRWDQ-017's `AdSlotPayload`: `{ ad_slot_id, ad_class, ad_ref, ad_ref_type, policy }`. `ad_class` is the backend enum `panel | overlay | preroll | postroll | interstitial` (SPEC-CRWDQ-039); the player treats it as an opaque label for journaling. `ad_ref_type` ∈ `{ creative_asset, external_uri }` (SPEC-CRWDQ-017); always `creative_asset` in phase-1. `policy` is backend-evaluated (`maxPerHour`, blackout ranges, sport blacklist) — the player ignores it entirely.
+- A composite `PlannedState` is *designed* to carry a non-null `ad_slot_id` (the `PlannedStatePayload.ad_slot_id` field, `src/wire/types.ts:43`) referencing the attached `AdSlot`. **In current backend code `ad_slot_id` is always `null`** — every builder emits `adSlotId: null` and the SPEC-CRWDQ-039 interleaver that would flip a subset to real ids is unbuilt (see the HARD BACKEND GAP note).
+- The `AdSlot` payload shape is the wire `AdSlotPayload` (`src/wire/types.ts:53-59`): `{ ad_slot_id, ad_class, ad_ref, ad_ref_type, policy }`. `ad_class` is the backend enum `panel | overlay | preroll | postroll | interstitial` (SPEC-CRWDQ-039); the player treats it as an opaque label for journaling. `ad_ref_type` ∈ `{ creative_asset, external_uri }`; designed to be `creative_asset` in phase-1. `policy` is backend-evaluated — the player ignores it entirely. **No code path constructs or delivers an `AdSlot` envelope** — see the HARD BACKEND GAP note.
 - The composite `template_id` is `multi-game-grid-K-with-ads` or `fixtures-list-with-ads` (SPEC-CRWDQ-039). This template branches on `business_mode`, not `template_id`.
 
-> **OPEN QUESTION — how the `AdSlot` payload reaches the player.** SPEC-CRWDQ-039
-> attaches only the `ad_slot_id` *reference* to the content `PlannedState`;
-> the `AdSlot` *payload* (`ad_ref`, `ad_class`, `ad_ref_type`, `policy`) is a
-> separate `AdSlot` wire message type (SPEC-CRWDQ-017 `MESSAGE_TYPES` includes
-> `AdSlot`). However, SPEC-CRWDQ-020's re-push order
-> (`ConfigPush → ScheduleWindow → AssetManifest → PlannedState(s) →
-> ProgramSlot(s) → GameState(s)`) does NOT enumerate `AdSlot` frames. The
-> backend must clarify when and how `AdSlot` frames are delivered — most
-> plausibly alongside `ProgramSlot` frames (so a referencing composite
-> `PlannedState` always resolves its `AdSlot`), but this is not specified.
-> This spec's `AdSlotResolver` assumes `AdSlot` arrives as a separately
-> dispatched frame and is resolved by `ad_slot_id`, mirroring the
-> `ProgramSlotResolver` pattern; the activator buffers a composite
-> `PlannedState` until both its `ProgramSlot` and `AdSlot` resolve. Confirm
-> the `AdSlot` delivery contract with the backend before implementation.
+> **OPEN QUESTION — HARD BACKEND GAP: the `AdSlot` payload has no
+> delivery path to the player (backend code cross-check).** Verified
+> against the `crowdaq-backend` source: there is NO code path that
+> delivers an `AdSlot` payload to a connected player.
+>
+> - `AdSlot` is declared as a wire message type (`src/wire/message-type.ts:8`)
+>   and a wire payload (`AdSlotPayload`, `src/wire/types.ts:53-59`), but a
+>   search of the source finds ZERO constructions of an `AdSlot` envelope —
+>   nothing ever builds or sends one.
+> - The re-push sequence (`src/delivery/repush/builder.ts:135-205`) is a
+>   fixed order — `ConfigPush → ScheduleWindow → AssetManifest →
+>   PlannedState* → ProgramSlot* → GameState*` — and does NOT include
+>   `AdSlot`.
+> - The NATS fan-out router (`src/delivery/nats/router.ts`) routes only
+>   `ConfigPush / MessagingLane / PlayerConnected / PlayerDisconnected`
+>   (BAR_CONTROL) and `GameState / GameEvent / DisplayEvent`
+>   (GAME_EVENTS). An `AdSlot` frame matches no route and would be
+>   `term()`-ed (dead-lettered) if one ever arrived.
+>
+> The only ad-related datum that reaches the player is the
+> `PlannedState.ad_slot_id` *reference* — and every backend builder
+> currently emits `ad_slot_id` as `null` (the AdSlot interleaver of
+> SPEC-CRWDQ-039 that would flip a subset to real ids is itself unbuilt;
+> `adSlotId` is `null` in `single-game.ts:89`, `multi-game.ts:118`,
+> `fixtures.ts:112`, `fallback.ts:115`). So today no `AdSlot` *payload*
+> ever reaches the player, and no `ad_slot_id` is ever non-null.
+>
+> This is a confirmed hard backend gap, not an unknown. The `AdSlotResolver`
+> in this spec has no wire source to populate it. This template cannot be
+> meaningfully implemented until the backend (a) builds the SPEC-CRWDQ-039
+> interleaver so composite `PlannedState`s carry a non-null `ad_slot_id`,
+> and (b) authors an `AdSlot` delivery path — a dispatched `AdSlot` frame
+> AND its inclusion in the re-push / replay sequence so a reconnecting
+> player can still resolve the `ad_slot_id`. The `AdSlotResolver` design
+> below (mirroring `ProgramSlotResolver`) is the intended shape for when
+> that delivery path exists; until then it is unfulfillable. This should
+> be raised as a backend blocker before this template is scheduled.
 
 ## Proposed deep interface
 
