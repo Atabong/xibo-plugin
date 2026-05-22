@@ -48,26 +48,30 @@ generated_at: 2026-05-15
 - **`feedStatus` value range:** SPEC-CRWDQ-032's per-bar `projectFixtureList` filters the published `FixtureList` to `feedStatus ∈ {scheduled, live, final}` — `postponed` / `cancelled` fixtures never reach the player. SPEC-CRWDQ-033's caller-side filter narrows the `ProgramSlot.fixture_ids` subset *further*: it also drops `final` fixtures whose kickoff is older than 12h (stale-final filter). So a recent (`< 12h`) `final` fixture CAN legitimately appear in `fixture_ids` and the player must render it. This template handles exactly the three values `scheduled | live | final`; a `final` card carries no LIVE pill but is otherwise a normal card.
 - **`fixtures` `PlannedState` discriminator** is `business_mode === "fixtures"` (SPEC-CRWDQ-017 field name `business_mode`, NOT `mode`).
 - **`fixtures` `PlannedState.transition`** is backend-authored, default `"cut"` (SPEC-CRWDQ-033). The PlannedState-level transition is therefore `"cut"` on the wire; the card-level `card_slide_in` / `card_slide_out` transitions named in this spec are a **separate, player-internal** concept used only inside `reconcile()` — they are not `PlannedStatePayload.transition` values and are never read off the wire.
-- **`fixtures` `ProgramSlot`** has `primary_game_id === null`, `game_ids === []`, and a populated `fixture_ids[]` capped at `maxFixturesShown` (default 8), ordered by kickoff ascending (SPEC-CRWDQ-033). This template reads `fixture_ids[]` and ignores `game_ids` / `primary_game_id` for this mode.
+- **`fixtures` `ProgramSlot`** has `primary_game_id === null`, `game_ids === []`, and a populated `fixture_ids[]` capped at `maxFixturesShown` (default 8), ordered by kickoff ascending (SPEC-CRWDQ-033, verified `src/scheduler/build/fixtures.ts:115-122`). This template reads `fixture_ids[]` and ignores `game_ids` / `primary_game_id` for this mode. Each `fixture_ids[]` entry is a canonical `event_id` (verified `fixtures.ts:75` + `types.ts:68-77` — see RESOLVED note below).
 - **`fixture_ids[]` is always non-empty** when a `fixtures` `PlannedState` reaches the player: SPEC-CRWDQ-033's `buildFixtures` is invoked only when the post-filter fixture list is non-empty; if filtering empties it, `selectMode` returns empty mode and no `fixtures` `PlannedState` is written (D-GRH-22). This template's empty-`fixture_ids` handling is therefore a **defensive** path, not an expected one.
 - **Re-push frame order** (SPEC-CRWDQ-020, D-GRH-49) delivers `PlannedState` before its referenced `ProgramSlot`. The shared SPEC-CRWDQ-023 `PlannedStateActivator` tolerates this by buffering; this template inherits that order-independence.
 
-> **OPEN QUESTION — `fixture_ids` member identity.** SPEC-CRWDQ-033's
-> `buildFixtures` sets `fixture_ids = selected.map(f => f.gameId)` (its
-> `FixtureRow.gameId`, a `string`), and its inline comment calls `game_id`
-> "the canonical identifier" with "fixture" a "domain alias". But
-> SPEC-CRWDQ-032's catalog has **no `game_id` column** — its composite PK is
-> `(sport, provider, fixture_id, season)` and the player-facing addressable id
-> is `event_id` (`<yyyy-mm-dd>-<home-slug>-<away-slug>`). The `FixtureList`
-> the player caches and SPEC-CRWDQ-032's `FixtureListEntry` are keyed by
-> `eventId`. For the player to match `ProgramSlot.fixture_ids` against its
-> cached `FixtureList`, `fixture_ids[]` entries MUST be `eventId`s. This spec
-> assumes that — it is the only consistent reading — but the backend
-> `FixtureRow.gameId` / `event_id` naming is internally inconsistent across
-> SPEC-CRWDQ-032 and -033. Confirm with the backend owner that
-> `ProgramSlot.fixture_ids` carries `eventId`s (and that SPEC-CRWDQ-033's
-> `FixtureRow.gameId` field is renamed or its mapping corrected) before
-> implementation.
+> **RESOLVED — `fixture_ids` carries `event_id` (backend code cross-check).**
+> Verified against the `crowdaq-backend` source: `buildFixtures`
+> (`src/scheduler/build/fixtures.ts:75`) sets
+> `fixtureIds = selected.map(f => f.gameId)`, and `FixtureRow.gameId` is
+> documented in `src/scheduler/build/types.ts:68-77` as "the canonical
+> event_id — 'fixture' is the domain alias for a not-yet-live game". The
+> event_id format is `<yyyy-mm-dd>-<home-slug>-<away-slug>`
+> (`src/lib/slug.ts:19-24`). The `FixtureRow.gameId` field name is a
+> backend-internal alias; the *value* it carries is the canonical
+> `event_id`. `ProgramSlot.fixture_ids[]` entries shall therefore be
+> treated as `event_id`s, and the player shall match them against its
+> cached `FixtureList` by `eventId`. The dead wire-field split: the wire
+> `FixtureListPayload.fixtures[]` type (`src/wire/types.ts:176-184`)
+> declares both `fixture_id` and `game_id` per entry, but no production
+> code populates them — the only `FixtureList` producer
+> (`fixture-list-publisher.ts` → `LoggingFixtureListSink`) emits the
+> domain `FixtureListEntry`, which carries `eventId` only and has no
+> `fixture_id` / `game_id` fields. `event_id` is the sole real fixture
+> identifier; the wire `fixture_id` / `game_id` split is dead and shall
+> not be relied on by the player.
 
 ## Wire contract (consumed, not defined here)
 
@@ -136,15 +140,18 @@ export interface FixtureListStore {
 
 The fixtures card shows one sport/league badge per fixture. Its `AssetManifest` `asset_id` follows the convention `badge:<sport>:<leagueName-slug>` (e.g. `badge:football:premier-league`), `leagueName` lower-cased and slugified.
 
-> **OPEN QUESTION — badge `asset_id` convention.** This `badge:<sport>:<leagueName-slug>`
-> form is a contract with the `AssetManifest` publisher: the publisher MUST
-> mint badge `asset_id`s with this exact form, or the template's `get` / `ensure`
-> calls miss every badge. No backend decision (D-GRH-NN) or backend spec
-> reviewed pins this `asset_id` scheme. It must be confirmed with the
-> `AssetManifest` publisher's backend owner before implementation. Until then,
-> the template's badge rendering is correct only by assumption — the
-> league-name text fallback (below) keeps a card legible even on a total
-> badge miss, so a wrong convention degrades gracefully rather than crashing.
+> **OPEN QUESTION (low risk) — badge `asset_id` convention.** This
+> `badge:<sport>:<leagueName-slug>` form is a naming contract with the
+> `AssetManifest` publisher: the publisher should mint badge `asset_id`s
+> with this exact form, or the template's `get` / `ensure` calls miss
+> every badge. No backend decision or backend spec reviewed pins this
+> `asset_id` scheme — it is a player-side convention proposal pending
+> agreement with the `AssetManifest` publisher's owner. This is not a
+> backend-code matter (the manifest publisher does not yet emit badges)
+> and is low risk: the league-name text fallback (below) keeps a card
+> fully legible on a total badge miss, so a divergent convention degrades
+> gracefully rather than crashing. The convention can be finalised
+> alongside `AssetManifest` publisher work without blocking this template.
 
 ### `fixtures` template DOM shape
 
@@ -257,7 +264,7 @@ Reference: `xibo/docs/specs/SPEC-CATALOG.md`.
 
 - `fixtures` mode — D-GRH-30 business mode #3; the `PlannedStatePayload.business_mode` value. Backend `template_id` is `"fixtures-list"` (SPEC-CRWDQ-033).
 - `FixtureList`, `feedStatus` — D-GRH-18, D-GRH-20; entry shape owned by SPEC-CRWDQ-032; player-facing value range `scheduled|live|final`.
-- `eventId` — the player-facing fixture id (SPEC-CRWDQ-032 `event_id`); the assumed member type of `ProgramSlot.fixture_ids` (see the OPEN QUESTION above).
+- `eventId` — the player-facing fixture id (SPEC-CRWDQ-032 `event_id`, format `<yyyy-mm-dd>-<home-slug>-<away-slug>`); the confirmed member type of `ProgramSlot.fixture_ids` (verified against `crowdaq-backend` `src/scheduler/build/fixtures.ts:75` — see the RESOLVED note above).
 - `AssetManifestStore` — owned by SPEC-CRWDQ-064.
 - `timezone` — D-GRH-73 IANA-validated bar preference.
 - `card_slide_in` / `card_slide_out` — local terms: the player-internal enter/exit transitions run by `reconcile()`. They are NOT `PlannedStatePayload.transition` catalog values.
