@@ -42,31 +42,35 @@ generated_at: 2026-05-15
 - A backend `safe_info` `PlannedState` carries `template_id: "safe-info-default"`, `transition: "cut"`, `interrupt_class: "scheduled"`, `ad_slot_id: null`, a backend-authored `dwell_target_ms`, and a non-null `program_slot_id` referencing a freshly minted `ProgramSlot` (`primary_game_id: null`, `game_ids: []`, `fixture_ids: []`) — SPEC-CRWDQ-051 `buildFallback`.
 - Per SPEC-CRWDQ-051, the backend always emits some content window — `selectMode` never returns empty and `Reprocess` always persists exactly one `PlannedState`; when there is no live game / no fixtures / no ambient inventory the result is a `safe_info` window. The player therefore always has a renderable `PlannedState`.
 
-> **OPEN QUESTION — no backend `safe_reason` field.** SPEC-CRWDQ-051's
-> `buildFallback` output carries NO reason field — a backend `safe_info`
-> `PlannedState` has no `safe_reason`, no `reason`, nothing distinguishing
-> "scheduled maintenance" from "no content available". D-GRH-76 is cited as
-> splitting the safe-mode reason into a patron-visible `safe_reason` enum
-> and a journal-only player `runtime_reason` — but SPEC-CRWDQ-051 does not
-> model `safe_reason` on the wire at all. Until the backend either adds a
-> `safe_reason` field to the `safe_info` `PlannedState` payload or D-GRH-76
-> is reconciled with SPEC-CRWDQ-051, the player-side `backend_planned` path
-> CANNOT read a backend reason. This spec therefore defaults the
-> backend-planned reason to `'scheduled'` (a calm, non-alarming default) and
-> leaves the footer empty for it. Confirm with the backend owner whether a
-> `safe_reason` field will be added.
+> **RESOLVED — no backend `safe_reason` field (backend code cross-check).**
+> Verified against the `crowdaq-backend` source: `buildFallback`
+> (`src/scheduler/build/fallback.ts:103-116`) emits the `safe_info`
+> `PlannedState` using the SPEC-CRWDQ-019 schema verbatim, and the wire
+> `PlannedStatePayload` (`src/wire/types.ts:31-44`) has no reason field of
+> any kind. A backend `safe_info` `PlannedState` shall be treated as
+> carrying NO `safe_reason`, no `runtime_reason`, no `reason` — nothing
+> distinguishing "scheduled maintenance" from "no content available". The
+> player shall derive no reason from the wire. On the `backend_planned`
+> path the player shall use the fixed reason `'scheduled'` (a calm,
+> non-alarming default) and the safe-state footer shall be empty for it.
+> The fallback reason exists only as a server-side WARN log
+> (`fallback_mode_unexpected`, `theme_unset_for_bar`) — it is never
+> patron-visible and never reaches the player. D-GRH-76 is reconciled
+> accordingly below.
 
-> **OPEN QUESTION — D-GRH-76 runtime_reason visibility.** D-GRH-76 (full
-> text in Plane / the disk D-GRH log) is described as classifying the
-> player `runtime_reason` as journal-only. The footer status table below
-> renders the player-fallback `runtime_reason` (`control_channel_lost` →
-> "Reconnecting…", etc.) as on-screen text — which conflicts with a strict
-> journal-only reading. Two reconcilable resolutions: (a) the footer shows
-> only a single generic calm indicator for every player-fallback case and
-> journals the specific `runtime_reason`; or (b) D-GRH-76 permits these
-> specific calm phrasings as patron-facing. This spec keeps the per-reason
-> footer text pending D-GRH-76 confirmation; if (a) is chosen, collapse the
-> three player-fallback rows to one generic phrase.
+> **RESOLVED — D-GRH-76 footer cannot show a runtime reason (backend code
+> cross-check).** D-GRH-76 is described as classifying the player
+> `runtime_reason` as journal-only. The backend wire carries no reason
+> field at all (`src/wire/types.ts:31-44`), so the footer cannot render a
+> backend-supplied runtime reason regardless of D-GRH-76's intent. The
+> player-fallback `runtime_reason` (`control_channel_lost`, `data_stale`,
+> `no_recent_state`) is a player-side classification, not a wire value;
+> the player shall journal the specific `runtime_reason` and the footer
+> shall show only the calm per-reason phrasings in the table below
+> ("Reconnecting…" / "Refreshing…" / "Loading…"). These phrasings are
+> player-authored calm indicators, not echoes of any wire field — D-GRH-76's
+> journal-only rule applies to the *backend* reason channel, which does not
+> exist on the wire.
 
 ## Current shape
 
@@ -161,7 +165,7 @@ The DOM is intentionally minimal. The content is a venue-aware "stay tuned" pane
 **Path A — backend `PlannedState{business_mode: "safe_info"}`:**
 
 1. Routed by `PlannedStateActivator` like any other mode; the activator resolves the referenced `ProgramSlot` (the backend mints a fresh one — SPEC-CRWDQ-051).
-2. `source = { kind: 'backend_planned', reason }`. Because SPEC-CRWDQ-051's `safe_info` `PlannedState` carries no reason field (see OPEN QUESTION), the player defaults `reason` to `'scheduled'`. If a `safe_reason` field is later added to the wire payload, the player reads it from there.
+2. `source = { kind: 'backend_planned', reason }`. The backend `safe_info` `PlannedState` carries no reason field (verified against `crowdaq-backend` `src/wire/types.ts:31-44` / `fallback.ts:103-116` — see RESOLVED note above), so the player shall set `reason` to the fixed value `'scheduled'`.
 3. Standard transition (`cut` from the backend) + `dwell_target_ms` dwell.
 
 **Path B — player connectivity/staleness fallback via `SafeStateController`:**
@@ -227,7 +231,7 @@ If entered via Path A, dwell is `plannedState.payload.dwell_target_ms`. If enter
 
 Test cases:
 
-- Path A backend-planned: dispatch `PlannedState{business_mode: "safe_info"}` → DOM contains `data-source="backend_planned"`, `data-reason="scheduled"` (the default — no wire `safe_reason`), status footer empty.
+- Path A backend-planned: dispatch `PlannedState{business_mode: "safe_info"}` → DOM contains `data-source="backend_planned"`, `data-reason="scheduled"` (the fixed value — the backend wire carries no `safe_reason` field), status footer empty.
 - Path B control-channel-lost: fire WS close, advance the clock 30 s, no reconnect → the controller triggers `safe_info` with `data-source="player_fallback"`, `data-reason="control_channel_lost"`, footer "Reconnecting…".
 - Path B data-stale: simulate an active content mode + age the last `GameEvent` past 120 s → the controller triggers `data_stale`; footer "Refreshing…".
 - Path B no-recent-state: WS open + 60 s without a `PlannedState` arrival → the controller triggers `no_recent_state`; footer "Loading…".
@@ -252,7 +256,7 @@ Test cases:
 
 - [ ] `SafeInfoTemplate.mount(host, ctx)` renders `<section class="crowdaq-safe-info" data-theme data-source data-reason>` with a header (venue brand), a body (CROWDAQ wordmark + tagline), and a footer (status text from the source/reason map).
 - [ ] Venue-brand fallback chain: asset → city/state text → wordmark only, in that order; the first non-null wins; a null `barPreferences` resolves to the wordmark.
-- [ ] Path A: a `PlannedState{business_mode: "safe_info"}` is routed by `PlannedStateActivator` with the backend transition (`cut`) + backend `dwell_target_ms`; `data-source="backend_planned"`; `reason` defaults to `'scheduled'` because SPEC-CRWDQ-051's `safe_info` `PlannedState` carries no reason field.
+- [ ] Path A: a `PlannedState{business_mode: "safe_info"}` is routed by `PlannedStateActivator` with the backend transition (`cut`) + backend `dwell_target_ms`; `data-source="backend_planned"`; `reason` shall be the fixed value `'scheduled'` because the backend `safe_info` `PlannedState` carries no reason field (verified against `crowdaq-backend` `src/wire/types.ts:31-44`).
 - [ ] Path B: `SafeStateController` triggers `safe_info` on `control_channel_lost` (WS down ≥ 30 s, no reconnect), `data_stale` (no `GameEvent` ≥ 120 s in a content mode), and `no_recent_state` (WS open + no `PlannedState` ≥ 60 s); the trigger constructs a synthetic `PlannedState` and routes it via the normal activator.
 - [ ] Path C: `SafeStateController.escalateFromTemplate(reason)` mounts `safe_info` with `source.kind === 'template_escalation'` for a content template's `template_input_invalid` / `template_buffer_timeout` condition; this is the escalation entry point that SPEC-CRWDQ-031 / -034 / -041 / -046 reference.
 - [ ] On D-SAFE-01 recovery, a real `PlannedState` arrival supersedes the synthetic safe state via the standard supersede flow; the controller's `state().inSafe` flips to `false`.
