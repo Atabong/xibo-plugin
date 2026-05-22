@@ -1,7 +1,14 @@
 ---
 spec_id: SPEC-CRWDQ-063
 title: Widget v2 OverrideInjection handler
-status: draft
+status: blocked
+blocked_reason: >-
+  The backend has zero producer and zero delivery mechanism for
+  OverrideInjection. It is a declared wire message type with no envelope
+  ever constructed, absent from the re-push sequence, and unroutable by
+  the NATS fan-out router. Verified against the crowdaq-backend source.
+  This handler can never receive an input until a backend producer +
+  delivery path is authored. See OPEN QUESTION.
 owner: player-runtime/widget-v2/overrides
 depends_on: [SPEC-CRWDQ-022, SPEC-CRWDQ-023, SPEC-CRWDQ-049, SPEC-CRWDQ-064]
 generated_by: grill-amendment
@@ -9,6 +16,13 @@ generated_at: 2026-05-15
 ---
 
 # SPEC-CRWDQ-063 — Widget v2 OverrideInjection handler
+
+> **⚠ STATUS: BLOCKED.** This handler can never fire: the backend has no
+> code path that produces or delivers an `OverrideInjection` frame.
+> Verified against the `crowdaq-backend` source — see the OPEN QUESTION
+> below. The handler design is kept complete so it can be implemented
+> immediately once a backend producer + delivery path lands; until then
+> it must NOT be scheduled for implementation.
 
 ## Metadata
 
@@ -20,13 +34,17 @@ generated_at: 2026-05-15
 | Source files | `modules/widget-v2/src/transport/Dispatcher.ts` (consumed); `modules/widget-v2/src/render/PlannedStateActivator.ts` (consumed); `modules/widget-v2/src/render/DwellTimer.ts` (consumed); `modules/widget-v2/src/render/TransitionExecutor.ts` (consumed) |
 | New files | `modules/widget-v2/src/overrides/OverrideInjectionHandler.ts`, `modules/widget-v2/src/overrides/OverrideSuppressionState.ts`, `modules/widget-v2/src/overrides/OverrideTimeoutClock.ts`, `modules/widget-v2/tests/overrides/*.test.ts` |
 
-> **Backend authority note:** The `OverrideInjection` wire frame consumed by
-> this handler is governed by the authoritative wire-protocol spec
-> `crowdaq-backend/docs/specs/SPEC-CRWDQ-017`. `OverrideInjection` is a
-> control-channel `MessageType` in SPEC-CRWDQ-017's closed enum; its render
-> fields mirror `PlannedStatePayload` (D-GRH-56). Every frame-shape claim
-> below is cross-checked against SPEC-CRWDQ-017. The backend is the source
-> of truth; the player never re-derives a wire shape.
+> **Backend authority note — STATUS: BLOCKED.** `OverrideInjection` is a
+> declared control-channel `MessageType` in the wire protocol
+> (`crowdaq-backend` `src/wire/message-type.ts:9`) and its payload
+> (`OverrideInjectionPayload`, `src/wire/types.ts:61-69`) mirrors
+> `PlannedStatePayload` (D-GRH-56). But verified against the
+> `crowdaq-backend` source: NO code path constructs, dispatches, or
+> re-pushes an `OverrideInjection` frame — it has zero producer and zero
+> delivery mechanism. This handler therefore has no possible input. The
+> spec is parked as `blocked` (see the OPEN QUESTION). The frame-shape
+> facts below remain cross-checked against the wire types for when the
+> block is lifted.
 
 ## Module
 
@@ -94,18 +112,38 @@ export interface OverrideInjectionPayload {
 }
 ```
 
-> **OPEN QUESTION — how an override's referenced `ProgramSlot` / `AdSlot`
-> reach the player.** When `OverrideInjectionPayload.program_slot_id` (or
-> `ad_slot_id`) is non-null, the override is an "inline" form (D-SCHEMA-08)
-> and the player must resolve the referenced slot. SPEC-CRWDQ-020's re-push
-> order does not enumerate `OverrideInjection` (overrides are out-of-band,
-> trigger-driven, not connect-driven) and does not specify whether a
-> referenced `ProgramSlot` / `AdSlot` is pushed adjacently. This handler
-> assumes the server pushes the matching `ProgramSlot` / `AdSlot` frame
-> adjacent to the `OverrideInjection`, and applies the SPEC-CRWDQ-023 5 s
-> buffer rule while waiting. Confirm the adjacent-push contract with the
-> backend owner. (This is the same `AdSlot`-delivery gap flagged by
-> SPEC-CRWDQ-041.)
+> **OPEN QUESTION — HARD BLOCKER: `OverrideInjection` has no backend
+> producer and no delivery mechanism (backend code cross-check).**
+> Verified against the `crowdaq-backend` source: there is NO code path
+> that produces or delivers an `OverrideInjection` frame.
+>
+> - `OverrideInjection` is a declared wire message type
+>   (`src/wire/message-type.ts:9`) and wire payload (`OverrideInjectionPayload`,
+>   `src/wire/types.ts:61-69`), but a search of the source finds ZERO
+>   constructions of an `OverrideInjection` envelope — nothing builds one.
+> - It is absent from the re-push sequence
+>   (`src/delivery/repush/builder.ts:135-205` — `ConfigPush →
+>   ScheduleWindow → AssetManifest → PlannedState* → ProgramSlot* →
+>   GameState*`).
+> - The NATS fan-out router (`src/delivery/nats/router.ts`) has no route
+>   for it — BAR_CONTROL handles only `ConfigPush / MessagingLane /
+>   PlayerConnected / PlayerDisconnected`, GAME_EVENTS only `GameState /
+>   GameEvent / DisplayEvent`. An `OverrideInjection` would be `term()`-ed.
+>
+> Consequence: this handler has no possible input in the current backend
+> — it can never fire, and nothing it does (dwell bypass, suppression,
+> activator re-entry, TTL) can be exercised end-to-end. **Recommendation:
+> this spec's status is set to `blocked`** (see the front-matter
+> `status` / `blocked_reason`). The block is lifted only when a backend
+> spec authors (a) a producer that emits an `OverrideInjection` frame on
+> one of the trigger categories (D-GRH-24: game lifecycle / excitement /
+> operator), (b) a delivery path — a dispatched `OverrideInjection` frame
+> on the control channel routed to connected players — and (c) a defined
+> delivery contract for any referenced `ProgramSlot` / `AdSlot` (the
+> "inline" D-SCHEMA-08 form; this is also the `AdSlot`-delivery gap
+> flagged by SPEC-CRWDQ-041). Until then, do not schedule this handler
+> for implementation. The handler design below is the intended shape for
+> when the block is lifted.
 
 ```ts
 // modules/widget-v2/src/overrides/OverrideSuppressionState.ts
