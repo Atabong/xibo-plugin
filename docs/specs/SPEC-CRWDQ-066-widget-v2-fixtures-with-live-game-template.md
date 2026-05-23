@@ -156,17 +156,25 @@ export interface FixturesWithLiveGameContext {
   pendingApply: PendingPreferenceApply | null;
 }
 
-export interface FixturesWithLiveGameInstance {
+export interface FixturesWithLiveGameInstance extends TemplateInstance {
   detach(): HTMLElement;
   /**
-   * D-GRH-13 reconcile path: the promoted game_id may change (the game
-   * ended; the backend re-promotes another live fixture) without a slot
-   * supersede. Resolves when the tile swap and any static add/remove
-   * have settled.
+   * Implements the shared TemplateInstance.reconcile? hook (canonical
+   * signature owned by SPEC-CRWDQ-023). On a 'program_slot' variant the
+   * D-GRH-13 reconcile path runs: the promoted game_id may change (the
+   * game ended; the backend re-promotes another live fixture) without a
+   * slot supersede; the old live tile demotes to a static card, the new
+   * promoted fixture's <li> re-mounts as cdq-tile-live. Resolves when
+   * the tile swap and any static add/remove have settled. 'ad_slot' is
+   * a no-op (this template carries no ad_slot_id). 'game_state_revision'
+   * is a no-op (the LiveFixtureTile already reacts via its
+   * GameStateStore subscription).
    */
-  reconcile(newSlot: ProgramSlotPayload): Promise<void>;
+  reconcile(event: TemplateReconcileEvent): Promise<void>;
 }
 ```
+
+`TemplateInstance` and `TemplateReconcileEvent` are declared by SPEC-CRWDQ-023 (§ Reconcile dispatch) and consumed here verbatim.
 
 ```ts
 // modules/widget-v2/src/templates/mixed-state/LiveFixtureTile.ts
@@ -252,7 +260,7 @@ The `primary_game_id` can change mid-slot (D-GRH-13) when:
 - The current promoted game ends and the backend rotates to another live fixture in the same set.
 - The backend reorders `fixture_ids` or swaps `primary_game_id`.
 
-`reconcile(newSlot)`:
+`reconcile({ kind: 'program_slot', slot: newSlot })`:
 1. Find the new promoted fixture: locate the `fixture_id` equal to `newSlot.primary_game_id` in `newSlot.fixture_ids` (a direct `event_id` string match — OPEN QUESTION (2), resolved).
 2. If the new promoted fixture is the same as the current → no structural change; the existing `LiveFixtureTile`'s `GameStateStore` subscription is already on the right `game_id`. Continue.
 3. If the new promoted fixture is different:
@@ -264,12 +272,7 @@ The `primary_game_id` can change mid-slot (D-GRH-13) when:
 5. The dwell timer is NOT reset (D-GRH-13: a card change is not a slot change).
 6. Journal `live_tile_reconciled` with `previous_game_id`, `new_game_id`, `demoted_fixture_id` (or `null` if no demote).
 
-> **OPEN QUESTION — `reconcile?` dispatch hook.** The active-slot `reconcile`
-> dispatch this template relies on requires SPEC-CRWDQ-023 to declare an
-> optional `reconcile?(slot)` member on its template-instance contract,
-> which it does not currently do. This is the same cross-spec coordination
-> gap flagged by SPEC-CRWDQ-031, -034, and -041; it must be agreed with the
-> SPEC-CRWDQ-023 owner before these specs are implemented.
+Resolution: SPEC-CRWDQ-023 § Reconcile dispatch now declares the canonical optional `reconcile?(event: TemplateReconcileEvent)` hook and dispatch invariants on the shared `TemplateInstance` contract; `FixturesWithLiveGameInstance` implements it. This is the same cross-spec resolution that lands for SPEC-CRWDQ-031, -034, -041, and -065. The remaining `blocked` status of this spec is unchanged — it stems from OPEN QUESTION (1), the missing `fixtures_with_live_game` backend producer.
 
 ### Status flip mid-slot (live → final)
 
@@ -324,7 +327,7 @@ Test cases:
 - [ ] The live tile subscribes to `GameStateStore.subscribe(primary_game_id, ...)`; `GameEvent` deltas mutate `.cdq-tile-home-score`, `.cdq-tile-away-score`, `.cdq-tile-clock` in place; no other tile re-renders; no transition runs on per-event updates.
 - [ ] Static tiles use the SPEC-CRWDQ-034 card primitive; their `FixtureListStore` subscriptions update status/time in place; the SPEC-CRWDQ-034 `data-status`, badge, logo, and time-formatting rules apply unchanged.
 - [ ] A `FixtureList` re-push that flips a static tile's `feedStatus` to `live` updates the pill and `data-status` only; the tile is NOT auto-promoted to a live tile — promotion is backend-driven via `primary_game_id`.
-- [ ] D-GRH-13 reconcile: a revised `ProgramSlot` with the same `program_slot_id` may change `primary_game_id`; the old live tile demotes to a static card, the new promoted fixture's `<li>` re-mounts as `cdq-tile-live`; the old `GameStateStore` subscription is unsubscribed; the dwell timer is NOT reset; journals `live_tile_reconciled` with `previous_game_id`, `new_game_id`, `demoted_fixture_id`.
+- [ ] `FixturesWithLiveGameInstance` implements the shared `TemplateInstance.reconcile?(event: TemplateReconcileEvent)` hook owned by SPEC-CRWDQ-023. On `{ kind: 'program_slot', slot }` the D-GRH-13 reconcile runs: a revised `ProgramSlot` with the same `program_slot_id` may change `primary_game_id`; the old live tile demotes to a static card, the new promoted fixture's `<li>` re-mounts as `cdq-tile-live`; the old `GameStateStore` subscription is unsubscribed; the dwell timer is NOT reset; journals `live_tile_reconciled` with `previous_game_id`, `new_game_id`, `demoted_fixture_id`. The `ad_slot` and `game_state_revision` variants are no-ops.
 - [ ] `GameState.status` flipping to `final` mid-slot freezes the score block and replaces LIVE with FINAL; the tile stays in the promoted cell (no auto-demote).
 - [ ] The live tile renders team names as text from the promoted fixture's `FixtureListEntry` (`GameState` carries no team identity, no wire payload carries a `team_id`); a sport-badge asset cache miss falls back to league-name text per D-GRH-08, and the live tile's score block still renders.
 - [ ] Supersede: the outgoing transition runs on the `<section>`; `LiveFixtureTile.detach()` unsubscribes from `GameStateStore`; every static tile's `FixtureListStore` subscription is unsubscribed exactly once.
