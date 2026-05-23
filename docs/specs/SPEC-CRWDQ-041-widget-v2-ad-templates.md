@@ -156,11 +156,19 @@ export interface MultiGameWithAdsTemplate {
   mount(host: HTMLElement, ctx: MultiGameContext & { adSlot: AdSlot }): MultiGameWithAdsInstance;
 }
 
-export interface MultiGameWithAdsInstance {
+export interface MultiGameWithAdsInstance extends TemplateInstance {
   /** Detaches both children; returns the composite section node. */
   detach(): HTMLElement;
-  /** Delegates a ProgramSlot revision to the content child's reconcile. */
-  reconcile(newSlot: ProgramSlotPayload): Promise<void>;
+  /** Implements the shared TemplateInstance.reconcile? hook (canonical
+   *  signature owned by SPEC-CRWDQ-023). On a 'program_slot' variant the
+   *  composite delegates to the content child's reconcile, wrapping the
+   *  same event shape through to MultiGameInstance.reconcile(event). On
+   *  an 'ad_slot' variant (unreachable until backend AdSlot delivery
+   *  lands) the composite would refresh the AdPanel; until then this is
+   *  documented but unexercised. The 'game_state_revision' variant is
+   *  a no-op (per-game updates already reach the content child via its
+   *  own GameStateStore subscriptions). */
+  reconcile(event: TemplateReconcileEvent): Promise<void>;
 }
 ```
 
@@ -170,11 +178,19 @@ export interface FixturesWithAdsTemplate {
   mount(host: HTMLElement, ctx: FixturesContext & { adSlot: AdSlot }): FixturesWithAdsInstance;
 }
 
-export interface FixturesWithAdsInstance {
+export interface FixturesWithAdsInstance extends TemplateInstance {
   detach(): HTMLElement;
-  reconcile(newSlot: ProgramSlotPayload): Promise<void>;
+  /** Implements TemplateInstance.reconcile? (SPEC-CRWDQ-023). On a
+   *  'program_slot' variant delegates to the content child's reconcile
+   *  with the same event shape. 'ad_slot' variant: same as above —
+   *  documented but unreachable until backend AdSlot delivery lands.
+   *  'game_state_revision' is a no-op (the bare fixtures content child
+   *  never subscribes to GameStateStore). */
+  reconcile(event: TemplateReconcileEvent): Promise<void>;
 }
 ```
+
+`TemplateInstance` and `TemplateReconcileEvent` are declared by SPEC-CRWDQ-023 (§ Reconcile dispatch) and consumed here verbatim — this spec does not redeclare them.
 
 `MultiGameContext`, `FixturesContext`, and `ProgramSlotPayload` are defined by SPEC-CRWDQ-031 / -034 / -023 and consumed verbatim. `AssetManifestStore` is owned by SPEC-CRWDQ-064.
 
@@ -245,14 +261,7 @@ When the parent `PlannedState` is superseded (a new `PlannedState` with a differ
 
 ### Reconcile
 
-If the parent `ProgramSlot` is revised in place (D-GRH-13, same `program_slot_id`, different `game_ids[]` / `fixture_ids[]`), the composite's `reconcile(newSlot)` delegates to the content child's `reconcile(newSlot)` exactly as SPEC-CRWDQ-031 / -034 define it. The `AdPanel` is unaffected — an `ad_slot_id` change arrives as a new composite `PlannedState` (different `state_id`), never as a `ProgramSlot` mutation.
-
-> **OPEN QUESTION — `reconcile?` dispatch hook.** The active-slot `reconcile`
-> dispatch this composite relies on requires SPEC-CRWDQ-023 to declare an
-> optional `reconcile?(slot)` member on its template-instance contract,
-> which it does not currently do. This is the same cross-spec coordination
-> gap flagged by SPEC-CRWDQ-031 and SPEC-CRWDQ-034; it must be agreed with
-> the SPEC-CRWDQ-023 owner before any of these specs are implemented.
+If the parent `ProgramSlot` is revised in place (D-GRH-13, same `program_slot_id`, different `game_ids[]` / `fixture_ids[]`), the activator dispatches a `TemplateReconcileEvent { kind: 'program_slot', slot: newSlot }` to the composite's `reconcile?` hook, which delegates the same event verbatim to the content child's `reconcile` (SPEC-CRWDQ-031 / -034). The `AdPanel` is unaffected — an `ad_slot_id` change arrives as a new composite `PlannedState` (different `state_id`), never as a `ProgramSlot` mutation. Resolution: SPEC-CRWDQ-023 § Reconcile dispatch now declares the canonical optional hook and dispatch invariants; both composite instances implement it and chain through.
 
 ## Test strategy
 
@@ -299,7 +308,7 @@ Test cases:
 - [ ] `ad_slot_completed` journal entry fires on supersede with `ad_slot_id`, `ad_ref`, `state_id`, and `dwell_actual_ms` filled from the shared `DwellTimer`.
 - [ ] Coexistence: in every rendered DOM, `.cdq-ad-panel` does not overlap `.cdq-content`; the grid columns are `1fr 320px` (or the matching position-class equivalent); the content child's card/fixture count is unchanged by the composite (D-GRH-15, D-GRH-16).
 - [ ] Per-game `GameState` updates mutate only the matching card's DOM inside `.cdq-content`; the ad panel does not re-render.
-- [ ] An underlying `ProgramSlot` reconcile (add/remove cards or fixtures) propagates into `.cdq-content` via the content child's `reconcile`; the ad panel is untouched, no flicker.
+- [ ] Both `MultiGameWithAdsInstance` and `FixturesWithAdsInstance` implement the shared `TemplateInstance.reconcile?(event: TemplateReconcileEvent)` hook owned by SPEC-CRWDQ-023. On `{ kind: 'program_slot', slot }` the composite delegates the same event verbatim to the content child's reconcile, propagating add/remove of cards or fixtures into `.cdq-content`; the ad panel is untouched, no flicker. The `ad_slot` variant is documented but unreachable until backend `AdSlot` delivery lands; `game_state_revision` is a no-op.
 - [ ] Supersede detaches both children; tests verify both child `detach` methods were called exactly once.
 - [ ] The spec produces, consumes, and references only `multiple_games_with_ads` and `fixtures_with_ads` — there is no `single_game_with_ads` or `ad` business mode anywhere in this template (per SPEC-CRWDQ-039 / D-GRH-30).
 - [ ] Tests use real `MultiGameTemplate` and `FixturesTemplate` instances — NOT mocked (INV-FACTORY-16) — composed into the with-ads shell and exercised end-to-end at the unit level.
