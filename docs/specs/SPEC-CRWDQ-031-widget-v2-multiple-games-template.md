@@ -68,27 +68,35 @@ export interface MultiGameContext {
   pendingApply: PendingPreferenceApply | null;
 }
 
-export interface MultiGameInstance {
+export interface MultiGameInstance extends TemplateInstance {
   /**
    * Called when a new PlannedState supersedes this one (different
    * state_id, different program_slot_id — the schedule advanced). Returns
    * the DOM node for the outgoing transition. An updated ProgramSlot for
-   * the SAME program_slot_id is NOT a detach — it is handled via
-   * reconcile() (the D-GRH-13 add/remove path).
+   * the SAME program_slot_id is NOT a detach — it is handled via the
+   * shared `reconcile?` hook (the D-GRH-13 add/remove path).
    */
   detach(): HTMLElement;
 
   /**
-   * Reconcile against an updated ProgramSlot. Diffs the new game_ids[]
-   * against the current CardSet: cards whose game_id is no longer in
-   * the list are removed (with the player-internal `card_slide_out` exit
-   * transition); new game_ids are added (with the `card_slide_in` enter
-   * transition). Reorders surviving cards into the new positions. No full
-   * re-mount. Resolves when every card add/remove/move has settled.
+   * Implements the shared TemplateInstance.reconcile? hook
+   * (canonical signature owned by SPEC-CRWDQ-023). This template
+   * handles the 'program_slot' variant: diffs the new game_ids[]
+   * against the current CardSet — cards whose game_id is no longer
+   * in the list are removed (with the player-internal `card_slide_out`
+   * exit transition); new game_ids are added (with the `card_slide_in`
+   * enter transition). Reorders surviving cards into the new positions.
+   * No full re-mount. Resolves when every card add/remove/move has
+   * settled. The 'ad_slot' and 'game_state_revision' variants are
+   * no-op for this template (multi-game cards already react via their
+   * GameStateStore subscriptions; multi-game PlannedStates carry
+   * ad_slot_id: null per SPEC-CRWDQ-030).
    */
-  reconcile(newSlot: ProgramSlotPayload): Promise<void>;
+  reconcile(event: TemplateReconcileEvent): Promise<void>;
 }
 ```
+
+`TemplateInstance` and `TemplateReconcileEvent` are declared by SPEC-CRWDQ-023 (§ Reconcile dispatch) and consumed here — this spec does not redeclare them. The `program_slot` variant of `TemplateReconcileEvent` carries `{ kind: 'program_slot', slot: ProgramSlotPayload }`.
 
 ```ts
 // modules/widget-v2/src/templates/multi-game/CardSet.ts
@@ -134,9 +142,8 @@ Per D-GRH-13 the backend sends a new `PlannedState` AND/OR an updated `ProgramSl
 
 When the active template's `program_slot_id` is updated in place:
 
-1. `ProgramSlotResolver.upsert(newSlot)` fires. The shared `PlannedStateActivator` (SPEC-CRWDQ-023) detects the upsert targets the *active* slot and routes it to the active instance's `reconcile(newSlot)` hook — rather than the SPEC-CRWDQ-023 "soft re-render" path used for instances that expose no `reconcile`.
-   > **OPEN QUESTION:** SPEC-CRWDQ-023 as currently written does NOT declare an optional `reconcile?(slot)` hook on its generic template-instance contract — its `SingleGameInstance` exposes only `detach()`. This dispatch path therefore requires a follow-up edit to SPEC-CRWDQ-023 adding an optional `reconcile?(slot: ProgramSlotPayload): Promise<void>` member to the `PlannedStateActivator`'s template-instance interface, so the activator can branch on its presence (`MultiGameInstance` implements it; `SingleGameInstance` does not and keeps the soft-re-render path). This cross-spec change must be agreed with the SPEC-CRWDQ-023 owner before either spec is implemented. Until then, the routing in this step is not buildable.
-2. The active instance's `reconcile(newSlot)` runs:
+1. `ProgramSlotResolver.upsert(newSlot)` fires. The shared `PlannedStateActivator` (SPEC-CRWDQ-023) detects the upsert targets the *active* slot and dispatches it as `TemplateReconcileEvent { kind: 'program_slot', slot: newSlot }` to the active instance's `reconcile?` hook — rather than the SPEC-CRWDQ-023 "soft re-render" path used for instances that do not implement `reconcile?`. Resolution: SPEC-CRWDQ-023 § Reconcile dispatch now declares the canonical optional hook and dispatch invariants; `MultiGameInstance` implements `reconcile?`, the bare `SingleGameInstance` does not.
+2. The active instance's `reconcile({ kind: 'program_slot', slot: newSlot })` runs:
    - Diff `current()` against `newSlot.game_ids`.
    - Cards no longer in the list: `removeCard(gameId)` — runs the player-internal `card_slide_out` exit transition.
    - New cards: `addCard(gameId, position)` — runs the player-internal `card_slide_in` enter transition.
@@ -221,7 +228,7 @@ Reference: `xibo/docs/specs/SPEC-CATALOG.md`.
 - [ ] Exactly one card carries `data-primary="true"` when `programSlot.primary_game_id` is a member of `game_ids`; zero when `primary_game_id` is `null` (defensive); the assertion holds across reconciles.
 - [ ] Each card subscribes to `GameStateStore` for its own `game_id`; per-game `GameState` / `GameEvent` updates mutate only that card's DOM (multiplexing per D-GRH-12).
 - [ ] The PlannedState-level transition run on mount is `PlannedStatePayload.transition` (always `"cut"` from the backend for `multiple_games`, per SPEC-CRWDQ-030); the card-level `card_slide_in` / `card_slide_out` transitions are run only inside `reconcile()` and are never read off the wire.
-- [ ] `reconcile(newSlot)` diffs the current `game_ids` against the new list, removing missing cards with the `card_slide_out` exit transition, adding new cards with the `card_slide_in` enter transition, repositioning survivors via `moveCard`, and updating the primary marker — all WITHOUT resetting `DwellTimer` (D-GRH-13: a card change is not a slot change).
+- [ ] `MultiGameInstance` implements the shared `TemplateInstance.reconcile?(event: TemplateReconcileEvent)` hook owned by SPEC-CRWDQ-023. On `{ kind: 'program_slot', slot }` it diffs the current `game_ids` against `slot.game_ids`, removing missing cards with the `card_slide_out` exit transition, adding new cards with the `card_slide_in` enter transition, repositioning survivors via `moveCard`, and updating the primary marker — all WITHOUT resetting `DwellTimer` (D-GRH-13: a card change is not a slot change). The `ad_slot` and `game_state_revision` variants are no-ops.
 - [ ] Journal entry `multi_game_reconciled` is emitted on every successful reconcile that changes the card set or order, carrying `added`, `removed`, `reordered` lists; it is NOT emitted when the new `game_ids` set and order are identical to the current.
 - [ ] A `multiple_games` `PlannedState` arriving before its referenced `ProgramSlot` is buffered by the shared SPEC-CRWDQ-023 `PlannedStateActivator` and mounts on the `ProgramSlot` arrival; the template makes no assumption about `(PlannedState, ProgramSlot)` arrival order.
 - [ ] Mode supersede (different `state_id`, different `program_slot_id`) routes through the shared `PlannedStateActivator` supersede flow — outgoing transition, `detach()` unsubscribes every card, the new template mounts.
