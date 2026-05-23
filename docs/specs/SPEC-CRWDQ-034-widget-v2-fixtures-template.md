@@ -110,16 +110,23 @@ export interface FixturesContext {
   pendingApply: PendingPreferenceApply | null;
 }
 
-export interface FixturesInstance {
+export interface FixturesInstance extends TemplateInstance {
   /** Called when a new PlannedState (different state_id) supersedes this
    *  one. Returns the DOM node for the outgoing transition. */
   detach(): HTMLElement;
-  /** D-GRH-13-style reconcile: a revised ProgramSlot (same program_slot_id,
-   *  different fixture_ids[]) swaps cards in place without a re-mount.
-   *  Resolves when every card add/remove/move has settled. */
-  reconcile(newSlot: ProgramSlotPayload): Promise<void>;
+  /** Implements the shared TemplateInstance.reconcile? hook (canonical
+   *  signature owned by SPEC-CRWDQ-023). On a 'program_slot' variant —
+   *  a D-GRH-13 revised ProgramSlot (same program_slot_id, different
+   *  fixture_ids[]) — swaps cards in place without a re-mount.
+   *  Resolves when every card add/remove/move has settled. The 'ad_slot'
+   *  and 'game_state_revision' variants are no-ops here (the bare
+   *  fixtures template carries no ad_slot_id, and never subscribes to
+   *  GameStateStore — fixtures is the pre-game catalog). */
+  reconcile(event: TemplateReconcileEvent): Promise<void>;
 }
 ```
+
+`TemplateInstance` and `TemplateReconcileEvent` are declared by SPEC-CRWDQ-023 (§ Reconcile dispatch) and consumed here verbatim — this spec does not redeclare them.
 
 ```ts
 // modules/widget-v2/src/render/FixtureListStore.ts
@@ -192,21 +199,9 @@ For a `PlannedStateFrame` whose `payload.business_mode === "fixtures"` and `payl
 
 ### Reconcile on `ProgramSlot` revision
 
-A revised `ProgramSlot` (same `program_slot_id`, different `fixture_ids[]`) triggers `reconcile(newSlot)`. As in SPEC-CRWDQ-031, the shared `PlannedStateActivator` (SPEC-CRWDQ-023) detects the upsert targets the *active* slot and routes it to the active instance's `reconcile(newSlot)` hook — rather than SPEC-CRWDQ-023's "soft re-render" path. The player makes no assumption about the relative arrival order of an updated `ProgramSlot` and its referencing `PlannedState`: the `ProgramSlotResolver` upserts last-write-wins by `program_slot_id`, and the activator buffers an unresolved `PlannedState`.
+A revised `ProgramSlot` (same `program_slot_id`, different `fixture_ids[]`) triggers a `TemplateReconcileEvent { kind: 'program_slot', slot: newSlot }` dispatch. As in SPEC-CRWDQ-031, the shared `PlannedStateActivator` (SPEC-CRWDQ-023) detects the upsert targets the *active* slot and routes the event to the active instance's `reconcile?` hook — rather than SPEC-CRWDQ-023's "soft re-render" path. The player makes no assumption about the relative arrival order of an updated `ProgramSlot` and its referencing `PlannedState`: the `ProgramSlotResolver` upserts last-write-wins by `program_slot_id`, and the activator buffers an unresolved `PlannedState`. Resolution: SPEC-CRWDQ-023 § Reconcile dispatch now declares the canonical optional hook and dispatch invariants; `FixturesInstance` implements it, the bare `SingleGameInstance` does not.
 
-> **OPEN QUESTION — `reconcile?` dispatch hook.** SPEC-CRWDQ-023 as currently
-> written does NOT declare an optional `reconcile?(slot)` hook on its generic
-> template-instance contract — its `SingleGameInstance` exposes only
-> `detach()`. The active-slot `reconcile` dispatch in this section therefore
-> requires a follow-up edit to SPEC-CRWDQ-023 adding an optional
-> `reconcile?(slot: ProgramSlotPayload): Promise<void>` member to the
-> `PlannedStateActivator`'s template-instance interface (`FixturesInstance`
-> and `MultiGameInstance` implement it; `SingleGameInstance` does not and
-> keeps the soft-re-render path). This is the same cross-spec coordination
-> gap flagged by SPEC-CRWDQ-031; it must be agreed with the SPEC-CRWDQ-023
-> owner before either spec is implemented.
-
-`reconcile`:
+`reconcile({ kind: 'program_slot', slot: newSlot })`:
 - Diff old vs new `fixture_ids` (eventIds). Removed cards: `card_slide_out` exit transition, unsubscribe from `FixtureListStore`. New entries: `card_slide_in` enter transition, subscribe. Surviving cards reorder via DOM moves.
 - Dwell timer NOT reset (D-GRH-13: a card change is not a slot change).
 - Journal `fixtures_reconciled` with `added`, `removed`, `reordered` lists; not emitted when the `fixture_ids` set and order are unchanged.
@@ -281,7 +276,7 @@ Reference: `xibo/docs/specs/SPEC-CATALOG.md`.
 - [ ] A cache miss on an `eventId` renders a "TBA" placeholder card and journals `fixture_cache_miss`. A badge `AssetManifestStore.get(...)` miss falls back to league-name text and triggers `AssetManifestStore.ensure(...)` once for that badge.
 - [ ] `AssetManifestStore` is consumed from SPEC-CRWDQ-064 — this spec neither defines nor creates it; badge lookups use `get(assetId)` / `ensure(assetId)` with `assetId = "badge:<sport>:<leagueName-slug>"`.
 - [ ] In-place updates: a `FixtureList` re-push that flips `feedStatus` or edits `kickoffUtc` mutates the existing card's DOM without a re-mount; no transition runs.
-- [ ] `reconcile(newSlot)` diffs `fixture_ids`, adds/removes/reorders cards in place with `card_slide_in` / `card_slide_out` transitions, does NOT reset the `DwellTimer`, and emits `fixtures_reconciled` only when the `fixture_ids` set or order changed; it is invoked by the shared `PlannedStateActivator`'s active-slot `reconcile` dispatch (SPEC-CRWDQ-023).
+- [ ] `FixturesInstance` implements the shared `TemplateInstance.reconcile?(event: TemplateReconcileEvent)` hook owned by SPEC-CRWDQ-023. On `{ kind: 'program_slot', slot }` it diffs `slot.fixture_ids`, adds/removes/reorders cards in place with `card_slide_in` / `card_slide_out` transitions, does NOT reset the `DwellTimer`, and emits `fixtures_reconciled` only when the `fixture_ids` set or order changed; it is invoked by the shared `PlannedStateActivator`'s active-slot reconcile dispatch (SPEC-CRWDQ-023). The `ad_slot` and `game_state_revision` variants are no-ops.
 - [ ] `pendingApply` with a new `timezone` re-formats all rendered cards at the next dwell boundary; journal `template_locale_refresh`.
 - [ ] No `GameState` subscription anywhere in this template — fixtures mode is the pre-game catalog only.
 - [ ] Tests cover all enumerated cases; no mocks of the shared orchestration, `AssetManifestStore`, or `FixtureListStore` (INV-FACTORY-16); only the clock and the SPEC-CRWDQ-064 `AssetFetcher` boundary are substituted (INV-FACTORY-17).
