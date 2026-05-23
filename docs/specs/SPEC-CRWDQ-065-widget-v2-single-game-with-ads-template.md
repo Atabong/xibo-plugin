@@ -57,14 +57,7 @@ The shared `PlannedStateActivator` (SPEC-CRWDQ-023) dispatches a `PlannedStateFr
 - `ad_slot_id === null` → mount the bare `SingleGameTemplate` (the SPEC-CRWDQ-023 path, unchanged).
 - `ad_slot_id` non-null → mount `SingleGameOverlayAd` (this spec) — the `SingleGameTemplate` content with an `AdPanel` overlay.
 
-> **OPEN QUESTION — SPEC-CRWDQ-023 dispatch branch.** SPEC-CRWDQ-023's
-> `single_game` activation flow does not currently branch on `ad_slot_id`
-> — its activator mounts `SingleGameTemplate` unconditionally. Routing a
-> `single_game` `PlannedState` with a non-null `ad_slot_id` to this
-> composite requires a follow-up edit to SPEC-CRWDQ-023's activation flow
-> adding the `ad_slot_id`-presence branch (or a shared dispatch helper).
-> This must be agreed with the SPEC-CRWDQ-023 owner before either spec is
-> implemented.
+Resolution: SPEC-CRWDQ-023 § single_game activation step 6 now declares the `ad_slot_id !== null` branch, and § Ad-slot branch owns the activator-side composite-shell instantiation, the empty-overlay placeholder behavior (with `ad_slot_payload_unavailable` journal) pending backend `AdSlot` delivery, and the `OverlayAdInstance` lifecycle contract. This spec is the owner of the composite template (`SingleGameOverlayAd`) the activator delegates to once an `AdSlot` payload is available.
 
 ## Proposed deep interface
 
@@ -74,10 +67,25 @@ export interface SingleGameOverlayAd {
   mount(host: HTMLElement, ctx: SingleGameContext & { adSlot: AdSlot }): SingleGameOverlayAdInstance;
 }
 
-export interface SingleGameOverlayAdInstance {
+export interface SingleGameOverlayAdInstance extends TemplateInstance {
   detach(): HTMLElement;
+  /** Implements the shared TemplateInstance.reconcile? hook (canonical
+   *  signature owned by SPEC-CRWDQ-023). On a 'program_slot' variant the
+   *  composite delegates to the content child's update path — for the
+   *  bare single_game content child this is the SPEC-CRWDQ-023 soft
+   *  re-render via ProgramSlotResolver / GameStateStore (the bare
+   *  SingleGameInstance does not itself implement reconcile?, so this
+   *  composite's reconcile is what bridges the program_slot event into
+   *  a content refresh for the new primary_game_id). On an 'ad_slot'
+   *  variant (unreachable until backend AdSlot delivery lands) the
+   *  composite would refresh the overlay AdPanel; until then this is
+   *  documented but unexercised. 'game_state_revision' is a no-op
+   *  (the content child's GameStateStore subscription handles it). */
+  reconcile(event: TemplateReconcileEvent): Promise<void>;
 }
 ```
+
+`TemplateInstance` and `TemplateReconcileEvent` are declared by SPEC-CRWDQ-023 (§ Reconcile dispatch) and consumed here verbatim.
 
 The template reuses `SingleGameContext` from SPEC-CRWDQ-023 verbatim — no new field shape. `AdSlot` is the SPEC-CRWDQ-017 `AdSlotPayload` consumed via SPEC-CRWDQ-041's `AdSlotResolver` — exactly the shape `MultiGameWithAdsTemplate` / `FixturesWithAdsTemplate` already consume. This spec introduces NO new `AdSlot` fields. (An earlier draft added `ad_rotation` / `rotation_cadence_ms`; those are removed — the backend `AdSlotPayload` has no such fields and D-GRH-62 forbids player-side ad progression.)
 
@@ -186,7 +194,7 @@ Test cases:
 - [ ] `ad_slot_rendered` journal fires on the ad image's `load` event with `ad_slot_id`, `ad_ref`, `state_id`.
 - [ ] `GameState` events update only `.cdq-content`; the `.cdq-ad-overlay` `<img>` does not re-render.
 - [ ] Coexistence: the ad overlay is absolutely positioned and never changes the layout or size of `.cdq-content` (D-GRH-15, D-GRH-16).
-- [ ] An underlying `ProgramSlot` reconcile (e.g. a `primary_game_id` change via D-GRH-13) propagates into `.cdq-content`; the ad overlay `<img>` is unaffected.
+- [ ] `SingleGameOverlayAdInstance` implements the shared `TemplateInstance.reconcile?(event: TemplateReconcileEvent)` hook owned by SPEC-CRWDQ-023. On `{ kind: 'program_slot', slot }` an underlying `ProgramSlot` reconcile (e.g. a `primary_game_id` change via D-GRH-13) propagates into `.cdq-content`; the ad overlay `<img>` is unaffected. `ad_slot` variant is documented but unreachable until backend `AdSlot` delivery lands; `game_state_revision` is a no-op.
 - [ ] Supersede: the outgoing transition runs; `detach()` calls both children's `detach` exactly once; `ad_slot_completed` is journaled with `ad_slot_id`, `ad_ref`, `state_id`, and `dwell_actual_ms` from the shared `DwellTimer`.
 - [ ] Tests cover: happy mount, bare single_game (no ad), composite buffered until AdSlot resolves, missing AdSlot, ad asset cache miss fallback, `ad_slot_rendered` journal, GameState event isolation, coexistence (no displacement), supersede, ProgramSlot reconcile, no-rotation.
 - [ ] Tests use real `SingleGameTemplate` and real `AdPanel` instances (INV-FACTORY-16); only the WS source, clock, image `load` event, and journal sink are substituted (INV-FACTORY-17).
