@@ -1,14 +1,7 @@
 ---
 spec_id: SPEC-CRWDQ-066
 title: Widget v2 fixtures_with_live_game template
-status: blocked
-blocked_reason: >-
-  No backend business mode `fixtures_with_live_game` exists, and the
-  dual-id ProgramSlot this template requires (non-null primary_game_id
-  AND non-empty fixture_ids together) is structurally impossible to
-  produce with any current backend builder. Verified against the
-  crowdaq-backend source. This template has nothing to render until a
-  backend mode + producer is authored. See OPEN QUESTION (1).
+status: draft
 owner: player-runtime/widget-v2/templates/mixed-state
 depends_on: [SPEC-CRWDQ-023, SPEC-CRWDQ-034, SPEC-CRWDQ-064]
 generated_by: grill-amendment
@@ -17,14 +10,13 @@ generated_at: 2026-05-15
 
 # SPEC-CRWDQ-066 — Widget v2 fixtures_with_live_game template
 
-> **⚠ STATUS: BLOCKED.** This spec cannot be implemented. The
-> `fixtures_with_live_game` business mode does not exist in the backend
-> and the dual-id `ProgramSlot` it requires is structurally impossible to
-> produce — verified against the `crowdaq-backend` source. See OPEN
-> QUESTION (1). The spec is kept as a complete design so it can be picked
-> up immediately once a backend mode + producer is authored; until then
-> it must NOT be scheduled for implementation. The two consumed-side wire
-> questions (fixture↔game identity, team identity) ARE resolved below.
+> **NOTE — backend integration dependency (non-blocking).** This template
+> can be implemented and contract-tested against the SPEC-CRWDQ-017 wire
+> types now. It cannot be E2E-verified (SPEC-CRWDQ-027 smoke) until the
+> backend adds the `fixtures_with_live_game` mode + a producer for the
+> dual-id `ProgramSlot` — see the backend-dependency note in OPEN QUESTION
+> (1). The two consumed-side wire questions (fixture↔game identity, team
+> identity) ARE resolved below.
 
 ## Metadata
 
@@ -36,20 +28,20 @@ generated_at: 2026-05-15
 | Source files | `modules/widget-v2/src/templates/fixtures/FixturesTemplate.ts` (composed), `modules/widget-v2/src/templates/single-game/SingleGameTemplate.ts` (re-used as inline live tile), `modules/widget-v2/src/render/PlannedStateActivator.ts`, `ProgramSlotResolver.ts`, `FixtureListStore.ts`, `GameStateStore.ts` (consumed); `modules/widget-v2/src/render/AssetManifestStore.ts` (consumed from SPEC-CRWDQ-064) |
 | New files | `modules/widget-v2/src/templates/mixed-state/FixturesWithLiveGameTemplate.ts`, `modules/widget-v2/src/templates/mixed-state/LiveFixtureTile.ts`, `modules/widget-v2/src/templates/mixed-state/fixtures-with-live-game.css`, `modules/widget-v2/tests/templates/mixed-state/*.test.ts` |
 
-> **Backend authority note — STATUS: BLOCKED.** `fixtures_with_live_game`
-> is NOT a backend business mode. Verified against the `crowdaq-backend`
-> source: `PlannedState.businessMode`
-> (`src/scheduler/build/types.ts:159-166`) is a closed 8-member union —
-> `single_game | multiple_games | multiple_games_with_ads | fixtures |
-> fixtures_with_ads | recap | safe_info | ambient` — and
-> `fixtures_with_live_game` is not among them. `selectMode`
-> (`src/scheduler/build/mode-select.ts:39-44`) never returns it. The
-> earlier draft's claim that it is a "valid member of the closed 9-member
-> `BusinessMode` enum" is incorrect. Furthermore the dual-id `ProgramSlot`
-> this template needs is structurally impossible (see OPEN QUESTION (1)).
-> This spec is parked as `blocked` until a backend mode + producer is
-> authored. The `FixtureList` / `GameState` wire facts below are still
-> cross-checked against the backend source for when the block is lifted.
+> **Backend authority note — backend integration dependency (non-blocking).**
+> As of this writing `fixtures_with_live_game` is NOT yet a backend
+> business mode. Verified against the `crowdaq-backend` source:
+> `PlannedState.businessMode` (`src/scheduler/build/types.ts:159-166`) is
+> a closed 8-member union — `single_game | multiple_games |
+> multiple_games_with_ads | fixtures | fixtures_with_ads | recap |
+> safe_info | ambient` — and `fixtures_with_live_game` is not among them.
+> `selectMode` (`src/scheduler/build/mode-select.ts:39-44`) does not return
+> it, and the dual-id `ProgramSlot` this template needs is not yet emitted
+> by any builder (see OPEN QUESTION (1)). This template can still be
+> implemented and contract-tested against the wire shape now; the backend
+> mode + producer must land before it can be exercised at runtime / E2E.
+> The `FixtureList` / `GameState` wire facts below are cross-checked
+> against the backend source.
 
 ## Module
 
@@ -57,9 +49,10 @@ generated_at: 2026-05-15
 
 This is the canonical "mixed-state" composite: the `fixtures_with_live_game` mode is what S7 ("mixed-state semantics") opens, and this spec is the player-side rendering of it.
 
-> **OPEN QUESTION (1) — HARD BLOCKER: `fixtures_with_live_game` is not a
-> backend mode and its `ProgramSlot` shape is unbuildable (backend code
-> cross-check).** Verified against the `crowdaq-backend` source:
+> **OPEN QUESTION (1) — BACKEND DEPENDENCY (non-blocking):
+> `fixtures_with_live_game` is not yet a backend mode and its `ProgramSlot`
+> shape is not yet emitted (backend code cross-check).** Verified against
+> the `crowdaq-backend` source:
 >
 > 1. `fixtures_with_live_game` is NOT a `PlannedState.businessMode` value.
 >    The union is a closed 8-member set (`src/scheduler/build/types.ts:159-166`):
@@ -70,21 +63,21 @@ This is the canonical "mixed-state" composite: the `fixtures_with_live_game` mod
 >    builder emits `fixtures_with_live_game`.
 > 2. The `ProgramSlot` shape this template requires — a non-null
 >    `primary_game_id` AND a non-empty `fixture_ids[]` *at the same time* —
->    is structurally impossible with any current builder. `buildSingleGame`
+>    is not produced by any current builder. `buildSingleGame`
 >    (`single-game.ts:92-99`) and `buildMultiGame` (`multi-game.ts:121-128`)
 >    set `fixtureIds: []`; `buildFixtures` (`fixtures.ts:115-122`) and
 >    `buildFallback` (`fallback.ts:118-125`) set `primaryGameId: null`.
->    Every builder sets exactly one of the two — never both. There is no
->    code path that produces the dual-id slot.
+>    Every builder sets exactly one of the two — never both. No current
+>    code path produces the dual-id slot.
 >
-> Consequence: this template has nothing to render and cannot be
-> implemented or tested. **Recommendation: this spec's status is set to
-> `blocked`** (see the front-matter `status` / `blocked_reason`). The
-> block is lifted only when a backend spec authors (a) a
-> `fixtures_with_live_game` member on the `businessMode` union, (b) a
-> `selectMode` branch that returns it, and (c) a builder that emits the
-> combined-shape `ProgramSlot`. Until then, do not schedule this template
-> for implementation.
+> Resolution: implement this template against the SPEC-CRWDQ-017 wire
+> contract now and contract-test it with the `ProgramSlot` / `GameState` /
+> `FixtureList` inputs driven by a fixture; the backend producer must land
+> before it can be exercised at runtime / E2E (SPEC-CRWDQ-027 smoke). That
+> backend work is (a) a `fixtures_with_live_game` member on the
+> `businessMode` union, (b) a `selectMode` branch that returns it, and
+> (c) a builder that emits the combined-shape `ProgramSlot`. The design
+> below is the shape to build against today.
 
 > **OPEN QUESTION (2) — RESOLVED: fixture↔game identity is `event_id`
 > (backend code cross-check).** A separate `Fixture.game_id` field is not
@@ -272,7 +265,7 @@ The `primary_game_id` can change mid-slot (D-GRH-13) when:
 5. The dwell timer is NOT reset (D-GRH-13: a card change is not a slot change).
 6. Journal `live_tile_reconciled` with `previous_game_id`, `new_game_id`, `demoted_fixture_id` (or `null` if no demote).
 
-Resolution: SPEC-CRWDQ-023 § Reconcile dispatch now declares the canonical optional `reconcile?(event: TemplateReconcileEvent)` hook and dispatch invariants on the shared `TemplateInstance` contract; `FixturesWithLiveGameInstance` implements it. This is the same cross-spec resolution that lands for SPEC-CRWDQ-031, -034, -041, and -065. The remaining `blocked` status of this spec is unchanged — it stems from OPEN QUESTION (1), the missing `fixtures_with_live_game` backend producer.
+Resolution: SPEC-CRWDQ-023 § Reconcile dispatch now declares the canonical optional `reconcile?(event: TemplateReconcileEvent)` hook and dispatch invariants on the shared `TemplateInstance` contract; `FixturesWithLiveGameInstance` implements it. This is the same cross-spec resolution that lands for SPEC-CRWDQ-031, -034, -041, and -065. The backend dependency in OPEN QUESTION (1) — the missing `fixtures_with_live_game` backend producer — remains a non-blocking integration gate: implement against the wire contract now; the backend producer must land before runtime/E2E.
 
 ### Status flip mid-slot (live → final)
 
@@ -314,7 +307,7 @@ Test cases:
 
 ## Vocabulary
 
-- `fixtures_with_live_game` — NOT a backend `business_mode` value (the backend union is a closed 8-member set; verified `crowdaq-backend` `src/scheduler/build/types.ts:159-166`). No backend producer exists; this spec is `blocked` — see OPEN QUESTION (1).
+- `fixtures_with_live_game` — not yet a backend `business_mode` value (the backend union is currently a closed 8-member set; verified `crowdaq-backend` `src/scheduler/build/types.ts:159-166`). No backend producer exists yet — implement against the wire contract now; the backend mode + producer must land before runtime/E2E. See OPEN QUESTION (1).
 - `primary_game_id`, `fixture_ids[]` — D-GRH-21 `ProgramSlot` fields. Both `primary_game_id` and each `fixture_ids[]` entry are canonical `event_id`s; a live game and its fixture share that one identifier.
 - "promoted tile", "demote" — internal terms defined in this spec.
 
