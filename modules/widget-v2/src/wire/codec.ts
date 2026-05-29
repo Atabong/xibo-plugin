@@ -17,8 +17,11 @@ import {
 /** Defensive cap: refuse frames larger than 1 MB (prevents OOM, D-GRH spirit). */
 export const MAX_FRAME_BYTES = 1024 * 1024;
 
-const byteLength = (s: string): number =>
-  typeof TextEncoder !== 'undefined' ? new TextEncoder().encode(s).length : Buffer.byteLength(s, 'utf8');
+// `TextEncoder` is a WHATWG global available in the player browser runtime
+// (DOM) and in the Node test runtime alike, so no platform fallback is
+// needed for the byte-length cap.
+const encoder = new TextEncoder();
+const byteLength = (s: string): number => encoder.encode(s).length;
 
 /**
  * Parse one JSONL line into a typed {@link ServerFrame}. Throws
