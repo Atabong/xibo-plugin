@@ -1,7 +1,7 @@
 ---
 spec_id: SPEC-CRWDQ-022
 title: Widget v2 WebSocket client + wire-protocol deserializer
-status: draft
+status: design-ready
 owner: player-runtime/widget-v2/transport
 depends_on: [SPEC-CRWDQ-017]
 generated_by: catalog-expansion

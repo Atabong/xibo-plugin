@@ -1,7 +1,7 @@
 ---
 spec_id: SPEC-CRWDQ-027
 title: Widget v2 e2e smoke test on player side (real WS, real BarPreferences)
-status: draft
+status: design-ready
 owner: player-runtime/widget-v2/tests/e2e
 depends_on: [SPEC-CRWDQ-014, SPEC-CRWDQ-022, SPEC-CRWDQ-023, SPEC-CRWDQ-026, SPEC-CRWDQ-028]
 generated_by: catalog-expansion

@@ -1,7 +1,7 @@
 ---
 spec_id: SPEC-CRWDQ-031
 title: Widget v2 multiple_games (2x2 grid) render template + dwell handling
-status: draft
+status: design-ready
 owner: player-runtime/widget-v2/templates/multi-game
 depends_on: [SPEC-CRWDQ-022, SPEC-CRWDQ-023]
 generated_by: catalog-expansion

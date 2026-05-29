@@ -1,7 +1,7 @@
 ---
 spec_id: SPEC-CRWDQ-061
 title: Widget v2 player-side metrics ping
-status: draft
+status: design-ready
 owner: player-runtime/widget-v2/observability/journal-sync
 depends_on: [SPEC-CRWDQ-022, SPEC-CRWDQ-014]
 generated_by: catalog-expansion

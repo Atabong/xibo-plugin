@@ -1,7 +1,7 @@
 ---
 spec_id: SPEC-CRWDQ-063
 title: Widget v2 OverrideInjection handler
-status: draft
+status: design-ready
 owner: player-runtime/widget-v2/overrides
 depends_on: [SPEC-CRWDQ-022, SPEC-CRWDQ-023, SPEC-CRWDQ-049, SPEC-CRWDQ-064]
 generated_by: grill-amendment

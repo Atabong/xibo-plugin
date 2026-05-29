@@ -1,7 +1,7 @@
 ---
 spec_id: SPEC-CRWDQ-023
 title: Widget v2 single_game render template
-status: draft
+status: design-ready
 owner: player-runtime/widget-v2/templates/single-game
 depends_on: [SPEC-CRWDQ-022, SPEC-CRWDQ-014]
 generated_by: catalog-expansion

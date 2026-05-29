@@ -1,7 +1,7 @@
 ---
 spec_id: SPEC-CRWDQ-064
 title: Widget v2 AssetManifestStore
-status: draft
+status: design-ready
 owner: player-runtime/widget-v2/asset-manifest
 depends_on: [SPEC-CRWDQ-022]
 generated_by: grill-amendment

@@ -1,7 +1,7 @@
 ---
 spec_id: SPEC-CRWDQ-034
 title: Widget v2 fixtures render template
-status: draft
+status: design-ready
 owner: player-runtime/widget-v2/templates/fixtures
 depends_on: [SPEC-CRWDQ-022, SPEC-CRWDQ-023, SPEC-CRWDQ-064]
 generated_by: catalog-expansion
