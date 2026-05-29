@@ -1,0 +1,148 @@
+{
+  "contract_id": "PROP-001",
+  "issue_id": "ISS-PLAN-20260529-182239-001",
+  "plan_id": "PLAN-20260529-182239",
+  "created_at": "2026-05-29T18:30:24.1593471Z",
+  "proposed_by": "generator",
+  "ratified_by": [
+    "generator",
+    "evaluator"
+  ],
+  "payload": {
+    "clauses": [
+      {
+        "clause_id": "C-001",
+        "description": "modules/widget-v2/ contains package.json, tsconfig.json, and vitest.config.ts. \u0060npm install \u0026\u0026 npm test\u0060 (run with cwd modules/widget-v2) executes Vitest under the jsdom environment and exits 0 (green) with at least one passing test asserting the wire.ts barrel.",
+        "acceptance_sketch_ref": "modules/widget-v2/package.json \u002B tsconfig.json \u002B vitest.config.ts; npm test runs Vitest\u002Bjsdom green",
+        "verification": {
+          "type": "unit_test",
+          "command": "npm --prefix modules/widget-v2 ci \u0026\u0026 npm --prefix modules/widget-v2 test",
+          "expected_outcome": "Vitest runs in jsdom env, all tests pass, exit code 0"
+        },
+        "status": "pending"
+      },
+      {
+        "clause_id": "C-002",
+        "description": "The Vitest jsdom environment provides working test shims for crypto.subtle (WebCrypto SubtleCrypto), LocalStorage, and IndexedDB so test code referencing those browser globals does not throw ReferenceError. A setup file wires these into globalThis before each test file.",
+        "acceptance_sketch_ref": "jsdom env with crypto.subtle/LocalStorage/IndexedDB shims for tests",
+        "verification": {
+          "type": "unit_test",
+          "command": "npm --prefix modules/widget-v2 test",
+          "expected_outcome": "A shim test asserts typeof crypto.subtle.digest === \u0027function\u0027, localStorage get/set round-trips, and indexedDB.open is callable; all pass"
+        },
+        "status": "pending"
+      },
+      {
+        "clause_id": "C-003",
+        "description": "A single modules/widget-v2/src/wire.ts re-exports the full SPEC-CRWDQ-017 wire surface: Envelope, every *Payload type, the 20-value MessageType, CHANNELS, canonicalChannel, parseLine, buildEnvelope, serialize, and the 7 WireError codes. wire.ts is the only module owning these symbols (no duplicate hand-rolled parser/types elsewhere in widget-v2).",
+        "acceptance_sketch_ref": "single src/wire.ts re-exports Envelope, all *Payload types, 20-value MessageType, CHANNELS, canonicalChannel, parseLine/buildEnvelope/serialize, 7 WireError codes from SPEC-CRWDQ-017",
+        "verification": {
+          "type": "unit_test",
+          "command": "npm --prefix modules/widget-v2 test",
+          "expected_outcome": "A barrel test imports from src/wire.ts and asserts: MessageType has 20 values, CHANNELS contains \u0027control\u0027 and \u0027game_data\u0027, canonicalChannel pins the 5 game_data types correctly, parseLine/buildEnvelope/serialize round-trip an Envelope, and 7 distinct WireError codes are exported (malformed_frame, unknown_channel, unknown_message_type, unpinned_channel, unsupported_schema_version, missing_seq, unexpected_seq)"
+        },
+        "status": "pending"
+      },
+      {
+        "clause_id": "C-004",
+        "description": "An ESLint lint gate and a TypeScript type-check (tsc --noEmit) gate are runnable as npm scripts and pass clean against the widget-v2 source \u002B tests.",
+        "acceptance_sketch_ref": "ESLint \u002B type-check gate; no @latest pins",
+        "verification": {
+          "type": "unit_test",
+          "command": "npm --prefix modules/widget-v2 run lint \u0026\u0026 npm --prefix modules/widget-v2 run typecheck",
+          "expected_outcome": "ESLint exits 0 with --max-warnings=0; tsc --noEmit exits 0"
+        },
+        "status": "pending"
+      },
+      {
+        "clause_id": "C-005",
+        "description": "No dependency in modules/widget-v2/package.json is pinned to \u0027@latest\u0027, \u0027*\u0027, or an unpinned range; every dependency and devDependency uses an exact or caret-bounded explicit version. Node engine pinned consistent with existing CI (Node 20.x).",
+        "acceptance_sketch_ref": "ESLint \u002B type-check gate; no @latest pins",
+        "verification": {
+          "type": "manual",
+          "command": "grep -E \u0027\u0022(latest|\\*)\u0022|@latest\u0027 modules/widget-v2/package.json",
+          "expected_outcome": "No matches: no @latest, no bare \u0027*\u0027 version specifiers in dependencies/devDependencies"
+        },
+        "status": "pending"
+      },
+      {
+        "clause_id": "C-006",
+        "description": "An additive Node job is added to .github/workflows/ci.yml that runs install \u002B lint \u002B typecheck \u002B test for modules/widget-v2, with path/trigger scope limited to modules/widget-v2/** (and the workflow file itself). The existing PHP jobs (lint, contract, js-lint, package) are byte-for-byte unchanged.",
+        "acceptance_sketch_ref": "additive Node CI job in .github/workflows/ci.yml scoped to modules/widget-v2/**; PHP jobs unchanged",
+        "verification": {
+          "type": "manual",
+          "command": "git diff main -- .github/workflows/ci.yml",
+          "expected_outcome": "Diff shows only an added Node job (with a modules/widget-v2/** path scope) and no edits to the lint/contract/js-lint/package job bodies; pinned Node version, no @latest"
+        },
+        "status": "pending"
+      },
+      {
+        "clause_id": "C-007",
+        "description": "modules/crowdaq-widget.xml (v1) is untouched by this change.",
+        "acceptance_sketch_ref": "v1 crowdaq-widget.xml untouched; v2 bundle entry point produced",
+        "verification": {
+          "type": "manual",
+          "command": "git diff --exit-code main -- modules/crowdaq-widget.xml",
+          "expected_outcome": "Exit code 0 \u2014 no diff to the v1 manifest"
+        },
+        "status": "pending"
+      },
+      {
+        "clause_id": "C-008",
+        "description": "A v2 bundle entry point is produced: a build script (npm run build) emits a bundle whose entry is the widget-v2 src (e.g. src/index.ts re-exporting the wire barrel), demonstrating the toolchain can package the v2 module. v1 packaging path is unaffected.",
+        "acceptance_sketch_ref": "v1 crowdaq-widget.xml untouched; v2 bundle entry point produced",
+        "verification": {
+          "type": "unit_test",
+          "command": "npm --prefix modules/widget-v2 run build",
+          "expected_outcome": "Build exits 0 and writes a bundle artifact to modules/widget-v2/dist/ from the declared entry point"
+        },
+        "status": "pending"
+      }
+    ],
+    "scope_boundaries": {
+      "in_scope": [
+        "TypeScript toolchain scaffold under modules/widget-v2 (package.json, tsconfig.json, vitest.config.ts, eslint config, build config)",
+        "jsdom test environment \u002B setup file with crypto.subtle/LocalStorage/IndexedDB shims",
+        "single src/wire.ts barrel re-exporting the SPEC-CRWDQ-017 wire surface",
+        "ESLint \u002B tsc typecheck npm scripts and CI gate",
+        "additive, path-scoped Node CI job in .github/workflows/ci.yml",
+        "v2 bundle entry point \u002B build script"
+      ],
+      "out_of_scope": [
+        "Transport layer (WsClient/Deserializer/Dispatcher/Heartbeat) \u2014 SPEC-CRWDQ-022",
+        "Any render template (single_game, fixtures, ads, etc.)",
+        "ConfigPush consumer logic \u2014 SPEC-CRWDQ-014",
+        "Modifying v1 crowdaq-widget.xml or the existing PHP CI jobs",
+        "Backend authorship of SPEC-CRWDQ-017 itself (this is the player-side consumer barrel)"
+      ],
+      "assumptions": [
+        "SPEC-CRWDQ-017 lives in crowdaq-backend (TypeScript) and is NOT an installable npm dependency of xibo-plugin; therefore wire.ts vendors a faithful in-repo copy of the SPEC-CRWDQ-017 wire surface (envelope/types/parser/errors) matching the contract referenced by SPEC-CRWDQ-022, rather than importing from a published package. If the Evaluator requires importing from a real package path instead, that is a contract change.",
+        "The 20 MessageType values and 7 WireError codes are exactly those enumerated in SPEC-CRWDQ-022 (16 server-\u003Eplayer \u002B 4 player-\u003Eserver types; the 7 ParseErrorReason codes).",
+        "Node 20.x toolchain consistent with the existing CI (setup-node 20.17.0).",
+        "Bundler choice (tsup/esbuild/rollup) is left to the implementer provided it is version-pinned and produces a single dist entry."
+      ]
+    },
+    "test_strategy": [
+      {
+        "dependency": "SPEC-CRWDQ-017 wire surface (Envelope/parseLine/buildEnvelope/serialize/MessageType/WireError)",
+        "category": "in-process",
+        "approach": "Real in-repo implementation under test via src/wire.ts; barrel \u002B round-trip tests call the real functions, no mocks (INV-FACTORY-16/17 style)."
+      },
+      {
+        "dependency": "Browser APIs: crypto.subtle, LocalStorage, IndexedDB",
+        "category": "local-substitutable",
+        "approach": "jsdom environment \u002B a vitest setup file installing Node WebCrypto (globalThis.crypto.subtle), an in-memory Storage shim, and fake-indexeddb; asserted by a shim smoke test."
+      },
+      {
+        "dependency": "Node/Vitest/ESLint/tsc toolchain",
+        "category": "in-process",
+        "approach": "Pinned devDependencies; executed directly via npm scripts in tests and in the additive CI job."
+      },
+      {
+        "dependency": "GitHub Actions CI runner",
+        "category": "remote-owned",
+        "approach": "Additive path-scoped Node job; verified by inspecting the workflow diff (PHP jobs unchanged) rather than executing Actions locally."
+      }
+    ]
+  }
+}
