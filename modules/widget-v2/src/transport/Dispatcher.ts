@@ -75,7 +75,10 @@ export class FrameDispatcher implements Dispatcher {
   private trackSeq(frame: ServerFrame): void {
     if (frame.message_type === 'GameStateSnapshot') {
       const snap = frame as Extract<ServerFrame, { message_type: 'GameStateSnapshot' }>;
+      // The snapshot IS the recovery response: re-baseline the local detector
+      // AND clear the requester's coalescing gate so the next gap re-requests.
       this.trackers.set(snap.game_id, { lastSeq: snap.seq, outstanding: false });
+      this.requester.resolve(snap.game_id);
       return;
     }
 

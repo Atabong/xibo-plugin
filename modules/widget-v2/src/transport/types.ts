@@ -95,6 +95,11 @@ export interface Heartbeat {
 
 export interface GameStateRequester {
   requestForGap(gameId: string, sinceSeq: number): void;
+  /**
+   * Clear the per-game coalescing gate once the recovery `GameStateSnapshot`
+   * arrives, so a subsequent gap on the same game can request again (AC5).
+   */
+  resolve(gameId: string): void;
 }
 
 /** Exponential-backoff-with-jitter reconnect policy. */

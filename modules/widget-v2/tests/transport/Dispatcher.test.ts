@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { FrameDispatcher, DuplicateHandlerError, type ActiveGames } from '../../src/transport/Dispatcher';
-import type { GameStateRequester, ServerFrame } from '../../src/transport/types';
+import { GameStateRequestSender } from '../../src/transport/GameStateRequest';
+import type { GameStateRequester, PlayerToServerFrame, ServerFrame } from '../../src/transport/types';
 
 /** Records frames in receipt order — a real handler, not a mock. */
 class RecordingHandler<F extends ServerFrame> {
@@ -13,8 +14,12 @@ class RecordingHandler<F extends ServerFrame> {
 /** Records seq-gap recovery requests — real collaborator under DI. */
 class RecordingRequester implements GameStateRequester {
   readonly requests: Array<{ gameId: string; sinceSeq: number }> = [];
+  readonly resolved: string[] = [];
   requestForGap(gameId: string, sinceSeq: number): void {
     this.requests.push({ gameId, sinceSeq });
+  }
+  resolve(gameId: string): void {
+    this.resolved.push(gameId);
   }
 }
 
@@ -116,5 +121,27 @@ describe('Dispatcher seq-gap recovery (D-GRH-63)', () => {
     d.dispatch(ge('G', 2));
     d.dispatch(ge('G', 3));
     expect(req.requests).toEqual([]);
+  });
+});
+
+describe('Dispatcher + GameStateRequestSender integration (AC5)', () => {
+  const snapshot = (gameId: string, seq: number): ServerFrame =>
+    ({ message_type: 'GameStateSnapshot', game_id: gameId, seq }) as ServerFrame;
+
+  it('clears the sender coalescing gate on snapshot so a post-snapshot gap re-requests', () => {
+    const sent: PlayerToServerFrame[] = [];
+    // Real sender (not a recorder) so the end-to-end coalescing gate is exercised.
+    const sender = new GameStateRequestSender((f) => sent.push(f));
+    const d = new FrameDispatcher(sender, new FakeActiveGames(new Set(['G'])));
+
+    d.dispatch(ge('G', 1));
+    d.dispatch(ge('G', 5)); // gap -> request since 1
+    d.dispatch(snapshot('G', 20)); // recovery response: re-baseline + clear gate
+    d.dispatch(ge('G', 25)); // new gap after baseline 20 -> request since 20
+
+    expect(sent).toEqual([
+      { message_type: 'GameStateRequest', game_id: 'G', since_seq: 1 },
+      { message_type: 'GameStateRequest', game_id: 'G', since_seq: 20 },
+    ]);
   });
 });
