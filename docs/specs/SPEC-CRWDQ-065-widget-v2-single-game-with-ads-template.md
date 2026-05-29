@@ -1,7 +1,7 @@
 ---
 spec_id: SPEC-CRWDQ-065
 title: Widget v2 single_game overlay-ad rendering
-status: design-ready
+status: impl-ready
 owner: player-runtime/widget-v2/templates/with-ads
 depends_on: [SPEC-CRWDQ-023, SPEC-CRWDQ-041, SPEC-CRWDQ-064]
 generated_by: grill-amendment

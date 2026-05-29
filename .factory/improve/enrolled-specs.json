@@ -3,6 +3,66 @@
     "SPEC-CRWDQ-014": {
       "issue": 27,
       "enrolled_at": "2026-05-22T00:00:00Z"
+    },
+    "SPEC-CRWDQ-022": {
+      "issue": 28,
+      "enrolled_at": "2026-05-29T00:00:00Z"
+    },
+    "SPEC-CRWDQ-023": {
+      "issue": 34,
+      "enrolled_at": "2026-05-29T00:00:00Z"
+    },
+    "SPEC-CRWDQ-027": {
+      "issue": 69,
+      "enrolled_at": "2026-05-29T00:00:00Z"
+    },
+    "SPEC-CRWDQ-031": {
+      "issue": 38,
+      "enrolled_at": "2026-05-29T00:00:00Z"
+    },
+    "SPEC-CRWDQ-034": {
+      "issue": 41,
+      "enrolled_at": "2026-05-29T00:00:00Z"
+    },
+    "SPEC-CRWDQ-041": {
+      "issue": 54,
+      "enrolled_at": "2026-05-29T00:00:00Z"
+    },
+    "SPEC-CRWDQ-046": {
+      "issue": 45,
+      "enrolled_at": "2026-05-29T00:00:00Z"
+    },
+    "SPEC-CRWDQ-049": {
+      "issue": 44,
+      "enrolled_at": "2026-05-29T00:00:00Z"
+    },
+    "SPEC-CRWDQ-052": {
+      "issue": 48,
+      "enrolled_at": "2026-05-29T00:00:00Z"
+    },
+    "SPEC-CRWDQ-053": {
+      "issue": 57,
+      "enrolled_at": "2026-05-29T00:00:00Z"
+    },
+    "SPEC-CRWDQ-061": {
+      "issue": 51,
+      "enrolled_at": "2026-05-29T00:00:00Z"
+    },
+    "SPEC-CRWDQ-063": {
+      "issue": 60,
+      "enrolled_at": "2026-05-29T00:00:00Z"
+    },
+    "SPEC-CRWDQ-064": {
+      "issue": 31,
+      "enrolled_at": "2026-05-29T00:00:00Z"
+    },
+    "SPEC-CRWDQ-065": {
+      "issue": 63,
+      "enrolled_at": "2026-05-29T00:00:00Z"
+    },
+    "SPEC-CRWDQ-066": {
+      "issue": 66,
+      "enrolled_at": "2026-05-29T00:00:00Z"
     }
   }
 }

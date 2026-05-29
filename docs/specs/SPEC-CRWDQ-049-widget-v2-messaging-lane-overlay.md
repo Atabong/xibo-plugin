@@ -1,7 +1,7 @@
 ---
 spec_id: SPEC-CRWDQ-049
 title: Widget v2 overlay layer for MessagingLane render
-status: design-ready
+status: impl-ready
 owner: player-runtime/widget-v2/overlays/messaging-lane
 depends_on: [SPEC-CRWDQ-022, SPEC-CRWDQ-023]
 generated_by: catalog-expansion

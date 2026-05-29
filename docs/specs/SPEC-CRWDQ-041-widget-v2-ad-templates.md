@@ -1,7 +1,7 @@
 ---
 spec_id: SPEC-CRWDQ-041
 title: Widget v2 ad render template + fixtures_with_ads composite
-status: design-ready
+status: impl-ready
 owner: player-runtime/widget-v2/templates/with-ads
 depends_on: [SPEC-CRWDQ-031, SPEC-CRWDQ-034, SPEC-CRWDQ-064]
 generated_by: catalog-expansion

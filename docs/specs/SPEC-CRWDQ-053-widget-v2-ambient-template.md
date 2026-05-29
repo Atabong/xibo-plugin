@@ -1,7 +1,7 @@
 ---
 spec_id: SPEC-CRWDQ-053
 title: Widget v2 ambient render template
-status: design-ready
+status: impl-ready
 owner: player-runtime/widget-v2/templates/ambient
 depends_on: [SPEC-CRWDQ-023, SPEC-CRWDQ-052, SPEC-CRWDQ-064]
 generated_by: catalog-expansion

@@ -1,7 +1,7 @@
 ---
 spec_id: SPEC-CRWDQ-066
 title: Widget v2 fixtures_with_live_game template
-status: design-ready
+status: impl-ready
 owner: player-runtime/widget-v2/templates/mixed-state
 depends_on: [SPEC-CRWDQ-023, SPEC-CRWDQ-034, SPEC-CRWDQ-064]
 generated_by: grill-amendment
