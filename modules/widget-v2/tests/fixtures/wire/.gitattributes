@@ -1,0 +1,4 @@
+# Wire fixtures are byte-exact on-wire JSONL transcripts: one JSON object per
+# `\n`-terminated line (D-GRH-42). Pin LF so the line framing the loader and
+# deserializer see matches the server's framing on every platform/checkout.
+*.jsonl text eol=lf
