@@ -212,8 +212,9 @@ export class AssetManifestStore {
     if (existing) return existing;
 
     // A stale-flagged entry (post-invalidate) re-fetches against its still-
-    // applied manifest entry and clears the flag on success (AC11).
-    const promise = this.fetchVerifyCache(applied.entry)
+    // applied manifest entry and clears the flag on success (AC11). A fresh
+    // entry resolves from cache (hot map or persistence) before fetching (AC6).
+    const promise = this.resolveOrFetch(applied)
       .then((asset) => {
         applied.isStaleVersion = false;
         return asset;
@@ -223,6 +224,22 @@ export class AssetManifestStore {
       });
     this.inFlight.set(assetId, promise);
     return promise;
+  }
+
+  /** Resolve from the hot map or persistent cache; fetch on a miss. */
+  private async resolveOrFetch(applied: AppliedEntry): Promise<CachedAsset> {
+    const { entry } = applied;
+    if (!applied.isStaleVersion) {
+      const hot = this.hot.get(entry.asset_id);
+      if (hot && hot.content_hash === entry.content_hash) return hot;
+
+      const persisted = await this.cache.read(entry.asset_id, entry.content_hash);
+      if (persisted) {
+        this.hot.set(entry.asset_id, persisted);
+        return persisted;
+      }
+    }
+    return this.fetchVerifyCache(entry);
   }
 
   /**
