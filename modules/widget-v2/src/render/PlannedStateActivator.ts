@@ -37,7 +37,12 @@ import {
   type SingleGameContext,
   type SingleGameInstance,
 } from '../templates/single-game/SingleGameTemplate';
-import type { TemplateReconcileEvent } from './TemplateInstance';
+import type { TemplateInstance, TemplateReconcileEvent } from './TemplateInstance';
+import {
+  mountOverlayComposite,
+  type AdSlotResolver,
+  type SingleGameOverlayAd,
+} from '../templates/single-game/SingleGameOverlay';
 
 /** Drains the pending preference apply at a dwell boundary (SPEC-014 slot). */
 export interface PendingThemeApply {
@@ -69,6 +74,14 @@ export interface PlannedStateActivatorDeps {
   barTheme: BarThemeSource;
   pendingApply: PendingThemeApply;
   clock: DwellClock;
+  /**
+   * Overlay-ad seam (AC6–AC9). Both optional: a bare single_game deployment
+   * needs neither. When `ad_slot_id` is non-null the activator resolves the
+   * AdSlot via `adSlots` and either delegates to `overlayAd` (payload present,
+   * AC8) or mounts the empty overlay (payload absent, AC7).
+   */
+  adSlots?: AdSlotResolver;
+  overlayAd?: SingleGameOverlayAd;
 }
 
 /** A PlannedState whose ProgramSlot has not yet arrived (AC4 buffer). */
@@ -286,11 +299,12 @@ export class PlannedStateActivator {
 
     // Run the incoming transition (AC9), then mount (AC1).
     await this.deps.transitions.run(payload.transition, this.deps.host);
-    this.activeInstance = this.deps.template.mount(this.deps.host, {
+    const context: SingleGameContext = {
       programSlot: slot,
       theme,
       gameStateStore: this.deps.gameStateStore,
-    });
+    };
+    this.activeInstance = this.mountForState(payload, context);
     this.activeStateId = payload.state_id;
     // Rebuild the reconcile gate (AC4): subscribed-game-set is the slot's
     // primary game (single_game subscribes to exactly that one game).
@@ -303,6 +317,30 @@ export class PlannedStateActivator {
     // Arm the dwell (AC10); even the placeholder paths arm it (AC5).
     this.deps.dwell.arm(payload.dwell_target_ms, (actualDwellMs) =>
       this.onDwellBoundary(actualDwellMs, payload, theme),
+    );
+  }
+
+  /**
+   * Mount the instance for the state: the bare single_game template when
+   * `ad_slot_id` is null (AC6), else the overlay composite (content + overlay
+   * above it, AC6–AC9). The composite needs both overlay deps; absent either,
+   * the activator is a bare deployment and the null branch is the only path.
+   */
+  private mountForState(payload: PlannedStatePayload, context: SingleGameContext): TemplateInstance {
+    if (payload.ad_slot_id === null || this.deps.adSlots === undefined || this.deps.overlayAd === undefined) {
+      return this.deps.template.mount(this.deps.host, context);
+    }
+    return mountOverlayComposite(
+      {
+        host: this.deps.host,
+        template: this.deps.template,
+        overlayAd: this.deps.overlayAd,
+        adSlots: this.deps.adSlots,
+        journal: this.deps.journal,
+        stateId: payload.state_id,
+        adSlotId: payload.ad_slot_id,
+      },
+      context,
     );
   }
 
