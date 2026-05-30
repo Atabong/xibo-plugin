@@ -15,6 +15,7 @@
  * ad panel, or fixture card (AC: those are other templates' DOM).
  */
 import type { GameStateStore } from '../../render/GameStateStore';
+import type { TemplateInstance } from '../../render/TemplateInstance';
 import { themeAttr, type ResolvedTheme } from '../../render/ThemeResolver';
 import type { GameState, ProgramSlotPayload } from '../../render/types';
 
@@ -43,10 +44,14 @@ export interface SingleGameContext {
   maxMomentLength?: number;
 }
 
-export interface SingleGameInstance {
-  /** Unsubscribe from GameState and return the DOM node for the outgoing transition. */
-  detach(): HTMLElement;
-}
+/**
+ * The bare single_game instance. It satisfies the shared `TemplateInstance`
+ * contract but deliberately leaves `reconcile?` UNimplemented (AC3): single_game
+ * content has no sub-element transitions, so D-GRH-13 in-place revisions reach
+ * it through the `GameStateStore` subscription, not the reconcile hook. The
+ * activator treats the absent hook as `hook_not_implemented` (AC4).
+ */
+export type SingleGameInstance = TemplateInstance;
 
 export class SingleGameTemplate {
   /** Mount the template, subscribing to the slot's primary game. */

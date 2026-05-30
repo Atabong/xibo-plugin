@@ -15,7 +15,13 @@ export type RenderJournalEventType =
   | 'template_buffer_timeout'
   | 'template_render_fallback'
   | 'transition_catalog_miss'
-  | 'dwell_boundary_reached';
+  | 'dwell_boundary_reached'
+  // --- part 2: reconcile dispatch (AC4) ---
+  | 'template_reconcile_dropped'
+  | 'template_reconcile_skipped'
+  | 'template_reconcile_dispatched'
+  // --- part 2: overlay-ad branch (AC7) ---
+  | 'ad_slot_payload_unavailable';
 
 export interface RenderJournalEntry {
   type: RenderJournalEventType;

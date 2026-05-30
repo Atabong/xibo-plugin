@@ -79,6 +79,30 @@ export interface ProgramSlotPayload {
   primary_game_id: string | null;
 }
 
+/**
+ * The reconcilable view of a game's state (D-GRH-13 in-place revision). The
+ * reconcile path carries the game id + the source `seq` of the revision; the
+ * full renderable shape is the `GameState` the store already holds. Named
+ * `GameStatePayload` to match the reconcile-event vocabulary; structurally a
+ * `GameState` so the gate can read `game_id` without a second shape.
+ */
+export type GameStatePayload = GameState;
+
+/**
+ * The AdSlot payload (D-GRH-15/-16, SPEC-CRWDQ-041 + SPEC-CRWDQ-065). The
+ * overlay-ad branch reads only the slot identity at this layer; the creative
+ * resolution (asset cache, rotation, paint) is owned by SPEC-CRWDQ-065. `ad_ref`
+ * is the phase-1 `asset_id` key into the AssetManifest. The field set mirrors
+ * the SPEC-CRWDQ-065 `AdSlot` contract so the overlay seam binds to one shape.
+ */
+export interface AdSlotPayload {
+  ad_slot_id: string;
+  ad_class: string;
+  ad_ref: string;
+  ad_ref_type: 'asset_id';
+  policy: Record<string, unknown>;
+}
+
 /** Named-animation transition reference (D-GRH-50 flat catalog name). */
 export interface TransitionSpec {
   animation_id: string;
@@ -96,6 +120,14 @@ export interface PlannedStatePayload {
   state_id: string;
   business_mode: BusinessMode;
   program_slot_id: string | null;
+  /**
+   * Referenced AdSlot id, or null when the state carries no ad (D-GRH-15). A
+   * non-null id selects the overlay-ad branch: the activator mounts the bare
+   * SingleGameTemplate content WITH an absolutely-positioned overlay above it
+   * (SPEC-CRWDQ-065). `business_mode` stays `single_game` either way — there is
+   * no separate `single_game_with_ads` member in the D-GRH-26 closed enum.
+   */
+  ad_slot_id: string | null;
   dwell_target_ms: number;
   transition: TransitionSpec;
   theme_id: string | null;
