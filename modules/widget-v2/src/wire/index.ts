@@ -9,3 +9,4 @@
 export * from './types';
 export * from './errors';
 export * from './codec';
+export * from './config-push';
