@@ -1,0 +1,8 @@
+{"message_type":"ConfigPush","config_hash":"cfg-ok","seq":201}
+{"message_type":"GhostFrame","seq":202}
+{"seq":203,"home_score":4}
+{"message_type":12345,"seq":204}
+{"message_type":"GameEvent","game_id":"game-001"
+[1,2,3]
+"just a string"
+{"message_type":"ScheduleWindow","seq":205,"window_id":"win-ok"}
