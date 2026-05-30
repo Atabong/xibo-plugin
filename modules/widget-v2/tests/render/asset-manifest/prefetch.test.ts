@@ -6,7 +6,11 @@ function newStore(prefetchConcurrency?: number) {
   const cache = new MapAssetCache();
   const fetcher = new FakeAssetFetcher();
   const journal = new RecordingJournal();
-  const store = new AssetManifestStore({ cache, fetcher, journal, prefetchConcurrency });
+  const store = new AssetManifestStore(
+    prefetchConcurrency === undefined
+      ? { cache, fetcher, journal }
+      : { cache, fetcher, journal, prefetchConcurrency },
+  );
   return { cache, fetcher, journal, store };
 }
 
