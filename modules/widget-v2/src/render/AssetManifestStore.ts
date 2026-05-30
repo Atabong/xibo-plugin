@@ -185,6 +185,18 @@ export class AssetManifestStore {
     }
   }
 
+  /**
+   * Read-only snapshot of the current applied-manifest entry list. Lets a
+   * consumer enumerate the manifest without knowing ids up front — e.g. the
+   * SPEC-CRWDQ-053 ambient playlist pulling every `ambient:` asset. The
+   * returned array and each entry are frozen so a caller cannot mutate the
+   * store's internal applied set; the snapshot is detached from later apply()s.
+   */
+  manifestEntries(): readonly AssetEntry[] {
+    const snapshot = Array.from(this.applied.values(), (a) => Object.freeze({ ...a.entry }));
+    return Object.freeze(snapshot);
+  }
+
   /** Synchronous cache read from the hot map. Never initiates a fetch. */
   get(assetId: string): CachedAsset | null {
     const applied = this.applied.get(assetId);
