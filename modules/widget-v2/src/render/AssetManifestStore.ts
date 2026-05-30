@@ -196,26 +196,31 @@ export class AssetManifestStore {
    */
   ensure(assetId: string): Promise<CachedAsset> {
     const applied = this.applied.get(assetId);
-    if (!applied || applied.isStaleVersion) {
-      const entry =
-        applied?.entry ??
-        ({
-          asset_id: assetId,
-          content_hash: '',
-          url: '',
-          content_type: '',
-          version: this.currentVersion ?? '',
-          needed_by: null,
-        } satisfies AssetEntry);
+    if (!applied) {
+      const entry: AssetEntry = {
+        asset_id: assetId,
+        content_hash: '',
+        url: '',
+        content_type: '',
+        version: this.currentVersion ?? '',
+        needed_by: null,
+      };
       return Promise.reject(new AssetFetchError(entry, new Error('not in applied manifest')));
     }
 
     const existing = this.inFlight.get(assetId);
     if (existing) return existing;
 
-    const promise = this.fetchVerifyCache(applied.entry).finally(() => {
-      this.inFlight.delete(assetId);
-    });
+    // A stale-flagged entry (post-invalidate) re-fetches against its still-
+    // applied manifest entry and clears the flag on success (AC11).
+    const promise = this.fetchVerifyCache(applied.entry)
+      .then((asset) => {
+        applied.isStaleVersion = false;
+        return asset;
+      })
+      .finally(() => {
+        this.inFlight.delete(assetId);
+      });
     this.inFlight.set(assetId, promise);
     return promise;
   }
