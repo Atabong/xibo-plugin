@@ -238,11 +238,13 @@ export class PlannedStateActivator {
       return null;
     }
     const rawSlot = frame['program_slot_id'];
+    const rawAdSlot = frame['ad_slot_id'];
     const transition = frame['transition'];
     return {
       state_id: stateId,
       business_mode: businessMode as PlannedStatePayload['business_mode'],
       program_slot_id: typeof rawSlot === 'string' && rawSlot.length > 0 ? rawSlot : null,
+      ad_slot_id: typeof rawAdSlot === 'string' && rawAdSlot.length > 0 ? rawAdSlot : null,
       dwell_target_ms: typeof frame['dwell_target_ms'] === 'number' ? frame['dwell_target_ms'] : 0,
       transition:
         isTransitionSpec(transition) ? transition : { animation_id: 'fade_scale_up', duration_ms: 0 },
