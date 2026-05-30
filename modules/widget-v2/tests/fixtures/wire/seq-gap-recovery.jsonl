@@ -1,0 +1,7 @@
+{"message_type":"GameEvent","game_id":"game-001","seq":1,"kind":"tipoff"}
+{"message_type":"GameEvent","game_id":"game-001","seq":2,"kind":"score","points":2,"team":"home"}
+{"message_type":"GameEvent","game_id":"game-001","seq":3,"kind":"score","points":3,"team":"away"}
+{"message_type":"GameEvent","game_id":"game-001","seq":7,"kind":"score","points":2,"team":"home"}
+{"message_type":"GameEvent","game_id":"game-001","seq":9,"kind":"foul","team":"away"}
+{"message_type":"GameStateSnapshot","game_id":"game-001","seq":20,"home_score":18,"away_score":15,"clock":"06:30","period":2}
+{"message_type":"GameEvent","game_id":"game-001","seq":25,"kind":"score","points":2,"team":"home"}
