@@ -290,6 +290,49 @@ export class AssetManifestStore {
     }
   }
 
+  /**
+   * Run the eviction policy over the current cache. Stale-version entries
+   * evict first; among same-version entries, LRU by `lastAccessAt`; eviction
+   * continues until total size ≤ 90% of `maxBytes`. Deletes evicted rows from
+   * the cache and journals `asset_cache_evicted` with the ids + reclaimed bytes.
+   */
+  async evict(): Promise<void> {
+    const rows = await this.cache.enumerate();
+    const sizeByKey = new Map<string, number>();
+    const candidates: EvictionCandidate[] = rows.map((row) => {
+      sizeByKey.set(this.staleKey(row.asset_id, row.content_hash), row.sizeBytes);
+      return {
+        asset_id: row.asset_id,
+        content_hash: row.content_hash,
+        sizeBytes: row.sizeBytes,
+        lastAccessAt: row.lastAccessAt,
+        isStaleVersion: this.isRowStale(row.asset_id, row.content_hash),
+      };
+    });
+
+    const decided = this.evictionPolicy.decide(candidates, this.maxBytes);
+    if (decided.length === 0) return;
+
+    let reclaimedBytes = 0;
+    const evictedIds: string[] = [];
+    for (const target of decided) {
+      reclaimedBytes += sizeByKey.get(this.staleKey(target.asset_id, target.content_hash)) ?? 0;
+      evictedIds.push(target.asset_id);
+      await this.cache.delete(target.asset_id, target.content_hash);
+      this.stale.delete(this.staleKey(target.asset_id, target.content_hash));
+      const hot = this.hot.get(target.asset_id);
+      if (hot && hot.content_hash === target.content_hash) {
+        this.hot.delete(target.asset_id);
+      }
+    }
+
+    this.journal.record({
+      type: 'asset_cache_evicted',
+      evicted: evictedIds,
+      reclaimedBytes,
+    });
+  }
+
   /** Subscribe to manifest-apply events. Returns an unsubscribe fn. */
   subscribeManifest(listener: (version: string) => void): () => void {
     this.listeners.add(listener);
@@ -405,5 +448,19 @@ export class AssetManifestStore {
 
   private staleKey(assetId: string, contentHash: string): string {
     return `${assetId} ${contentHash}`;
+  }
+
+  /**
+   * A cached row is stale-version when its (asset_id, content_hash) is not the
+   * one the current applied manifest expects: it was explicitly flagged stale
+   * by a version bump / invalidate, or the applied entry for that id now has a
+   * different hash, or the id is no longer in the manifest at all.
+   */
+  private isRowStale(assetId: string, contentHash: string): boolean {
+    if (this.stale.has(this.staleKey(assetId, contentHash))) return true;
+    const applied = this.applied.get(assetId);
+    if (!applied) return true;
+    if (applied.isStaleVersion) return true;
+    return applied.entry.content_hash !== contentHash;
   }
 }
