@@ -323,4 +323,28 @@ describe('PlannedStateActivator.reconcile skip + serialize (AC4/AC5)', () => {
     await second;
     expect(h.template.settleOrder).toEqual(['game_state_revision', 'game_state_revision']);
   });
+
+  it('does not reset the dwell mid-slot: the boundary still fires at the original target (AC5)', async () => {
+    const h = makeReconcileHarness();
+    h.store.upsertSnapshot({ game_id: 'g1', seq: 1 });
+    h.dispatcher.dispatch(programSlot('slot-1', 'g1'));
+    await h.dispatcher.dispatch(plannedState({ dwell_target_ms: 5000 }));
+    await vi.advanceTimersByTimeAsync(0);
+
+    // Part-way through the dwell, a reconcile lands and settles.
+    await vi.advanceTimersByTimeAsync(2000);
+    const p = h.activator.reconcile({ kind: 'game_state_revision', gameState: { game_id: 'g1', seq: 2 } });
+    await vi.advanceTimersByTimeAsync(0);
+    h.template.releaseNext();
+    await p;
+
+    // No boundary yet (only 2s elapsed); reconcile must not have re-armed dwell.
+    expect(h.journal.typesOf('dwell_boundary_reached')).toHaveLength(0);
+
+    // The remaining 3s of the ORIGINAL 5s target fires the one and only boundary.
+    await vi.advanceTimersByTimeAsync(3000);
+    const boundary = h.journal.typesOf('dwell_boundary_reached');
+    expect(boundary).toHaveLength(1);
+    expect(boundary[0]?.['actualDwellMs']).toBe(5000);
+  });
 });
