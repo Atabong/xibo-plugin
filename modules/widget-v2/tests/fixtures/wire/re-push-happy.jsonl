@@ -1,0 +1,5 @@
+{"message_type":"ConfigPush","config_hash":"cfg-9f3a","seq":101,"rotation_deg":0,"brightness":0.8,"timezone":"America/New_York"}
+{"message_type":"ScheduleWindow","seq":102,"window_id":"win-2026-05-29","starts_at":"2026-05-29T18:00:00Z","ends_at":"2026-05-30T02:00:00Z"}
+{"message_type":"AssetManifest","seq":103,"manifest_hash":"man-7c12","assets":[{"asset_id":"logo-home","url":"https://cdn.tailnet/logo-home.webp","sha256":"aa11"},{"asset_id":"logo-away","url":"https://cdn.tailnet/logo-away.webp","sha256":"bb22"}]}
+{"message_type":"PlannedState","seq":104,"program_slot_id":"slot-1","template":"single-game","game_id":"game-001"}
+{"message_type":"GameState","game_id":"game-001","seq":105,"home_score":0,"away_score":0,"clock":"12:00","period":1}
