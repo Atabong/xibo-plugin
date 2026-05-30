@@ -162,6 +162,12 @@ export class AssetManifestStore {
     }
     this.currentVersion = version;
 
+    // Warm the synchronous hot map from persistence so a post-restart get()
+    // on a previously cached asset hits without a fetch (AC9). Bytes are read
+    // lazily here, keyed by (asset_id, content_hash) — bumped/removed entries
+    // miss naturally because their hash no longer matches the applied entry.
+    void this.hydrateHotMap(assets);
+
     // Eager pre-fetch of new/changed entries with a non-null needed_by.
     void this.schedulePrefetch(diff.prefetch);
 
@@ -224,6 +230,30 @@ export class AssetManifestStore {
       });
     this.inFlight.set(assetId, promise);
     return promise;
+  }
+
+  /**
+   * Populate the hot map from persistence for the applied entries, so a fresh
+   * store over a seeded cache serves get() without a fetch (AC9). Cache misses
+   * (and persistence-read failures) are silent — get() simply returns null and
+   * ensure() will fetch.
+   */
+  private async hydrateHotMap(assets: readonly AssetEntry[]): Promise<void> {
+    await Promise.all(
+      assets.map(async (entry) => {
+        if (this.hot.has(entry.asset_id)) return;
+        try {
+          const persisted = await this.cache.read(entry.asset_id, entry.content_hash);
+          // Guard against a racing version bump invalidating this id meanwhile.
+          const applied = this.applied.get(entry.asset_id);
+          if (persisted && applied && applied.entry.content_hash === entry.content_hash) {
+            this.hot.set(entry.asset_id, persisted);
+          }
+        } catch {
+          // Persistence unavailable — leave the hot map cold for this id.
+        }
+      }),
+    );
   }
 
   /** Resolve from the hot map or persistent cache; fetch on a miss. */
