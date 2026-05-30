@@ -47,6 +47,13 @@ export interface GameState {
 }
 
 /**
+ * A full game snapshot (D-GRH-49). Structurally a complete `GameState`: it is
+ * always applied and resets the per-game seq baseline (AC6). Modelled as an
+ * alias rather than a distinct shape because a snapshot IS the full state.
+ */
+export type GameStateSnapshot = GameState;
+
+/**
  * A per-field delta against the current `GameState` (D-GRH-12 multiplexed
  * stream). Only the fields present on the event are applied; `seq` orders the
  * deltas and a regression is dropped (AC6).
