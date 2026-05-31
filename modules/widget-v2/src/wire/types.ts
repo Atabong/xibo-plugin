@@ -35,7 +35,8 @@ export type ServerMessageType =
 export type PlayerMessageType =
   | 'DeviceRegistration'
   | 'GameStateRequest'
-  | 'Heartbeat';
+  | 'Heartbeat'
+  | 'JournalSync';
 
 /**
  * The base wire envelope. Every frame carries a `message_type`. Frames on
@@ -145,7 +146,41 @@ export interface GameStateRequestFrame extends GameStateRequestPayload {
   message_type: 'GameStateRequest';
 }
 
+/**
+ * SPEC-CRWDQ-061 player-side journal-sync twin. Mirrors the backend ingest
+ * shape `JournalSyncPayload = { bar_id, display_id, from_ts, to_ts, entries[] }`
+ * (crowdaq-backend src/wire/types.ts). Each `entries[]` element carries the
+ * monotonic `seq`, an ISO `ts`, the closed-set `event_type` the backend
+ * `player_journal` table validates against (the six PLAYER_JOURNAL_EVENT_TYPES
+ * — owned by SPEC-CRWDQ-059), and an event-specific `payload`. The widget
+ * `observability` module owns the closed `event_type` enum + the fine→bucket
+ * mapping; the wire layer treats `event_type` as an opaque string so this twin
+ * carries no enum drift. Drift between this twin and the backend ingest schema
+ * is a SPEC-CRWDQ-059 concern; this barrel is the swap point.
+ */
+export interface JournalSyncEntryWire {
+  seq: number;
+  ts: string;
+  bar_id: string;
+  display_id: string;
+  event_type: string;
+  payload: Record<string, unknown>;
+}
+
+export interface JournalSyncPayload {
+  bar_id: string;
+  display_id: string;
+  from_ts: string;
+  to_ts: string;
+  entries: JournalSyncEntryWire[];
+}
+
+export interface JournalSyncFrame extends JournalSyncPayload {
+  message_type: 'JournalSync';
+}
+
 export type PlayerToServerFrame =
   | DeviceRegistrationFrame
   | HeartbeatFrame
-  | GameStateRequestFrame;
+  | GameStateRequestFrame
+  | JournalSyncFrame;
