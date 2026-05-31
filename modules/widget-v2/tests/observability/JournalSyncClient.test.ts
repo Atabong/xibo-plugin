@@ -28,7 +28,12 @@ async function freshStore(): Promise<JournalStore> {
 function clientFor(
   store: JournalStore,
   ws: FakeWsClient,
-  cfg: { syncIntervalMs?: number; maxBatchSize?: number } = {},
+  cfg: {
+    syncIntervalMs?: number;
+    maxBatchSize?: number;
+    retainMaxRows?: number;
+    retainMaxAgeMs?: number;
+  } = {},
 ): JournalSyncClient {
   return new JournalSyncClient({
     store,
@@ -36,7 +41,12 @@ function clientFor(
     identity: display,
     now: () => Date.now(),
     random: () => 0.5,
-    config: { syncIntervalMs: cfg.syncIntervalMs ?? 60000, maxBatchSize: cfg.maxBatchSize ?? 500 },
+    config: {
+      syncIntervalMs: cfg.syncIntervalMs ?? 60000,
+      maxBatchSize: cfg.maxBatchSize ?? 500,
+      retainMaxRows: cfg.retainMaxRows ?? 10000,
+      retainMaxAgeMs: cfg.retainMaxAgeMs ?? 7 * 24 * 60 * 60 * 1000,
+    },
   });
 }
 
@@ -123,6 +133,37 @@ describe('JournalSyncClient sync frame (AC4, AC5, AC7)', () => {
 
     expect(outcome).toEqual({ kind: 'noop', reason: 'no_unsynced' });
     expect(ws.sent).toHaveLength(0);
+  });
+});
+
+describe('JournalSyncClient retention after send (AC1)', () => {
+  it('prunes sent rows beyond the row cap after a successful sync', async () => {
+    const store = await freshStore();
+    for (const ts of ['t1', 't2', 't3', 't4', 't5']) {
+      await store.append({ ts, event_type: 'config_apply', payload: {} });
+    }
+    const ws = new FakeWsClient();
+    ws.open();
+    // One sync sends all 5 (maxBatchSize 500); retention keeps only the newest 2.
+    const client = clientFor(store, ws, { retainMaxRows: 2 });
+
+    await client.syncNow();
+
+    expect(store.sentSeqs()).toEqual([4, 5]);
+  });
+
+  it('does not prune anything when a sync is a noop (nothing sent)', async () => {
+    const store = await freshStore();
+    await store.append({ ts: 't1', event_type: 'config_apply', payload: {} });
+    const ws = new FakeWsClient();
+    ws.open();
+    const client = clientFor(store, ws, { retainMaxRows: 1 });
+
+    await client.syncNow(); // sends seq 1, retainMaxRows 1 keeps it
+    const second = await client.syncNow(); // noop — no further prune
+
+    expect(second).toEqual({ kind: 'noop', reason: 'no_unsynced' });
+    expect(store.sentSeqs()).toEqual([1]);
   });
 });
 

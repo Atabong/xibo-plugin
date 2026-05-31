@@ -83,7 +83,12 @@ describe('Observer.emit', () => {
       identity: display,
       now: () => Date.now(),
       random: () => 0.5,
-      config: { syncIntervalMs: 60000, maxBatchSize: 2 },
+      config: {
+        syncIntervalMs: 60000,
+        maxBatchSize: 2,
+        retainMaxRows: 10000,
+        retainMaxAgeMs: 7 * 24 * 60 * 60 * 1000,
+      },
     });
     const observer = new Observer(store, () => '2026-05-30T00:00:00.000Z', client);
 

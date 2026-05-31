@@ -158,7 +158,11 @@ export class JournalStore {
    * surviving set is the newest `maxRows` rows that are also within `maxAgeMs`.
    */
   async prune(opts: { maxRows: number; maxAgeMs: number; now?: number }): Promise<{ pruned: number }> {
-    await this.ready();
+    // The prunable set is the synchronous `sent` mirror, kept in step with
+    // `markSent`/`bootstrap`. Decide which rows fail a cap WITHOUT touching
+    // IndexedDB so the common no-op case (nothing over the caps) returns without
+    // opening a connection or even an `await this.ready()` hop — the sync loop's
+    // success tail calls prune on every send and must stay cheap.
     const now = opts.now ?? Date.now();
     const seqsNewestFirst = [...this.sent.keys()].sort((a, b) => b - a);
 
@@ -171,10 +175,11 @@ export class JournalStore {
       if (overRowCap || overAgeCap) doomed.push(seq);
     });
 
-    for (const seq of doomed) {
-      await this.delete(seq);
-      this.sent.delete(seq);
-    }
+    if (doomed.length === 0) return { pruned: 0 };
+
+    await this.ready();
+    await this.deleteMany(doomed);
+    for (const seq of doomed) this.sent.delete(seq);
     return { pruned: doomed.length };
   }
 
@@ -244,11 +249,21 @@ export class JournalStore {
     });
   }
 
-  private delete(seq: number): Promise<void> {
+  /**
+   * Delete several rows in ONE readwrite transaction. A single transaction (vs.
+   * one per seq) drains atomically and promptly, so a `close()` racing the
+   * prune tail never strands an in-flight per-row transaction holding the
+   * connection open (which would block the next `deleteDatabase`).
+   */
+  private deleteMany(seqs: readonly number[]): Promise<void> {
     return new Promise<void>((resolve, reject) => {
-      const req = this.tx('readwrite').delete(seq);
-      req.onerror = () => reject(req.error ?? new Error('journal delete failed'));
-      req.onsuccess = () => resolve();
+      const store = this.tx('readwrite');
+      for (const seq of seqs) store.delete(seq);
+      store.transaction.oncomplete = () => resolve();
+      store.transaction.onerror = () =>
+        reject(store.transaction.error ?? new Error('journal prune delete failed'));
+      store.transaction.onabort = () =>
+        reject(store.transaction.error ?? new Error('journal prune delete aborted'));
     });
   }
 
