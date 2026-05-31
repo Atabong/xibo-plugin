@@ -18,6 +18,7 @@ class RecordingJournal implements RenderJournal {
 const slot = (primaryGameId: string | null): ProgramSlotPayload => ({
   program_slot_id: 'slot-1',
   primary_game_id: primaryGameId,
+  game_ids: primaryGameId === null ? [] : [primaryGameId],
 });
 
 describe('TemplateReconcileEvent contract (AC3)', () => {
@@ -25,7 +26,7 @@ describe('TemplateReconcileEvent contract (AC3)', () => {
     // The union is exhaustive over exactly three kinds; a kind-switch must
     // narrow each arm to its payload field.
     const events: TemplateReconcileEvent[] = [
-      { kind: 'program_slot', slot: { program_slot_id: 'slot-1', primary_game_id: 'g1' } },
+      { kind: 'program_slot', slot: { program_slot_id: 'slot-1', primary_game_id: 'g1', game_ids: ['g1'] } },
       {
         kind: 'ad_slot',
         adSlot: { ad_slot_id: 'ad-1', ad_class: 'banner', ad_ref: 'a1', ad_ref_type: 'asset_id', policy: {} },
