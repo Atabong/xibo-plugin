@@ -22,7 +22,7 @@
  * transition + one mount (AC2). A new `state_id` supersedes: cancel dwell, run
  * the outgoing transition, detach, then activate the newcomer.
  */
-import type { PlannedStateFrame, ProgramSlotFrame, ThemeChoiceWire, BarPreferencesWire } from '../wire';
+import type { PlannedStateFrame, ProgramSlotFrame, ThemeChoiceWire, BarPreferencesWire, BusinessMode } from '../wire';
 import type { Dispatcher } from '../transport/types';
 import type { GameStateStore } from './GameStateStore';
 import type { ProgramSlotResolver } from './ProgramSlotResolver';
@@ -47,6 +47,35 @@ import {
 /** Drains the pending preference apply at a dwell boundary (SPEC-014 slot). */
 export interface PendingThemeApply {
   takePending(): BarPreferencesWire | null;
+}
+
+/** The arguments a template adapter needs to mount one PlannedState's render. */
+export interface TemplateMountArgs {
+  host: HTMLElement;
+  payload: PlannedStatePayload;
+  slot: ProgramSlotPayload;
+  theme: ResolvedTheme;
+  gameStateStore: GameStateStore;
+}
+
+/** A mounted render: the instance + the games whose revisions it consumes. */
+export interface TemplateMount {
+  instance: TemplateInstance;
+  /** The `game_id`s this render subscribes to — the reconcile gate (AC4). */
+  subscribedGameIds: ReadonlySet<string>;
+}
+
+/**
+ * A per-`business_mode` template seam (INV-FACTORY-19, 2+ adapters: the bare
+ * single_game adapter + the multiple_games adapter). The activator owns the
+ * shared lifecycle — supersede, incoming transition, dwell arm, reconcile
+ * dispatch — and delegates ONLY the mode-specific mount to the adapter, so a
+ * new mode plugs in without forking the orchestration. Returning `null`
+ * declines the mount (the adapter has already journaled why, e.g. an
+ * out-of-range card count, AC2); the activator then renders nothing.
+ */
+export interface TemplateAdapter {
+  mount(args: TemplateMountArgs): TemplateMount | null;
 }
 
 /**
@@ -95,7 +124,9 @@ export class PlannedStateActivator {
 
   /** The `state_id` currently rendered — drives idempotency + supersede. */
   private activeStateId: string | null = null;
-  private activeInstance: SingleGameInstance | null = null;
+  private activeInstance: TemplateInstance | null = null;
+  /** Per-`business_mode` template adapters (single_game registered by default). */
+  private readonly adapters = new Map<BusinessMode, TemplateAdapter>();
   /**
    * The active state's reconcile gate (AC4): the slot/ad ids the dispatched
    * event must match, and the set of `game_id`s the active render subscribes to.
@@ -117,6 +148,28 @@ export class PlannedStateActivator {
 
   constructor(deps: PlannedStateActivatorDeps) {
     this.deps = deps;
+    // single_game is the built-in adapter; other modes register themselves.
+    this.adapters.set('single_game', {
+      mount: (args) => ({
+        instance: this.mountForState(args.payload, {
+          programSlot: args.slot,
+          theme: args.theme,
+          gameStateStore: this.deps.gameStateStore,
+        }),
+        subscribedGameIds:
+          args.slot.primary_game_id === null ? new Set() : new Set([args.slot.primary_game_id]),
+      }),
+    });
+  }
+
+  /**
+   * Register a template adapter for a `business_mode` (INV-FACTORY-19). The
+   * multiple_games template (SPEC-CRWDQ-031) registers here so it activates
+   * through the SAME orchestration — buffer, transition, dwell, supersede,
+   * reconcile dispatch — that single_game uses, never a forked activator.
+   */
+  registerTemplate(mode: BusinessMode, adapter: TemplateAdapter): void {
+    this.adapters.set(mode, adapter);
   }
 
   /** Register the activator as the PlannedState + ProgramSlot dispatch handlers. */
@@ -128,8 +181,8 @@ export class PlannedStateActivator {
   /** Handle an incoming PlannedState frame. */
   async activate(frame: PlannedStateFrame): Promise<void> {
     const payload = this.readPayload(frame);
-    if (payload === null || payload.business_mode !== 'single_game') {
-      // Only single_game is owned here; other modes are other templates.
+    if (payload === null || !this.adapters.has(payload.business_mode)) {
+      // A mode with no registered adapter is owned by some other handler.
       return;
     }
 
@@ -297,21 +350,31 @@ export class PlannedStateActivator {
 
     const theme = resolveTheme(payload.theme_id, this.deps.barTheme);
 
-    // Run the incoming transition (AC9), then mount (AC1).
+    // Run the incoming transition (AC9), then mount via the mode's adapter (AC1).
     await this.deps.transitions.run(payload.transition, this.deps.host);
-    const context: SingleGameContext = {
-      programSlot: slot,
-      theme,
-      gameStateStore: this.deps.gameStateStore,
-    };
-    this.activeInstance = this.mountForState(payload, context);
+    const adapter = this.adapters.get(payload.business_mode);
+    const mounted =
+      adapter?.mount({
+        host: this.deps.host,
+        payload,
+        slot,
+        theme,
+        gameStateStore: this.deps.gameStateStore,
+      }) ?? null;
+    if (mounted === null) {
+      // The adapter declined (e.g. an out-of-range card count, AC2): nothing is
+      // rendered, no dwell is armed, and the active-state pointer stays cleared.
+      this.activeStateId = null;
+      return;
+    }
+    this.activeInstance = mounted.instance;
     this.activeStateId = payload.state_id;
-    // Rebuild the reconcile gate (AC4): subscribed-game-set is the slot's
-    // primary game (single_game subscribes to exactly that one game).
+    // Rebuild the reconcile gate (AC4): the slot id, the ad id, and the set of
+    // games the adapter subscribed to (one for single_game, all for multi-game).
     this.activeGate = {
       programSlotId: slot.program_slot_id.length > 0 ? slot.program_slot_id : payload.program_slot_id,
       adSlotId: payload.ad_slot_id,
-      subscribedGameIds: slot.primary_game_id === null ? new Set() : new Set([slot.primary_game_id]),
+      subscribedGameIds: mounted.subscribedGameIds,
     };
 
     // Arm the dwell (AC10); even the placeholder paths arm it (AC5).
@@ -369,10 +432,18 @@ export class PlannedStateActivator {
     this.applyThemeSwap(next);
   }
 
-  /** Apply a resolved theme to both the stylesheet seam and the rendered DOM. */
+  /**
+   * Apply a resolved theme to both the stylesheet seam and the rendered DOM.
+   * The rendered root is mode-agnostic: every template's root `<section>`
+   * carries `data-theme` (single_game + multiple_games alike), so the swap
+   * targets the first themed root rather than a single_game-specific test id —
+   * the SAME dwell-boundary contract for whichever mode is active (AC10).
+   */
   private applyThemeSwap(theme: ResolvedTheme): void {
     this.deps.styleSheets.applyTheme(theme.state === 'set' ? theme.id : null);
-    const root = this.deps.host.querySelector<HTMLElement>(`[data-testid="${TESTID.root}"]`);
+    const root =
+      this.deps.host.querySelector<HTMLElement>(`[data-testid="${TESTID.root}"]`) ??
+      this.deps.host.querySelector<HTMLElement>('[data-theme]');
     if (root) root.dataset['theme'] = themeAttr(theme);
   }
 
