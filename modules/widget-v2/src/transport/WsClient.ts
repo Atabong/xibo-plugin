@@ -58,6 +58,9 @@ const RECONNECT_CLOSE_CODES: ReadonlySet<number> = new Set([1001, 4000, 4001, 40
 
 const CLEAN_CLOSE = 1000;
 
+/** WHATWG `WebSocket.OPEN`. */
+const WS_OPEN = 1;
+
 /** A 1000 close is "clean" — it is never on its own a reconnect trigger. */
 const isCleanCode = (code: number): boolean => code === CLEAN_CLOSE;
 
@@ -129,6 +132,17 @@ export class CrowdaqWsClient implements WsClient {
 
   send(frame: PlayerToServerFrame): void {
     this.socket?.send(JSON.stringify(buildEnvelope(frame)));
+  }
+
+  /**
+   * Readiness seam for send-path consumers (SPEC-CRWDQ-061 JournalSyncClient):
+   * true only when the underlying socket is `WebSocket.OPEN`. A consumer that
+   * batches must gate on this before a `send`, because a write to a CONNECTING
+   * / CLOSING / absent socket is silently dropped here. Read-only — it does not
+   * touch transport behaviour.
+   */
+  isOpen(): boolean {
+    return this.socket?.readyState === WS_OPEN;
   }
 
   close(): Promise<void> {
