@@ -122,6 +122,8 @@ export interface WsClientConfig {
 export interface WsClient {
   connect(): Promise<void>;
   send(frame: import('../wire').PlayerToServerFrame): void;
+  /** True only while the underlying socket is `WebSocket.OPEN`. */
+  isOpen(): boolean;
   close(): Promise<void>;
   on(event: LifecycleEvent, listener: LifecycleListener): void;
 }
