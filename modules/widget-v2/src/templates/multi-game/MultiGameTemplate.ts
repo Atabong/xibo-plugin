@@ -23,7 +23,7 @@ import type {
 } from '../../render/TemplateInstance';
 import { themeAttr, type ResolvedTheme } from '../../render/ThemeResolver';
 import type { ProgramSlotPayload } from '../../render/types';
-import { CardSet, noopCardTransitions, type CardTransitions } from './CardSet';
+import { CardSet, CARD_ANIMATION, noopCardTransitions, type CardTransitions } from './CardSet';
 
 /** Stable test ids for the grid root (cards carry their own, see CardSet). */
 export const MULTI_TESTID = {
@@ -105,9 +105,51 @@ class MultiGameInstanceImpl implements MultiGameInstance {
     return this.grid;
   }
 
-  // reconcile lands with its own paired test slice.
-  async reconcile(_event: TemplateReconcileEvent): Promise<void> {
-    return;
+  /**
+   * Apply an in-place revision. Only a `program_slot` event reshapes the card
+   * set; `ad_slot` and `game_state_revision` are no-ops here (per-game state
+   * already reaches each card through its own subscription, AC4/AC6). The slide
+   * in/out + reposition runs WITHOUT touching the dwell timer (AC5) — the
+   * activator owns the dwell and never re-arms it for a reconcile.
+   */
+  async reconcile(event: TemplateReconcileEvent): Promise<void> {
+    if (event.kind !== 'program_slot') return;
+    const slot = event.slot;
+    const before = this.cardSet.current();
+    const after = slot.game_ids;
+
+    const removed = before.filter((id) => !after.includes(id));
+    const added = after.filter((id) => !before.includes(id));
+    const reordered = survivorsThatMoved(before, after, removed, added);
+
+    // Exit the dropped cards (card_slide_out), then enter the new ones at their
+    // target position (card_slide_in), then reposition every survivor.
+    for (const gameId of removed) {
+      await this.cardSet.removeCard(gameId, CARD_ANIMATION.exit);
+    }
+    for (let position = 0; position < after.length; position += 1) {
+      const gameId = after[position]!;
+      if (added.includes(gameId)) {
+        await this.cardSet.addCard(gameId, position, CARD_ANIMATION.enter);
+      } else {
+        this.cardSet.moveCard(gameId, position);
+      }
+    }
+
+    this.grid.dataset['cardCount'] = String(after.length);
+    this.cardSet.setPrimary(primaryWithin(slot));
+
+    // No change to the card set or order: nothing to journal (AC7).
+    if (removed.length === 0 && added.length === 0 && reordered.length === 0) {
+      return;
+    }
+    this.journal.record({
+      type: 'multi_game_reconciled',
+      program_slot_id: slot.program_slot_id,
+      added,
+      removed,
+      reordered,
+    });
   }
 }
 
@@ -115,6 +157,25 @@ class MultiGameInstanceImpl implements MultiGameInstance {
 function primaryWithin(slot: ProgramSlotPayload): string | null {
   const primary = slot.primary_game_id;
   return primary !== null && slot.game_ids.includes(primary) ? primary : null;
+}
+
+/**
+ * Survivors (present in both before + after) whose ABSOLUTE grid position
+ * changed — a survivor reported here had its `data-position` re-stamped by
+ * `moveCard`, whether because it was reordered or because a card ahead of it
+ * was removed / inserted. Each card lands in exactly one of the added /
+ * removed / reordered lists (AC7). Reported in post-reconcile display order.
+ */
+function survivorsThatMoved(
+  before: readonly string[],
+  after: readonly string[],
+  removed: readonly string[],
+  added: readonly string[],
+): string[] {
+  return after.filter((id, afterIndex) => {
+    if (added.includes(id) || removed.includes(id)) return false;
+    return before.indexOf(id) !== afterIndex;
+  });
 }
 
 /** Build the empty 2×2 grid skeleton carrying card-count + theme (AC1). */
