@@ -84,6 +84,23 @@ export interface JournalSyncConfig {
   syncIntervalMs: number;
   /** Rows per JournalSync frame; reaching it triggers an immediate sync (AC8). */
   maxBatchSize: number;
+  /**
+   * Byte ceiling for a single JournalSync frame's serialized entries (AC2 batch
+   * byte cap); default 256 KiB. A burst larger than this splits across frames
+   * so no one frame exceeds the transport's size budget.
+   */
+  maxBatchBytes: number;
+  /**
+   * Retention row cap for SENT rows (AC1). After each successful send the store
+   * prunes its sent set down to the newest `retainMaxRows`. Default 10000 — the
+   * D-GRH-29 7-day / 250 MB ceiling expressed as a conservative row proxy.
+   */
+  retainMaxRows: number;
+  /**
+   * Retention age cap for SENT rows in ms (AC1). Sent rows older than this are
+   * pruned after each successful send. Default 7 days per D-GRH-29.
+   */
+  retainMaxAgeMs: number;
 }
 
 /**

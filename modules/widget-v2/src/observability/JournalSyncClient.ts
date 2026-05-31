@@ -60,6 +60,9 @@ export class JournalSyncClient {
 
   private syncIntervalMs: number;
   private maxBatchSize: number;
+  private readonly maxBatchBytes: number;
+  private readonly retainMaxRows: number;
+  private readonly retainMaxAgeMs: number;
 
   private timer: ReturnType<typeof setInterval> | null = null;
   /** Pending backoff retry, if a failed send armed one (AC9). */
@@ -77,6 +80,9 @@ export class JournalSyncClient {
     this.random = deps.random;
     this.syncIntervalMs = deps.config.syncIntervalMs;
     this.maxBatchSize = deps.config.maxBatchSize;
+    this.maxBatchBytes = deps.config.maxBatchBytes;
+    this.retainMaxRows = deps.config.retainMaxRows;
+    this.retainMaxAgeMs = deps.config.retainMaxAgeMs;
 
     // Connectivity trigger (AC9): drain the gap once the socket is actually
     // OPEN. The real transport emits `reconnect` BEFORE it reopens, so draining
@@ -151,7 +157,7 @@ export class JournalSyncClient {
   }
 
   private async runSync(): Promise<SyncOutcome> {
-    const batch = this.store.unsynced({ maxRows: this.maxBatchSize });
+    const batch = this.store.unsynced({ maxRows: this.maxBatchSize, maxBytes: this.maxBatchBytes });
     if (batch.length === 0) {
       return { kind: 'noop', reason: 'no_unsynced' };
     }
@@ -183,6 +189,19 @@ export class JournalSyncClient {
     // point. Retire the range and clear the failure counter.
     this.failureAttempts = 0;
     await this.store.markSent(seqMin, seqMax);
+    // AC1 — retention runs after each successful send: trim the sent set to the
+    // newest `retainMaxRows` and drop anything older than `retainMaxAgeMs`.
+    // Unsynced rows are never touched. A prune fault must not corrupt the send
+    // outcome (the rows are already durably sent) so it is swallowed here.
+    try {
+      await this.store.prune({
+        maxRows: this.retainMaxRows,
+        maxAgeMs: this.retainMaxAgeMs,
+        now: this.now(),
+      });
+    } catch {
+      // best-effort retention; the next successful send re-attempts the prune.
+    }
     return { kind: 'sent', seqMin, seqMax, rowCount: batch.length };
   }
 

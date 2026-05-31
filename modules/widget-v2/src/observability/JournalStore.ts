@@ -32,6 +32,16 @@ export function journalDbName(displayId: string): string {
   return `${DB_NAME_PREFIX}.${displayId}`;
 }
 
+/**
+ * The serialized byte size of one entry, used to enforce the batch byte cap
+ * (AC2). The frame ships as JSON, so JSON length is the honest proxy for the
+ * pre-compression payload size; `Blob` gives the UTF-8 byte count (multi-byte
+ * chars count correctly) without a TextEncoder allocation per row.
+ */
+function entrySizeBytes(entry: JournalEntry): number {
+  return new Blob([JSON.stringify(entry)]).size;
+}
+
 /** A persisted row carries the journal entry plus its sync state. */
 interface StoredRow extends JournalEntry {
   /** True once the row has been handed to an open socket (AC7). */
@@ -48,6 +58,13 @@ export class JournalStore {
   private highestSeq = 0;
   /** Synchronous mirror of unsynced rows, keyed by seq, in insertion order. */
   private readonly pending = new Map<number, JournalEntry>();
+  /**
+   * Synchronous mirror of SENT rows (their `ts`), keyed by seq in seq order.
+   * This is the prunable set (AC1): retention only ever touches rows already
+   * handed to the socket. Rebuilt from durable state on bootstrap and kept in
+   * step with `markSent` / `prune`.
+   */
+  private readonly sent = new Map<number, string>();
 
   constructor(identity: JournalIdentity) {
     this.identity = identity;
@@ -97,14 +114,27 @@ export class JournalStore {
   }
 
   /**
-   * The next slice of unsynced rows in seq order, capped at `maxRows`. Read
-   * synchronously from the in-memory mirror so the sync loop's tick is not an
-   * async cascade.
+   * The next slice of unsynced rows in seq order, capped at `maxRows` and —
+   * when `maxBytes` is given — at the cumulative serialized byte size of the
+   * batch (AC2 batch byte cap). The byte cap keeps a single frame under the
+   * transport's size budget even when far fewer than `maxRows` large rows fill
+   * it; a burst then drains across several frames. At least one row is always
+   * returned when the backlog is non-empty, so a lone oversized row can never
+   * wedge the backlog — it goes out on its own frame. Read synchronously from
+   * the in-memory mirror so the sync loop's tick is not an async cascade.
    */
-  unsynced(opts: { maxRows: number }): JournalEntry[] {
+  unsynced(opts: { maxRows: number; maxBytes?: number }): JournalEntry[] {
     const rows: JournalEntry[] = [];
+    let bytes = 0;
     for (const entry of this.pending.values()) {
       if (rows.length >= opts.maxRows) break;
+      if (opts.maxBytes !== undefined && rows.length > 0) {
+        const next = bytes + entrySizeBytes(entry);
+        if (next > opts.maxBytes) break;
+        bytes = next;
+      } else if (opts.maxBytes !== undefined) {
+        bytes = entrySizeBytes(entry);
+      }
       rows.push(entry);
     }
     return rows;
@@ -132,7 +162,48 @@ export class JournalStore {
     }
     for (const row of retired) {
       await this.put(row);
+      this.sent.set(row.seq, row.ts);
     }
+  }
+
+  /** Seqs of rows already sent (and not yet pruned), in seq order. */
+  sentSeqs(): number[] {
+    return [...this.sent.keys()].sort((a, b) => a - b);
+  }
+
+  /**
+   * Apply retention to the SENT set (AC1). Prunes sent rows that are either
+   * older than `maxAgeMs` (relative to `now`, defaulting to wall-clock) OR
+   * beyond the newest `maxRows` by seq order. UNSYNCED rows are never touched —
+   * the unsynced backlog is uncapped per D-GRH-29. Returns the prune count.
+   *
+   * The two caps compose: a row is pruned if it fails EITHER bound, so the
+   * surviving set is the newest `maxRows` rows that are also within `maxAgeMs`.
+   */
+  async prune(opts: { maxRows: number; maxAgeMs: number; now?: number }): Promise<{ pruned: number }> {
+    // The prunable set is the synchronous `sent` mirror, kept in step with
+    // `markSent`/`bootstrap`. Decide which rows fail a cap WITHOUT touching
+    // IndexedDB so the common no-op case (nothing over the caps) returns without
+    // opening a connection or even an `await this.ready()` hop — the sync loop's
+    // success tail calls prune on every send and must stay cheap.
+    const now = opts.now ?? Date.now();
+    const seqsNewestFirst = [...this.sent.keys()].sort((a, b) => b - a);
+
+    const doomed: number[] = [];
+    seqsNewestFirst.forEach((seq, indexFromNewest) => {
+      const overRowCap = indexFromNewest >= opts.maxRows;
+      const ts = this.sent.get(seq)!;
+      const ageMs = now - Date.parse(ts);
+      const overAgeCap = Number.isFinite(ageMs) && ageMs > opts.maxAgeMs;
+      if (overRowCap || overAgeCap) doomed.push(seq);
+    });
+
+    if (doomed.length === 0) return { pruned: 0 };
+
+    await this.ready();
+    await this.deleteMany(doomed);
+    for (const seq of doomed) this.sent.delete(seq);
+    return { pruned: doomed.length };
   }
 
   /**
@@ -148,6 +219,7 @@ export class JournalStore {
     this.readyPromise = null;
     this.highestSeq = 0;
     this.pending.clear();
+    this.sent.clear();
   }
 
   // --- IndexedDB plumbing ----------------------------------------------------
@@ -185,7 +257,8 @@ export class JournalStore {
         }
         const row = c.value as StoredRow;
         if (row.seq > this.highestSeq) this.highestSeq = row.seq;
-        if (!row.sent) this.pending.set(row.seq, this.toEntry(row));
+        if (row.sent) this.sent.set(row.seq, row.ts);
+        else this.pending.set(row.seq, this.toEntry(row));
         c.continue();
       };
     });
@@ -196,6 +269,24 @@ export class JournalStore {
       const req = this.tx('readwrite').put(row);
       req.onerror = () => reject(req.error ?? new Error('journal put failed'));
       req.onsuccess = () => resolve();
+    });
+  }
+
+  /**
+   * Delete several rows in ONE readwrite transaction. A single transaction (vs.
+   * one per seq) drains atomically and promptly, so a `close()` racing the
+   * prune tail never strands an in-flight per-row transaction holding the
+   * connection open (which would block the next `deleteDatabase`).
+   */
+  private deleteMany(seqs: readonly number[]): Promise<void> {
+    return new Promise<void>((resolve, reject) => {
+      const store = this.tx('readwrite');
+      for (const seq of seqs) store.delete(seq);
+      store.transaction.oncomplete = () => resolve();
+      store.transaction.onerror = () =>
+        reject(store.transaction.error ?? new Error('journal prune delete failed'));
+      store.transaction.onabort = () =>
+        reject(store.transaction.error ?? new Error('journal prune delete aborted'));
     });
   }
 

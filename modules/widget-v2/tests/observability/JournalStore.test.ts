@@ -109,6 +109,108 @@ describe('JournalStore seq across reloads (AC2)', () => {
   });
 });
 
+describe('JournalStore.unsynced byte cap (AC2 batch byte cap)', () => {
+  beforeEach(() => resetJournalDb());
+
+  /** A payload whose JSON serialization is ~`bytes` long. */
+  function payloadOfBytes(bytes: number): Record<string, unknown> {
+    return { blob: 'x'.repeat(bytes) };
+  }
+
+  it('stops a batch before exceeding maxBytes even when maxRows allows more', async () => {
+    const store = await freshStore();
+    // Three ~1 KiB rows; a 2.5 KiB byte budget admits the first two, not the third.
+    for (const ts of ['t1', 't2', 't3']) {
+      await store.append({ ts, event_type: 'config_apply', payload: payloadOfBytes(1024) });
+    }
+
+    const batch = store.unsynced({ maxRows: 100, maxBytes: 2560 });
+
+    expect(batch.map((r) => r.seq)).toEqual([1, 2]);
+  });
+
+  it('always returns at least one row even if it alone exceeds maxBytes', async () => {
+    const store = await freshStore();
+    // A single oversized row must still drain (never wedge the backlog), so a
+    // too-small byte budget yields exactly that one row rather than none.
+    await store.append({ ts: 't1', event_type: 'config_apply', payload: payloadOfBytes(4096) });
+
+    const batch = store.unsynced({ maxRows: 100, maxBytes: 64 });
+
+    expect(batch.map((r) => r.seq)).toEqual([1]);
+  });
+
+  it('still honors maxRows when the byte budget is generous', async () => {
+    const store = await freshStore();
+    for (const ts of ['t1', 't2', 't3']) {
+      await store.append({ ts, event_type: 'config_apply', payload: {} });
+    }
+
+    const batch = store.unsynced({ maxRows: 2, maxBytes: Number.MAX_SAFE_INTEGER });
+
+    expect(batch.map((r) => r.seq)).toEqual([1, 2]);
+  });
+});
+
+describe('JournalStore.prune retention (AC1)', () => {
+  beforeEach(() => resetJournalDb());
+
+  /** Append `n` rows and immediately mark them all sent, returning the seqs. */
+  async function appendAndSend(store: JournalStore, tsList: string[]): Promise<void> {
+    for (const ts of tsList) {
+      await store.append({ ts, event_type: 'config_apply', payload: {} });
+    }
+    await store.markSent(1, tsList.length);
+  }
+
+  it('prunes the oldest sent rows beyond the row cap, keeping the newest', async () => {
+    const store = await freshStore();
+    await appendAndSend(store, ['t1', 't2', 't3', 't4', 't5']);
+
+    const { pruned } = await store.prune({ maxRows: 2, maxAgeMs: Number.MAX_SAFE_INTEGER });
+
+    // 5 sent rows, cap 2 → the 3 oldest are pruned; a reload sees only seq 4,5.
+    expect(pruned).toBe(3);
+    store.close();
+    await store.ready();
+    expect(store.sentSeqs()).toEqual([4, 5]);
+  });
+
+  it('prunes sent rows older than the age cap by their ts', async () => {
+    const store = await freshStore();
+    // Three sent rows at fixed wall-clock instants spanning ~2 minutes.
+    await appendAndSend(store, [
+      '2026-05-30T00:00:00.000Z',
+      '2026-05-30T00:01:00.000Z',
+      '2026-05-30T00:02:00.000Z',
+    ]);
+
+    // "now" = 00:02:00; keep only rows within the last 90s → the 00:00:00 row
+    // (120s old) is pruned, the two newer ones survive.
+    const now = Date.parse('2026-05-30T00:02:00.000Z');
+    const { pruned } = await store.prune({ maxRows: Number.MAX_SAFE_INTEGER, maxAgeMs: 90_000, now });
+
+    expect(pruned).toBe(1);
+    store.close();
+    await store.ready();
+    expect(store.sentSeqs()).toEqual([2, 3]);
+  });
+
+  it('never prunes unsynced rows even when they exceed the caps', async () => {
+    const store = await freshStore();
+    // Five rows appended, NONE marked sent — all are unsynced.
+    for (const ts of ['t1', 't2', 't3', 't4', 't5']) {
+      await store.append({ ts, event_type: 'config_apply', payload: {} });
+    }
+
+    const { pruned } = await store.prune({ maxRows: 1, maxAgeMs: 0 });
+
+    // Unsynced rows are uncapped (D-GRH-29) — nothing is pruned.
+    expect(pruned).toBe(0);
+    expect(store.unsynced({ maxRows: 10 })).toHaveLength(5);
+  });
+});
+
 describe('JournalStore per-display isolation (AC2)', () => {
   const dispA = { barId: 'bar-1', displayId: 'disp-A' };
   const dispB = { barId: 'bar-1', displayId: 'disp-B' };
