@@ -10,7 +10,10 @@
  * Frame -> payload extraction lives here so the activator works in payloads,
  * never re-reading the permissive wire envelope. A frame missing
  * `program_slot_id` is ignored (it cannot be keyed); a frame whose
- * `primary_game_id` is absent normalizes to `null` (the "no live game" case).
+ * `primary_game_id` is absent normalizes to `null` (the "no live game" case);
+ * a frame whose `game_ids` is absent or malformed normalizes to `[]` (the
+ * single-card / no-list case), so every resolved payload carries the list a
+ * multi-card mode (SPEC-CRWDQ-031) needs without re-reading the wire.
  */
 import type { ProgramSlotFrame } from '../wire';
 import type { ProgramSlotPayload } from './types';
@@ -31,6 +34,7 @@ export class ProgramSlotResolver {
     this.slots.set(programSlotId, {
       program_slot_id: programSlotId,
       primary_game_id: primaryGameId,
+      game_ids: readGameIds(frame['game_ids']),
     });
   }
 
@@ -43,4 +47,10 @@ export class ProgramSlotResolver {
   has(programSlotId: string): boolean {
     return this.slots.has(programSlotId);
   }
+}
+
+/** Normalize a wire `game_ids` field to an ordered list of non-empty ids. */
+function readGameIds(raw: unknown): readonly string[] {
+  if (!Array.isArray(raw)) return [];
+  return raw.filter((id): id is string => typeof id === 'string' && id.length > 0);
 }

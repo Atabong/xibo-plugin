@@ -1,0 +1,45 @@
+/*
+ * SPEC-CRWDQ-031 — multiple_games (2x2 grid) layout.
+ *
+ * The grid sizing is driven by data-card-count on the section (set on mount and
+ * updated on reconcile); per-card slots are placed by data-position 0..3. The
+ * primary card carries data-primary="true" — the exact visual emphasis is left
+ * to the theme CSS (D-GRH-51), so this base sheet only reserves the marker.
+ */
+
+.crowdaq-multi-game.cdq-grid-2x2 {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  grid-template-rows: 1fr 1fr;
+  gap: var(--cdq-grid-gap, 12px);
+  width: 100%;
+  height: 100%;
+}
+
+/* Two cards: a single full-height row. */
+.cdq-grid-2x2[data-card-count='2'] {
+  grid-template-rows: 1fr;
+}
+
+/* Three cards: the third (data-position="2") spans both columns. */
+.cdq-grid-2x2[data-card-count='3'] .cdq-card[data-position='2'] {
+  grid-column: span 2;
+}
+
+/* Four cards: the natural 2x2 — no override needed. */
+
+.cdq-card {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  overflow: hidden;
+}
+
+/*
+ * Primary marker: presence + uniqueness is the contract (exactly one, or zero
+ * when primary_game_id is null). Theme CSS layers the actual emphasis (scale,
+ * border, tint); this is a no-emphasis default so the attribute is never inert.
+ */
+.cdq-card[data-primary='true'] {
+  z-index: 1;
+}

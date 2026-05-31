@@ -2,11 +2,16 @@ import { describe, it, expect } from 'vitest';
 import { ProgramSlotResolver } from '../../../src/render/ProgramSlotResolver';
 import type { ProgramSlotFrame } from '../../../src/wire';
 
-const slot = (id: string, primaryGameId: string | null): ProgramSlotFrame =>
+const slot = (
+  id: string,
+  primaryGameId: string | null,
+  gameIds?: unknown,
+): ProgramSlotFrame =>
   ({
     message_type: 'ProgramSlot',
     program_slot_id: id,
     primary_game_id: primaryGameId,
+    ...(gameIds === undefined ? {} : { game_ids: gameIds }),
   }) as unknown as ProgramSlotFrame;
 
 describe('ProgramSlotResolver', () => {
@@ -16,6 +21,7 @@ describe('ProgramSlotResolver', () => {
     expect(resolver.resolve('slot-1')).toEqual({
       program_slot_id: 'slot-1',
       primary_game_id: 'game-A',
+      game_ids: [],
     });
   });
 
@@ -42,5 +48,25 @@ describe('ProgramSlotResolver', () => {
     const resolver = new ProgramSlotResolver();
     resolver.upsert(slot('slot-1', null));
     expect(resolver.resolve('slot-1')?.primary_game_id).toBeNull();
+  });
+
+  it('preserves the order of a multi-game game_ids list (D-GRH-14)', () => {
+    const resolver = new ProgramSlotResolver();
+    resolver.upsert(slot('slot-1', 'g2', ['g1', 'g2', 'g3']));
+    expect(resolver.resolve('slot-1')?.game_ids).toEqual(['g1', 'g2', 'g3']);
+  });
+
+  it('normalizes an absent or non-array game_ids to an empty list', () => {
+    const resolver = new ProgramSlotResolver();
+    resolver.upsert(slot('slot-1', 'g1'));
+    expect(resolver.resolve('slot-1')?.game_ids).toEqual([]);
+    resolver.upsert(slot('slot-2', 'g1', 'not-an-array'));
+    expect(resolver.resolve('slot-2')?.game_ids).toEqual([]);
+  });
+
+  it('drops non-string and empty entries from game_ids', () => {
+    const resolver = new ProgramSlotResolver();
+    resolver.upsert(slot('slot-1', 'g1', ['g1', '', 7, 'g2', null]));
+    expect(resolver.resolve('slot-1')?.game_ids).toEqual(['g1', 'g2']);
   });
 });

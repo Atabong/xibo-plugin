@@ -21,7 +21,10 @@ export type RenderJournalEventType =
   | 'template_reconcile_skipped'
   | 'template_reconcile_dispatched'
   // --- part 2: overlay-ad branch (AC7) ---
-  | 'ad_slot_payload_unavailable';
+  | 'ad_slot_payload_unavailable'
+  // --- multiple_games template (SPEC-CRWDQ-031) ---
+  | 'template_input_invalid'
+  | 'multi_game_reconciled';
 
 export interface RenderJournalEntry {
   type: RenderJournalEventType;
