@@ -236,6 +236,20 @@ describe('multiple_games activation through the shared activator', () => {
     expect(h.host.innerHTML).toBe(before);
   });
 
+  it('keeps every card rendered after the dwell boundary fires (dwell handling)', async () => {
+    const h = makeHarness();
+    h.dispatcher.dispatch(programSlot());
+    await h.dispatcher.dispatch(plannedState({ dwell_target_ms: 5000 }));
+    await vi.advanceTimersByTimeAsync(0);
+
+    await vi.advanceTimersByTimeAsync(5000);
+
+    expect(h.journal.typesOf('dwell_boundary_reached')).toHaveLength(1);
+    // The slot dwell expiring does NOT tear the grid down; cards await the next
+    // PlannedState (only a supersede removes them).
+    expect(cardIds(h.host)).toEqual(['g1', 'g2']);
+  });
+
   it('swaps the theme at the dwell boundary when a preference apply is pending (AC10)', async () => {
     const h = makeHarness();
     h.dispatcher.dispatch(programSlot());
