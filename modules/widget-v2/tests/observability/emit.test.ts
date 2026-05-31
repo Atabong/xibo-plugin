@@ -86,6 +86,7 @@ describe('Observer.emit', () => {
       config: {
         syncIntervalMs: 60000,
         maxBatchSize: 2,
+        maxBatchBytes: 256 * 1024,
         retainMaxRows: 10000,
         retainMaxAgeMs: 7 * 24 * 60 * 60 * 1000,
       },

@@ -109,6 +109,49 @@ describe('JournalStore seq across reloads (AC2)', () => {
   });
 });
 
+describe('JournalStore.unsynced byte cap (AC2 batch byte cap)', () => {
+  beforeEach(() => resetJournalDb());
+
+  /** A payload whose JSON serialization is ~`bytes` long. */
+  function payloadOfBytes(bytes: number): Record<string, unknown> {
+    return { blob: 'x'.repeat(bytes) };
+  }
+
+  it('stops a batch before exceeding maxBytes even when maxRows allows more', async () => {
+    const store = await freshStore();
+    // Three ~1 KiB rows; a 2.5 KiB byte budget admits the first two, not the third.
+    for (const ts of ['t1', 't2', 't3']) {
+      await store.append({ ts, event_type: 'config_apply', payload: payloadOfBytes(1024) });
+    }
+
+    const batch = store.unsynced({ maxRows: 100, maxBytes: 2560 });
+
+    expect(batch.map((r) => r.seq)).toEqual([1, 2]);
+  });
+
+  it('always returns at least one row even if it alone exceeds maxBytes', async () => {
+    const store = await freshStore();
+    // A single oversized row must still drain (never wedge the backlog), so a
+    // too-small byte budget yields exactly that one row rather than none.
+    await store.append({ ts: 't1', event_type: 'config_apply', payload: payloadOfBytes(4096) });
+
+    const batch = store.unsynced({ maxRows: 100, maxBytes: 64 });
+
+    expect(batch.map((r) => r.seq)).toEqual([1]);
+  });
+
+  it('still honors maxRows when the byte budget is generous', async () => {
+    const store = await freshStore();
+    for (const ts of ['t1', 't2', 't3']) {
+      await store.append({ ts, event_type: 'config_apply', payload: {} });
+    }
+
+    const batch = store.unsynced({ maxRows: 2, maxBytes: Number.MAX_SAFE_INTEGER });
+
+    expect(batch.map((r) => r.seq)).toEqual([1, 2]);
+  });
+});
+
 describe('JournalStore.prune retention (AC1)', () => {
   beforeEach(() => resetJournalDb());
 

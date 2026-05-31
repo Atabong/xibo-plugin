@@ -31,6 +31,7 @@ function clientFor(
   cfg: {
     syncIntervalMs?: number;
     maxBatchSize?: number;
+    maxBatchBytes?: number;
     retainMaxRows?: number;
     retainMaxAgeMs?: number;
   } = {},
@@ -44,6 +45,7 @@ function clientFor(
     config: {
       syncIntervalMs: cfg.syncIntervalMs ?? 60000,
       maxBatchSize: cfg.maxBatchSize ?? 500,
+      maxBatchBytes: cfg.maxBatchBytes ?? 256 * 1024,
       retainMaxRows: cfg.retainMaxRows ?? 10000,
       retainMaxAgeMs: cfg.retainMaxAgeMs ?? 7 * 24 * 60 * 60 * 1000,
     },
@@ -133,6 +135,29 @@ describe('JournalSyncClient sync frame (AC4, AC5, AC7)', () => {
 
     expect(outcome).toEqual({ kind: 'noop', reason: 'no_unsynced' });
     expect(ws.sent).toHaveLength(0);
+  });
+});
+
+describe('JournalSyncClient batch byte cap (AC2)', () => {
+  /** A ~1 KiB payload so a handful of rows cross a small byte budget. */
+  const kib = (): Record<string, unknown> => ({ blob: 'x'.repeat(1024) });
+
+  it('splits a burst that exceeds maxBatchBytes across successive frames', async () => {
+    const store = await freshStore();
+    for (const ts of ['t1', 't2', 't3', 't4']) {
+      await store.append({ ts, event_type: 'config_apply', payload: kib() });
+    }
+    const ws = new FakeWsClient();
+    ws.open();
+    // ~2.5 KiB budget admits ~2 of the ~1 KiB rows per frame though maxBatchSize
+    // would allow all four — the burst drains over two syncs.
+    const client = clientFor(store, ws, { maxBatchSize: 500, maxBatchBytes: 2560 });
+
+    const first = await client.syncNow();
+    const second = await client.syncNow();
+
+    expect(first).toMatchObject({ kind: 'sent', seqMin: 1, seqMax: 2 });
+    expect(second).toMatchObject({ kind: 'sent', seqMin: 3, seqMax: 4 });
   });
 });
 

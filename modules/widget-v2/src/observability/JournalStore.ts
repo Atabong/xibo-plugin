@@ -32,6 +32,16 @@ export function journalDbName(displayId: string): string {
   return `${DB_NAME_PREFIX}.${displayId}`;
 }
 
+/**
+ * The serialized byte size of one entry, used to enforce the batch byte cap
+ * (AC2). The frame ships as JSON, so JSON length is the honest proxy for the
+ * pre-compression payload size; `Blob` gives the UTF-8 byte count (multi-byte
+ * chars count correctly) without a TextEncoder allocation per row.
+ */
+function entrySizeBytes(entry: JournalEntry): number {
+  return new Blob([JSON.stringify(entry)]).size;
+}
+
 /** A persisted row carries the journal entry plus its sync state. */
 interface StoredRow extends JournalEntry {
   /** True once the row has been handed to an open socket (AC7). */
@@ -104,14 +114,27 @@ export class JournalStore {
   }
 
   /**
-   * The next slice of unsynced rows in seq order, capped at `maxRows`. Read
-   * synchronously from the in-memory mirror so the sync loop's tick is not an
-   * async cascade.
+   * The next slice of unsynced rows in seq order, capped at `maxRows` and —
+   * when `maxBytes` is given — at the cumulative serialized byte size of the
+   * batch (AC2 batch byte cap). The byte cap keeps a single frame under the
+   * transport's size budget even when far fewer than `maxRows` large rows fill
+   * it; a burst then drains across several frames. At least one row is always
+   * returned when the backlog is non-empty, so a lone oversized row can never
+   * wedge the backlog — it goes out on its own frame. Read synchronously from
+   * the in-memory mirror so the sync loop's tick is not an async cascade.
    */
-  unsynced(opts: { maxRows: number }): JournalEntry[] {
+  unsynced(opts: { maxRows: number; maxBytes?: number }): JournalEntry[] {
     const rows: JournalEntry[] = [];
+    let bytes = 0;
     for (const entry of this.pending.values()) {
       if (rows.length >= opts.maxRows) break;
+      if (opts.maxBytes !== undefined && rows.length > 0) {
+        const next = bytes + entrySizeBytes(entry);
+        if (next > opts.maxBytes) break;
+        bytes = next;
+      } else if (opts.maxBytes !== undefined) {
+        bytes = entrySizeBytes(entry);
+      }
       rows.push(entry);
     }
     return rows;

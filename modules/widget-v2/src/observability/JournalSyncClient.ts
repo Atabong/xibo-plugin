@@ -60,6 +60,7 @@ export class JournalSyncClient {
 
   private syncIntervalMs: number;
   private maxBatchSize: number;
+  private readonly maxBatchBytes: number;
   private readonly retainMaxRows: number;
   private readonly retainMaxAgeMs: number;
 
@@ -79,6 +80,7 @@ export class JournalSyncClient {
     this.random = deps.random;
     this.syncIntervalMs = deps.config.syncIntervalMs;
     this.maxBatchSize = deps.config.maxBatchSize;
+    this.maxBatchBytes = deps.config.maxBatchBytes;
     this.retainMaxRows = deps.config.retainMaxRows;
     this.retainMaxAgeMs = deps.config.retainMaxAgeMs;
 
@@ -155,7 +157,7 @@ export class JournalSyncClient {
   }
 
   private async runSync(): Promise<SyncOutcome> {
-    const batch = this.store.unsynced({ maxRows: this.maxBatchSize });
+    const batch = this.store.unsynced({ maxRows: this.maxBatchSize, maxBytes: this.maxBatchBytes });
     if (batch.length === 0) {
       return { kind: 'noop', reason: 'no_unsynced' };
     }
