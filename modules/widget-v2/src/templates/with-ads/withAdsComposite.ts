@@ -26,12 +26,18 @@
  * The returned instance's `detach()` journals `ad_slot_completed` with the
  * dwell read from the parent's shared `DwellTimer` boundary, then tears the
  * child down (the child unwinds its own per-game subscriptions) and the panel.
- * The `reconcile?` delegation to the content child is owned by the part-2 issue
- * (#56) and is intentionally NOT implemented here.
+ * Its `reconcile?` (SPEC-CRWDQ-023 hook, part-2 issue #56) forwards the event
+ * VERBATIM to the content child and never touches the ad panel — a `program_slot`
+ * revision propagates add/remove of cards or fixtures into `.cdq-content` with no
+ * ad-panel flicker; `game_state_revision` is a child-side no-op (per-game state
+ * reaches each card through its own subscription); the `ad_slot` variant is
+ * documented but unreachable until backend AdSlot delivery lands (an in-place
+ * `AdSlot` revision arrives as a new `PlannedState`, not a reconcile — spec
+ * "Reconcile" section).
  */
 import type { RenderJournal } from '../../render/RenderJournal';
 import type { AssetManifestStore } from '../../render/AssetManifestStore';
-import type { TemplateInstance } from '../../render/TemplateInstance';
+import type { TemplateInstance, TemplateReconcileEvent } from '../../render/TemplateInstance';
 import type { AdSlotPayload } from '../../render/types';
 import { AdPanel, type AdPanelInstance } from './AdPanel';
 
@@ -161,6 +167,21 @@ class WithAdsCompositeInstance implements TemplateInstance {
     this.panel.detach();
     this.section.remove();
     return this.section;
+  }
+
+  /**
+   * Forward the in-place revision VERBATIM to the content child (SPEC-CRWDQ-023
+   * `TemplateInstance.reconcile?`). The composite is structural: it owns the
+   * shell + the ad panel, but the card/fixture diff is the child's concern, so a
+   * `program_slot` event propagates add/remove of cards or fixtures into
+   * `.cdq-content` exactly as the bare child would. The ad panel is never
+   * touched here — no re-render, no flicker (D-GRH-16). `game_state_revision`
+   * and the (currently unreachable) `ad_slot` kind are forwarded as-is and the
+   * child no-ops them. When the child has no reconcile hook (it opted out),
+   * there is nothing to delegate and this resolves immediately.
+   */
+  async reconcile(event: TemplateReconcileEvent): Promise<void> {
+    await this.content.reconcile?.(event);
   }
 }
 
