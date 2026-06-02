@@ -64,7 +64,42 @@ export interface ScheduleWindowFrame extends Envelope { message_type: 'ScheduleW
 export interface PlannedStateFrame extends Envelope { message_type: 'PlannedState'; }
 export interface ProgramSlotFrame extends Envelope { message_type: 'ProgramSlot'; }
 export interface AdSlotFrame extends Envelope { message_type: 'AdSlot'; }
-export interface OverrideInjectionFrame extends Envelope { message_type: 'OverrideInjection'; }
+export interface OverrideInjectionFrame extends Envelope {
+  message_type: 'OverrideInjection';
+  bar_id: string;
+  payload: OverrideInjectionPayload;
+}
+
+/**
+ * SPEC-CRWDQ-017 `OverrideInjectionPayload` — the override fields carried in
+ * the `payload` of an `OverrideInjection` `Envelope` on the control channel
+ * (`seq` absent, `bar_id` present). The shape is copied from the backend's
+ * `crowdaq-backend/src/wire/types.ts:61-69` and matches the frame emitted by
+ * `buildOverrideEnvelope` (`src/admin/handlers/override-injection/handler.ts`):
+ * the operator's `text` / `display_form` are admin-request + audit-log only and
+ * are deliberately NOT on the wire; `payload_ref` is the future content hook
+ * (always `null` in phase-1, D-GRH-56). No PlannedState render fields exist
+ * here. Drift between this twin and the Go module is a SPEC-CRWDQ-017 concern.
+ */
+export type OverrideClass =
+  | 'emergency_safety'
+  | 'scoreboard_correction'
+  | 'operator_alert'
+  | 'system_maintenance';
+
+export interface OverrideInjectionPayload {
+  override_id: string;
+  bar_id: string;
+  override_class: OverrideClass;
+  /** ALWAYS null in phase-1 (future content hook, D-GRH-56). */
+  payload_ref: string | null;
+  /** RFC3339 UTC — window start. */
+  valid_from: string;
+  /** RFC3339 UTC — window end; null = indefinite (holds until superseded). */
+  valid_to: string | null;
+  /** ALWAYS 0 in phase-1 (general rule encoded for forward-compat). */
+  precedence: number;
+}
 export interface AssetManifestFrame extends Envelope { message_type: 'AssetManifest'; }
 export interface MessagingLaneFrame extends Envelope { message_type: 'MessagingLane'; payload: MessagingLanePayload; }
 
