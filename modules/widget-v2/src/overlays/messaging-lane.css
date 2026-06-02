@@ -1,0 +1,56 @@
+/*
+ * SPEC-CRWDQ-049 — MessagingLane overlay layer.
+ *
+ * The layer floats above the active PlannedState template and NEVER reflows it:
+ * absolute, inset 0, pointer-events none (bar screens are passive). When the
+ * layer carries data-suppressed="true" (an OverrideInjection is active,
+ * D-GRH-58), every .cdq-overlay child hides atomically — no per-form un-render.
+ * Per-form anchors: banner = top edge full width, ticker = bottom strip,
+ * toast = corner-anchored pop. Exact theming (colours, type) is left to the
+ * theme CSS (D-GRH-51); this base sheet only owns layout + suppression.
+ */
+
+.crowdaq-overlay-layer {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+
+/* Binary suppression (D-GRH-58): hide all forms when an override is active. */
+.crowdaq-overlay-layer[data-suppressed='true'] .cdq-overlay {
+  display: none;
+}
+
+.cdq-overlay {
+  position: absolute;
+}
+
+.cdq-overlay[hidden] {
+  display: none;
+}
+
+/* banner — top edge, full width. */
+.cdq-overlay[data-form='banner'] {
+  top: 0;
+  left: 0;
+  right: 0;
+}
+
+/* ticker — bottom-edge strip, horizontal scroll surface. */
+.cdq-overlay[data-form='ticker'] {
+  bottom: 0;
+  left: 0;
+  right: 0;
+  overflow: hidden;
+  white-space: nowrap;
+}
+
+/* toast — corner-anchored, transient pop. */
+.cdq-overlay[data-form='toast'] {
+  bottom: var(--cdq-toast-offset, 16px);
+  right: var(--cdq-toast-offset, 16px);
+}
+
+.cdq-overlay-text {
+  display: block;
+}
