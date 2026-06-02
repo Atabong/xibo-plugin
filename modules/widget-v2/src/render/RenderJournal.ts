@@ -29,6 +29,8 @@ export type RenderJournalEventType =
   | 'fixture_cache_miss'
   | 'fixtures_reconciled'
   | 'template_locale_refresh'
+  // --- fixtures_with_live_game template (SPEC-CRWDQ-066) ---
+  | 'live_tile_reconciled'
   // --- recap template (SPEC-CRWDQ-046) ---
   | 'recap_no_gamestate'
   | 'recap_premature'
