@@ -56,41 +56,7 @@ interface Harness {
 function mount(
   fixtureIds: string[],
   opts: { transition?: TransitionSpec; badges?: string[]; pendingTimezone?: string } = {},
-): { host: HTMLElement; instance: FixturesInstance | null; journal: RecordingJournal } {
-  const host = document.createElement('div');
-  const store = new FixtureListStore();
-  store.applyList(
-    fixtureFrame(fixtureIds.map((id) => fixture(id))),
-  );
-  const journal = new RecordingJournal();
-  const transitions = new RecordingCardTransitions();
-  const player = new RecordingPlayer();
-  const { store: assetStore } = makeAssetStore();
-  applyBadgeManifest(assetStore, opts.badges ?? []);
-  const executor = new TransitionExecutor({
-    catalog: new Map([['cut', { opacity: [1, 1] }]]),
-    assets: assetStore,
-    player,
-    journal,
-  });
-
-  const instance = new FixturesTemplate().mount(host, {
-    programSlot: slot(fixtureIds),
-    theme: { state: 'default' },
-    timezone: TZ,
-    fixtureListStore: store,
-    assetManifestStore: assetStore,
-    transitionExecutor: executor,
-    transition: opts.transition ?? CUT,
-    cardTransitions: transitions,
-    journal,
-    now: () => NOW,
-    pendingApply: opts.pendingTimezone ? { timezone: opts.pendingTimezone } : null,
-  });
-  return { host, instance, journal };
-}
-
-function mountOk(fixtureIds: string[], opts: Parameters<typeof mount>[1] = {}): Harness {
+): Omit<Harness, 'instance'> & { instance: FixturesInstance | null } {
   const host = document.createElement('div');
   const store = new FixtureListStore();
   store.applyList(fixtureFrame(fixtureIds.map((id) => fixture(id))));
@@ -105,6 +71,7 @@ function mountOk(fixtureIds: string[], opts: Parameters<typeof mount>[1] = {}): 
     player,
     journal,
   });
+
   const instance = new FixturesTemplate().mount(host, {
     programSlot: slot(fixtureIds),
     theme: { state: 'default' },
@@ -118,8 +85,13 @@ function mountOk(fixtureIds: string[], opts: Parameters<typeof mount>[1] = {}): 
     now: () => NOW,
     pendingApply: opts.pendingTimezone ? { timezone: opts.pendingTimezone } : null,
   });
-  if (instance === null) throw new Error('expected a mounted instance');
   return { host, instance, store, journal, transitions, player };
+}
+
+function mountOk(fixtureIds: string[], opts: Parameters<typeof mount>[1] = {}): Harness {
+  const m = mount(fixtureIds, opts);
+  if (m.instance === null) throw new Error('expected a mounted instance');
+  return { ...m, instance: m.instance };
 }
 
 const cardEls = (root: ParentNode): HTMLElement[] =>
