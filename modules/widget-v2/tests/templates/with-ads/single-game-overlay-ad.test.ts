@@ -88,3 +88,33 @@ describe('SingleGameOverlayAd.mount — creative paint (AC2)', () => {
     expect((imgs[0] as HTMLImageElement).getAttribute('src')).toBe(urls['creative-1']);
   });
 });
+
+describe('SingleGameOverlayAd.mount — cache miss leaves the overlay empty (AC4)', () => {
+  let host: HTMLElement;
+  beforeEach(() => {
+    host = document.createElement('div');
+  });
+  afterEach(() => {
+    host.remove();
+  });
+
+  it('renders no creative and journals ad_asset_cache_miss + warms the cache on a miss', async () => {
+    const { store, fetcher } = makeAssetStore();
+    applyColdAdManifest(store, ['creative-cold']); // declared, never warmed -> get() misses
+    const gameStore = new GameStateStore(new RecordingJournal());
+    const journal = new RecordingJournal();
+
+    new SingleGameOverlayAd({ assetManifestStore: store, journal }).mount(host, {
+      ...context(gameStore, 'g1'),
+      adSlot: adSlot({ ad_slot_id: 'ad-cold', ad_ref: 'creative-cold' }),
+    });
+
+    // Overlay empty (content survives, D-GRH-16) + the miss is journaled + warmed.
+    expect(host.querySelector('img.cdq-ad-creative')).toBeNull();
+    const miss = journal.typesOf('ad_asset_cache_miss');
+    expect(miss).toHaveLength(1);
+    expect(miss[0]).toMatchObject({ ad_slot_id: 'ad-cold', ad_ref: 'creative-cold' });
+    await Promise.resolve();
+    expect(fetcher.callsFor('creative-cold')).toBe(1);
+  });
+});
