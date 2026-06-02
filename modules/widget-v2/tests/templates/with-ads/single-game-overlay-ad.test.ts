@@ -21,6 +21,8 @@
  * consumer wires it, not in isolation.
  */
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 import { SingleGameOverlayAd } from '../../../src/templates/with-ads/SingleGameOverlayAd';
 import { PlannedStateActivator } from '../../../src/render/PlannedStateActivator';
 import { ProgramSlotResolver } from '../../../src/render/ProgramSlotResolver';
@@ -428,5 +430,30 @@ describe('overlay composite end-to-end — supersede (AC9)', () => {
     const completed = h.journal.typesOf('ad_slot_completed');
     expect(completed).toHaveLength(1);
     expect(completed[0]).toMatchObject({ ad_slot_id: 'ad-1', ad_ref: 'creative-1', state_id: 'st-1' });
+  });
+});
+
+describe('single-game-overlay-ad.css — coexistence (AC2/AC7, D-GRH-15/16)', () => {
+  // Suite runs under jsdom where import.meta.url is not a file URL; resolve from
+  // the package root (vitest cwd) exactly as the safe-info CSS test does.
+  const cssPath = resolve(process.cwd(), 'src/templates/with-ads/single-game-overlay-ad.css');
+  const code = readFileSync(cssPath, 'utf8').replace(/\/\*[\s\S]*?\*\//g, '');
+
+  it('positions the ad overlay absolutely above content with pointer-events: none', () => {
+    // The overlay floats above the full-surface content and never intercepts
+    // pointer input or re-flows the score render.
+    expect(code).toMatch(/\.cdq-ad-overlay[\s\S]*?position\s*:\s*absolute/);
+    expect(code).toMatch(/\.cdq-ad-overlay[\s\S]*?pointer-events\s*:\s*none/);
+  });
+
+  it('lets the content fill the full surface (inset: 0)', () => {
+    expect(code).toMatch(/\.cdq-content[\s\S]*?inset\s*:\s*0/);
+  });
+
+  it('styles the actual merged composite class as well as the spec-named alias', () => {
+    // The merged SPEC-CRWDQ-023 composite renders .crowdaq-single-game-composite;
+    // the spec names .crowdaq-single-game-overlay-ad. The sheet covers both.
+    expect(code).toMatch(/\.crowdaq-single-game-composite\b/);
+    expect(code).toMatch(/\.crowdaq-single-game-overlay-ad\b/);
   });
 });
