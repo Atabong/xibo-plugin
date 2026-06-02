@@ -152,3 +152,44 @@ describe('SingleGameOverlayAd.mount — ad_slot_rendered on load (AC6)', () => {
     expect(rendered[0]).toMatchObject({ ad_slot_id: 'ad-7', ad_ref: 'creative-1', state_id: 'st-9' });
   });
 });
+
+describe('SingleGameOverlayAd detach — ad_slot_completed (AC9, seam portion)', () => {
+  let host: HTMLElement;
+  beforeEach(() => {
+    host = document.createElement('div');
+  });
+  afterEach(() => {
+    host.remove();
+  });
+
+  it('journals ad_slot_completed with the slot identity + dwell and removes the creative', async () => {
+    const { store } = makeAssetStore();
+    await applyAndWarmAdManifest(store, ['creative-1']);
+    const gameStore = new GameStateStore(new RecordingJournal());
+    const journal = new RecordingJournal();
+
+    const instance = new SingleGameOverlayAd({
+      assetManifestStore: store,
+      journal,
+      stateId: () => 'st-3',
+      dwellActualMs: () => 4200,
+    }).mount(host, {
+      ...context(gameStore, 'g1'),
+      adSlot: adSlot({ ad_slot_id: 'ad-3', ad_ref: 'creative-1' }),
+    });
+    expect(host.querySelector('img.cdq-ad-creative')).not.toBeNull();
+
+    instance.detach();
+
+    // Creative torn down behaviourally (INV-FACTORY-16: observe the DOM, not a spy).
+    expect(host.querySelector('img.cdq-ad-creative')).toBeNull();
+    const completed = journal.typesOf('ad_slot_completed');
+    expect(completed).toHaveLength(1);
+    expect(completed[0]).toMatchObject({
+      ad_slot_id: 'ad-3',
+      ad_ref: 'creative-1',
+      state_id: 'st-3',
+      dwell_actual_ms: 4200,
+    });
+  });
+});
