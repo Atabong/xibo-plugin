@@ -66,7 +66,28 @@ export interface ProgramSlotFrame extends Envelope { message_type: 'ProgramSlot'
 export interface AdSlotFrame extends Envelope { message_type: 'AdSlot'; }
 export interface OverrideInjectionFrame extends Envelope { message_type: 'OverrideInjection'; }
 export interface AssetManifestFrame extends Envelope { message_type: 'AssetManifest'; }
-export interface MessagingLaneFrame extends Envelope { message_type: 'MessagingLane'; }
+export interface MessagingLaneFrame extends Envelope { message_type: 'MessagingLane'; payload: MessagingLanePayload; }
+
+/**
+ * SPEC-CRWDQ-047 / -048 `MessagingLanePayload` — the message fields carried in
+ * the `payload` of a `MessagingLane` `Envelope`. The backend endpoint
+ * (SPEC-CRWDQ-047) is the source of truth and validates every field before it
+ * reaches the wire: `display_form` is the closed three-value enum, `dwell_ms`
+ * is an integer in `[1000, 600000]`, `valid_until > valid_from`, and `text`
+ * contains no `<`, `>`, or `&`. The player twin mirrors that shape; drift is a
+ * SPEC-CRWDQ-047 concern. `display_form` is typed permissively as `string`
+ * here because the overlay performs defence-in-depth validation of the enum
+ * (SPEC-CRWDQ-049) rather than trusting the wire blindly.
+ */
+export interface MessagingLanePayload {
+  bar_id: string;
+  lane_id: string;
+  text: string;
+  display_form: string;
+  dwell_ms: number;
+  valid_from: string;
+  valid_until: string;
+}
 export interface HeartbeatAckFrame extends Envelope { message_type: 'HeartbeatAck'; seq: number; }
 export interface SyncRequestFrame extends Envelope { message_type: 'SyncRequest'; }
 export interface GameStateFrame extends Envelope { message_type: 'GameState'; game_id: string; seq: number; }
