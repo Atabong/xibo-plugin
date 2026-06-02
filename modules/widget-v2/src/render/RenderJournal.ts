@@ -32,7 +32,11 @@ export type RenderJournalEventType =
   // --- recap template (SPEC-CRWDQ-046) ---
   | 'recap_no_gamestate'
   | 'recap_premature'
-  | 'recap_late_event';
+  | 'recap_late_event'
+  // --- with-ads composite templates (SPEC-CRWDQ-041) ---
+  | 'ad_asset_cache_miss'
+  | 'ad_slot_rendered'
+  | 'ad_slot_completed';
 
 export interface RenderJournalEntry {
   type: RenderJournalEventType;
