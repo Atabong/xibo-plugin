@@ -87,4 +87,25 @@ describe('MultiGameTemplate per-game seq tracking (AC8)', () => {
     expect(homeText(host, 'g2')).toContain('1');
     expect(journal.typesOf('game_event_seq_regression')).toHaveLength(1);
   });
+
+  it('tracks each game seq independently: a seq that regresses for one game still advances another', () => {
+    const { host, store, journal } = setup(['g1', 'g2']);
+    // g1 is far ahead (seq 5); g2 is behind (seq 1). The seq baselines are
+    // per-game, so the SAME seq value (4) regresses for g1 yet advances g2.
+    store.upsertSnapshot({ game_id: 'g1', seq: 5, home_team: 'Lions', home_score: 5 });
+    store.upsertSnapshot({ game_id: 'g2', seq: 1, home_team: 'Bears', home_score: 1 });
+
+    // seq 4 < g1.lastSeq(5): dropped for g1.
+    store.applyEvent({ game_id: 'g1', seq: 4, home_score: 99 });
+    // seq 4 > g2.lastSeq(1): applied for g2 — proves the baseline is not shared.
+    store.applyEvent({ game_id: 'g2', seq: 4, home_score: 7 });
+
+    expect(homeText(host, 'g1')).toContain('5');
+    expect(homeText(host, 'g1')).not.toContain('99');
+    expect(homeText(host, 'g2')).toContain('7');
+    // Exactly one regression journaled (g1's seq 4), none for g2.
+    const regressions = journal.typesOf('game_event_seq_regression');
+    expect(regressions).toHaveLength(1);
+    expect(regressions[0]).toMatchObject({ game_id: 'g1', seq: 4 });
+  });
 });
