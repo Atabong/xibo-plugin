@@ -139,6 +139,7 @@ interface Harness {
   ws: FakeWsLifecycle;
   journal: RecordingJournal;
   dwell: DwellTimer;
+  player: RecordingPlayer;
 }
 
 function makeHarness(): Harness {
@@ -197,7 +198,7 @@ function makeHarness(): Harness {
     assetManifestStore: assetStore,
   });
   activator.registerTemplate('safe_info', makeSafeAdapter({ template: new SafeInfoTemplate(), controller }));
-  return { host, activator, controller, gameStateStore, ws, journal, dwell };
+  return { host, activator, controller, gameStateStore, ws, journal, dwell, player };
 }
 
 const safeRoot = (host: HTMLElement): HTMLElement | null =>
@@ -224,6 +225,8 @@ describe('SafeStateController (SPEC-CRWDQ-052 part 1)', () => {
       expect(section.dataset['source']).toBe('backend_planned');
       expect(section.dataset['reason']).toBe('scheduled');
       expect(h.controller.state().inSafe).toBe(true);
+      // AC3: the activator ran the backend transition ("cut") on activation.
+      expect(h.player.played.map((p) => p.animation_id)).toContain('cut');
     });
 
     it('honors the backend dwell_target_ms (Path A finite dwell)', async () => {
