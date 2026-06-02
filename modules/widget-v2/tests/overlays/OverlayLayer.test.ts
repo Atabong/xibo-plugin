@@ -22,9 +22,9 @@ describe('OverlayLayer DOM shape', () => {
     const root = layer.element();
     expect(root.className).toBe('crowdaq-overlay-layer');
     expect(root.getAttribute('data-suppressed')).toBe('false');
-    const forms = [...root.querySelectorAll<HTMLElement>('.cdq-overlay')].map((el) => el.dataset['form']);
+    const forms = Array.from(root.querySelectorAll<HTMLElement>('.cdq-overlay')).map((el) => el.dataset['form']);
     expect(forms).toEqual(['banner', 'ticker', 'toast']);
-    expect([...root.querySelectorAll<HTMLElement>('.cdq-overlay')].every((el) => el.hidden)).toBe(true);
+    expect(Array.from(root.querySelectorAll<HTMLElement>('.cdq-overlay')).every((el) => el.hidden)).toBe(true);
   });
 
   it('renders text as textContent (no HTML interpretation) and stamps data-lane-id', () => {
