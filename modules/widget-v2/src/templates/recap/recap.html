@@ -1,0 +1,28 @@
+<!--
+  SPEC-CRWDQ-046 — recap template DOM shape (reference markup).
+
+  The live DOM is built imperatively by RecapTemplate.mount. This file is the
+  canonical shape reference for theme authors and review — NOT a runtime
+  template. Per the SPEC-CRWDQ-046 RESOLVED team-identity note the recap renders
+  team NAMES (joined from the cached FixtureList by event_id) and a sport/league
+  badge only — there is no per-team logo and no data-team-id (no wire team_id).
+  data-winner is derived in-widget from the final scores. The headline-moment
+  block is present only when the recap PlannedState carried one.
+-->
+<section class="crowdaq-recap" data-theme="__default__" data-game-id="2026-06-02-arsenal-chelsea" data-winner="home">
+  <header class="cdq-recap-header">
+    <span class="cdq-recap-label">FULL TIME</span>
+    <span class="cdq-sport-context"><img alt="" src="<sport-league-badge-url>" /></span>
+  </header>
+  <div class="cdq-final-score">
+    <div class="cdq-team cdq-team-home">
+      <span class="cdq-team-name">Arsenal</span>
+      <span class="cdq-team-score">3</span>
+    </div>
+    <div class="cdq-team cdq-team-away">
+      <span class="cdq-team-name">Chelsea</span>
+      <span class="cdq-team-score">1</span>
+    </div>
+  </div>
+  <div class="cdq-headline-moment" data-moment-kind="goal"><!-- 90'+3 Goal — Saka --></div>
+</section>

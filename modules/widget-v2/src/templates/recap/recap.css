@@ -1,0 +1,66 @@
+/*
+ * SPEC-CRWDQ-046 — recap (post-game closing image) base layout.
+ *
+ * data-winner (home|away|draw) is derived in-widget and drives the winner
+ * emphasis; data-game-id carries the recap target. The exact visual treatment
+ * (winner highlight colour, badge size, type) is left to the theme CSS
+ * (D-GRH-51) — this base sheet only reserves structure + the markers. There is
+ * no per-team logo rule: the recap carries team NAMES + a sport/league badge.
+ */
+
+.crowdaq-recap {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  height: 100%;
+  gap: var(--cdq-recap-gap, 12px);
+}
+
+.cdq-recap-header {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.cdq-recap-label {
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+.cdq-sport-context img {
+  display: block;
+  width: var(--cdq-badge-size, 32px);
+  height: var(--cdq-badge-size, 32px);
+  object-fit: contain;
+}
+
+.cdq-final-score {
+  flex: 1 1 auto;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: var(--cdq-recap-team-gap, 8px);
+}
+
+.cdq-team {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+}
+
+.cdq-team-score {
+  font-variant-numeric: tabular-nums;
+  font-weight: 700;
+}
+
+/* Winner emphasis — the losing side and a draw are left at theme defaults. */
+.crowdaq-recap[data-winner='home'] .cdq-team-home,
+.crowdaq-recap[data-winner='away'] .cdq-team-away {
+  font-weight: 700;
+}
+
+.cdq-headline-moment {
+  flex: 0 0 auto;
+}
