@@ -1,0 +1,33 @@
+/*
+ * SPEC-CRWDQ-053 — ambient template base layout (D-GRH-30 mode #9).
+ *
+ * A single full-bleed render slot: one creative visible at a time inside
+ * `.cdq-ambient-stage`, swapped on each dwell boundary (the JS owns the swap;
+ * the base sheet declares NO keyframes/animation so a theme sheet stays in
+ * control of any cross-fade — D-GRH-31 anti-flash). The `<link rel="preload">`
+ * elements the template injects are not rendered (display:none defensively).
+ */
+
+.crowdaq-ambient {
+  display: block;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+}
+
+.cdq-ambient-stage {
+  position: relative;
+  width: 100%;
+  height: 100%;
+}
+
+.cdq-ambient-creative {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: var(--cdq-ambient-fit, cover);
+}
+
+.crowdaq-ambient link {
+  display: none;
+}
