@@ -118,3 +118,37 @@ describe('SingleGameOverlayAd.mount — cache miss leaves the overlay empty (AC4
     expect(fetcher.callsFor('creative-cold')).toBe(1);
   });
 });
+
+describe('SingleGameOverlayAd.mount — ad_slot_rendered on load (AC6)', () => {
+  let host: HTMLElement;
+  beforeEach(() => {
+    host = document.createElement('div');
+  });
+  afterEach(() => {
+    host.remove();
+  });
+
+  it('journals ad_slot_rendered with ad_slot_id, ad_ref, state_id on the image load event', async () => {
+    const { store } = makeAssetStore();
+    await applyAndWarmAdManifest(store, ['creative-1']);
+    const gameStore = new GameStateStore(new RecordingJournal());
+    const journal = new RecordingJournal();
+
+    await withSyncImageLoad(async () => {
+      new SingleGameOverlayAd({
+        assetManifestStore: store,
+        journal,
+        stateId: () => 'st-9',
+      }).mount(host, {
+        ...context(gameStore, 'g1'),
+        adSlot: adSlot({ ad_slot_id: 'ad-7', ad_ref: 'creative-1' }),
+      });
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    const rendered = journal.typesOf('ad_slot_rendered');
+    expect(rendered).toHaveLength(1);
+    expect(rendered[0]).toMatchObject({ ad_slot_id: 'ad-7', ad_ref: 'creative-1', state_id: 'st-9' });
+  });
+});
