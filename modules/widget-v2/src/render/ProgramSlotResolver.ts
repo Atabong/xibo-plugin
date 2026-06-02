@@ -13,7 +13,9 @@
  * `primary_game_id` is absent normalizes to `null` (the "no live game" case);
  * a frame whose `game_ids` is absent or malformed normalizes to `[]` (the
  * single-card / no-list case), so every resolved payload carries the list a
- * multi-card mode (SPEC-CRWDQ-031) needs without re-reading the wire.
+ * multi-card mode (SPEC-CRWDQ-031) needs without re-reading the wire. The
+ * `fixtures` mode (SPEC-CRWDQ-034) reads `fixture_ids` the same way — absent /
+ * malformed normalizes to `[]` so a resolved payload always carries it.
  */
 import type { ProgramSlotFrame } from '../wire';
 import type { ProgramSlotPayload } from './types';
@@ -34,7 +36,8 @@ export class ProgramSlotResolver {
     this.slots.set(programSlotId, {
       program_slot_id: programSlotId,
       primary_game_id: primaryGameId,
-      game_ids: readGameIds(frame['game_ids']),
+      game_ids: readStringIds(frame['game_ids']),
+      fixture_ids: readStringIds(frame['fixture_ids']),
     });
   }
 
@@ -49,8 +52,9 @@ export class ProgramSlotResolver {
   }
 }
 
-/** Normalize a wire `game_ids` field to an ordered list of non-empty ids. */
-function readGameIds(raw: unknown): readonly string[] {
+/** Normalize a wire id-list field (`game_ids` / `fixture_ids`) to an ordered
+ *  list of non-empty string ids; absent or non-array normalizes to `[]`. */
+function readStringIds(raw: unknown): readonly string[] {
   if (!Array.isArray(raw)) return [];
   return raw.filter((id): id is string => typeof id === 'string' && id.length > 0);
 }

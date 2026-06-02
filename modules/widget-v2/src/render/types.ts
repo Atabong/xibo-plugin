@@ -85,6 +85,16 @@ export interface ProgramSlotPayload {
   primary_game_id: string | null;
   /** Ordered game ids the slot references (D-GRH-14); `[]` for single_game. */
   game_ids: readonly string[];
+  /**
+   * Ordered `eventId`s a `fixtures` slot references (SPEC-CRWDQ-034 / -033),
+   * kickoff ascending and capped at `maxFixturesShown`. The resolver always
+   * populates it (normalized to `[]` for non-fixtures modes, exactly as
+   * `game_ids`), so a resolved payload always carries the list; it is optional
+   * on the type only so the single/multi-game literals that predate the
+   * fixtures mode need not restate an empty list. The members are canonical
+   * `event_id`s (not `game_id`s) — see the SPEC-CRWDQ-034 RESOLVED note.
+   */
+  fixture_ids?: readonly string[];
 }
 
 /**

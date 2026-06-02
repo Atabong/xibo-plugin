@@ -6,12 +6,14 @@ const slot = (
   id: string,
   primaryGameId: string | null,
   gameIds?: unknown,
+  fixtureIds?: unknown,
 ): ProgramSlotFrame =>
   ({
     message_type: 'ProgramSlot',
     program_slot_id: id,
     primary_game_id: primaryGameId,
     ...(gameIds === undefined ? {} : { game_ids: gameIds }),
+    ...(fixtureIds === undefined ? {} : { fixture_ids: fixtureIds }),
   }) as unknown as ProgramSlotFrame;
 
 describe('ProgramSlotResolver', () => {
@@ -22,6 +24,7 @@ describe('ProgramSlotResolver', () => {
       program_slot_id: 'slot-1',
       primary_game_id: 'game-A',
       game_ids: [],
+      fixture_ids: [],
     });
   });
 
@@ -68,5 +71,25 @@ describe('ProgramSlotResolver', () => {
     const resolver = new ProgramSlotResolver();
     resolver.upsert(slot('slot-1', 'g1', ['g1', '', 7, 'g2', null]));
     expect(resolver.resolve('slot-1')?.game_ids).toEqual(['g1', 'g2']);
+  });
+
+  it('preserves the order of a fixtures fixture_ids list (kickoff ascending)', () => {
+    const resolver = new ProgramSlotResolver();
+    resolver.upsert(slot('slot-1', null, [], ['eA', 'eB', 'eC']));
+    expect(resolver.resolve('slot-1')?.fixture_ids).toEqual(['eA', 'eB', 'eC']);
+  });
+
+  it('normalizes an absent or non-array fixture_ids to an empty list', () => {
+    const resolver = new ProgramSlotResolver();
+    resolver.upsert(slot('slot-1', 'g1'));
+    expect(resolver.resolve('slot-1')?.fixture_ids).toEqual([]);
+    resolver.upsert(slot('slot-2', null, [], 'not-an-array'));
+    expect(resolver.resolve('slot-2')?.fixture_ids).toEqual([]);
+  });
+
+  it('drops non-string and empty entries from fixture_ids', () => {
+    const resolver = new ProgramSlotResolver();
+    resolver.upsert(slot('slot-1', null, [], ['eA', '', 7, 'eB', null]));
+    expect(resolver.resolve('slot-1')?.fixture_ids).toEqual(['eA', 'eB']);
   });
 });
