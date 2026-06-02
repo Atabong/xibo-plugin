@@ -24,7 +24,11 @@ export type RenderJournalEventType =
   | 'ad_slot_payload_unavailable'
   // --- multiple_games template (SPEC-CRWDQ-031) ---
   | 'template_input_invalid'
-  | 'multi_game_reconciled';
+  | 'multi_game_reconciled'
+  // --- fixtures template (SPEC-CRWDQ-034) ---
+  | 'fixture_cache_miss'
+  | 'fixtures_reconciled'
+  | 'template_locale_refresh';
 
 export interface RenderJournalEntry {
   type: RenderJournalEventType;
