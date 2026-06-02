@@ -1,0 +1,77 @@
+/*
+ * SPEC-CRWDQ-052 — safe_info (ambient "stay tuned" panel) base layout.
+ *
+ * D-SAFE-01 calm intent + D-GRH-31 anti-flash: this template runs NO
+ * animations and NO transitions on the body. The base sheet declares ZERO
+ * animation/transition/keyframes rules on any `.cdq-safe-body` descendant
+ * (AC6); a theme sheet (D-GRH-51) may restyle colour/type but must keep the
+ * panel motionless. The outer PlannedState-level transition is the activator's
+ * (always `cut` for safe_info), never the body's.
+ *
+ * data-source / data-reason are set on the root so a theme can subtly vary the
+ * footer indicator; the footer is low-contrast and never alarming (no red
+ * borders, no "ERROR" text, no flashing).
+ */
+
+.crowdaq-safe-info {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  height: 100%;
+  align-items: center;
+  justify-content: center;
+  gap: var(--cdq-safe-gap, 16px);
+}
+
+.cdq-safe-header {
+  flex: 0 0 auto;
+}
+
+.cdq-venue-name {
+  font-variant: small-caps;
+  letter-spacing: 0.04em;
+}
+
+.cdq-venue-brand-img {
+  display: block;
+  max-width: var(--cdq-venue-brand-max-width, 240px);
+  max-height: var(--cdq-venue-brand-max-height, 96px);
+  object-fit: contain;
+}
+
+.cdq-safe-body {
+  flex: 1 1 auto;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  gap: var(--cdq-safe-body-gap, 8px);
+}
+
+.cdq-safe-title {
+  margin: 0;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+}
+
+.cdq-safe-tagline {
+  margin: 0;
+  opacity: 0.8;
+}
+
+.cdq-safe-footer {
+  flex: 0 0 auto;
+}
+
+/* Subtle, non-alarming status indicator (D-SAFE-01): low contrast, small caps. */
+.cdq-safe-status {
+  font-variant: small-caps;
+  font-size: 0.85em;
+  opacity: 0.6;
+}
+
+/* An empty status (backend_planned/scheduled|no_content) reserves no space. */
+.cdq-safe-status:empty {
+  display: none;
+}

@@ -1,0 +1,22 @@
+<!--
+  SPEC-CRWDQ-052 — safe_info template DOM shape (reference markup).
+
+  The live DOM is built imperatively by SafeInfoTemplate.mount. This file is
+  the canonical shape reference for theme authors and review — NOT a runtime
+  template. The header venue brand is resolved via the AC2 fallback chain
+  (cached asset <img> -> "CITY, STATE" text -> wordmark-only empty header); the
+  footer status text is keyed off data-source / data-reason per the AC7 map.
+  No motion is applied to the body (AC6 / D-SAFE-01 calm).
+-->
+<section class="crowdaq-safe-info" data-theme="__default__" data-source="backend_planned" data-reason="scheduled">
+  <header class="cdq-safe-header">
+    <span class="cdq-venue-name"><!-- venue brand: <img> | "CITY, STATE" | (empty) --></span>
+  </header>
+  <div class="cdq-safe-body">
+    <h1 class="cdq-safe-title">CROWDAQ</h1>
+    <p class="cdq-safe-tagline">Live sports excitement</p>
+  </div>
+  <footer class="cdq-safe-footer">
+    <span class="cdq-safe-status"><!-- '' | "Brief pause" | "Reconnecting…" | "Refreshing…" | "Loading…" --></span>
+  </footer>
+</section>
