@@ -433,6 +433,41 @@ describe('overlay composite end-to-end — supersede (AC9)', () => {
   });
 });
 
+describe('SingleGameOverlayAd — static, no rotation (AC5, D-GRH-62)', () => {
+  let host: HTMLElement;
+  beforeEach(() => {
+    host = document.createElement('div');
+  });
+  afterEach(() => {
+    host.remove();
+  });
+
+  it('paints exactly one creative for the slot lifetime and never rotates to a second', async () => {
+    const { store } = makeAssetStore();
+    await applyAndWarmAdManifest(store, ['creative-1', 'creative-2']);
+    const gameStore = new GameStateStore(new RecordingJournal());
+    const journal = new RecordingJournal();
+
+    new SingleGameOverlayAd({ assetManifestStore: store, journal }).mount(host, {
+      ...context(gameStore, 'g1'),
+      adSlot: adSlot({ ad_slot_id: 'ad-1', ad_ref: 'creative-1' }),
+    });
+
+    // Even after timers advance, the single creative never swaps to another:
+    // the player has no ad-progression logic — a different ad is a new
+    // PlannedState supersede, never an in-slot rotation.
+    vi.useFakeTimers();
+    try {
+      vi.advanceTimersByTime(60_000);
+    } finally {
+      vi.useRealTimers();
+    }
+
+    const imgs = host.querySelectorAll('img.cdq-ad-creative');
+    expect(imgs).toHaveLength(1);
+  });
+});
+
 describe('single-game-overlay-ad.css — coexistence (AC2/AC7, D-GRH-15/16)', () => {
   // Suite runs under jsdom where import.meta.url is not a file URL; resolve from
   // the package root (vitest cwd) exactly as the safe-info CSS test does.
