@@ -28,7 +28,11 @@ export type RenderJournalEventType =
   // --- fixtures template (SPEC-CRWDQ-034) ---
   | 'fixture_cache_miss'
   | 'fixtures_reconciled'
-  | 'template_locale_refresh';
+  | 'template_locale_refresh'
+  // --- recap template (SPEC-CRWDQ-046) ---
+  | 'recap_no_gamestate'
+  | 'recap_premature'
+  | 'recap_late_event';
 
 export interface RenderJournalEntry {
   type: RenderJournalEventType;

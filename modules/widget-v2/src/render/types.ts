@@ -41,6 +41,14 @@ export interface GameState {
   away_team?: string;
   home_score?: number;
   away_score?: number;
+  /**
+   * Lifecycle status of the game on the wire (SPEC-CRWDQ-045 / -017
+   * `GameStatePayload`). The recap template (SPEC-CRWDQ-046) reads
+   * `status === "final"` from its in-memory state to confirm the game has
+   * concluded; absent on a still-live game. Optional at the render layer
+   * because not every feed snapshot carries it before the final flip.
+   */
+  status?: string;
   sport_context?: SportContext;
   /** Last notable moment text; the overlay renders only when non-empty. */
   last_moment?: string;
