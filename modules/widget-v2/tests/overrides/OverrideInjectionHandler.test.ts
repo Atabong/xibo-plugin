@@ -265,26 +265,6 @@ describe('forward-compat non-null payload_ref', () => {
   });
 });
 
-describe('runtime_reason is journal-only (D-GRH-76)', () => {
-  it('journals render_error and never renders the enum value on screen', () => {
-    const { host, dispatcher, journal } = setup();
-    // A renderer that throws on mount drives the runtime-safe path.
-    const throwingRenderer = {
-      mount() {
-        throw new Error('boom');
-      },
-    };
-    const handler = new OverrideInjectionHandler({
-      dispatcher: new FrameDispatcher(inertRequester, inertGames),
-      suppression: new WritableOverrideSuppressionState(),
-      renderer: throwingRenderer,
-      journal,
-      host,
-      now: () => Date.now(),
-    });
-    handler.handle(overrideFrame({ override_id: 'o1' }));
-    const err = journal.ofType('override_render_error')[0] ?? journal.entries.find((e) => e.runtime_reason);
-    expect(err?.runtime_reason).toBe('render_error');
-    expect(host.textContent ?? '').not.toContain('render_error');
-  });
-});
+// The runtime_reason render-failure path (D-GRH-76) is covered through the REAL
+// OverrideOverlayRenderer driven by a genuine DOM mount failure in
+// OverrideRenderFailure.test.ts (INV-FACTORY-16 — no mock of the renderer).
