@@ -133,11 +133,14 @@ describe('FixtureCardSet badge resolution (AC7/AC8)', () => {
     expect(badge.textContent).toContain('Premier League');
     // ensure() was invoked exactly once for the badge id (one fetch).
     expect(h.fetcher.fetched.filter((id) => id === 'badge:football:premier-league')).toHaveLength(1);
-    // After the ensure resolves the badge <img> is swapped in.
+    // Await the store's ensure for the same id: it de-dups onto the card's
+    // in-flight call, so this settles exactly when the card's swap-in fires.
+    await h.assetStore.ensure('badge:football:premier-league');
     await Promise.resolve();
-    await new Promise((r) => setTimeout(r, 0));
     const img = card.querySelector<HTMLImageElement>('.cdq-sport-badge img');
     expect(img?.getAttribute('src')).toMatch(/^blob:/);
+    // Still exactly one fetch — the second ensure() de-duped (no extra fetch).
+    expect(h.fetcher.fetched.filter((id) => id === 'badge:football:premier-league')).toHaveLength(1);
   });
 });
 
