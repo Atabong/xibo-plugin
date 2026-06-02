@@ -36,7 +36,12 @@ export type RenderJournalEventType =
   // --- with-ads composite templates (SPEC-CRWDQ-041) ---
   | 'ad_asset_cache_miss'
   | 'ad_slot_rendered'
-  | 'ad_slot_completed';
+  | 'ad_slot_completed'
+  // --- ambient template (SPEC-CRWDQ-053) ---
+  | 'ambient_video_deferred'
+  | 'ambient_empty_manifest'
+  | 'ambient_creative_advanced'
+  | 'ambient_playlist_refreshed';
 
 export interface RenderJournalEntry {
   type: RenderJournalEventType;

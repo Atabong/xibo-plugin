@@ -1,0 +1,16 @@
+<!--
+  SPEC-CRWDQ-053 — ambient template DOM shape (reference markup).
+
+  The live DOM is built imperatively by AmbientTemplate.mount. This file is the
+  canonical shape reference for theme authors and review — NOT a runtime
+  template. One creative is visible at a time; rotation swaps the <img src> and
+  data-asset-id on each dwell boundary (data-active-index advances modulo the
+  playlist length). The next-3 <link rel="preload"> elements are injected by the
+  template and refreshed on each rotation (AC7); they paint nothing.
+-->
+<section class="crowdaq-ambient" data-theme="__default__">
+  <div class="cdq-ambient-stage" data-active-index="0">
+    <img class="cdq-ambient-creative" data-asset-id="ambient:001" src="https://cdn.example/ambient:001.png" alt="" />
+  </div>
+  <!-- <link rel="preload" as="image" href="…next-3 creatives…"> (injected) -->
+</section>
