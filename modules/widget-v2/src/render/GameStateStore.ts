@@ -30,6 +30,14 @@ interface GameRecord {
 
 export class GameStateStore {
   private readonly games = new Map<string, GameRecord>();
+  /**
+   * Store-wide listeners (SPEC-CRWDQ-052 liveness probe). Fire on EVERY applied
+   * change across ALL games — the per-game `subscribe` is a render concern (one
+   * template watches one game), while a store-wide observer is the D-SAFE-01
+   * staleness probe that resets its timer on any game's liveness, regardless of
+   * which game advanced.
+   */
+  private readonly allListeners = new Set<Listener>();
 
   constructor(private readonly journal: RenderJournal) {}
 
@@ -83,6 +91,17 @@ export class GameStateStore {
     return () => record.listeners.delete(listener);
   }
 
+  /**
+   * Subscribe to applied mutations across ALL games (D-SAFE-01 liveness probe,
+   * SPEC-CRWDQ-052). Fires on every snapshot / accepted event, with the same
+   * "applied only" semantics as the per-game `subscribe` — a dropped
+   * out-of-order event fires nothing. Returns an unsubscribe fn.
+   */
+  subscribeAll(listener: Listener): () => void {
+    this.allListeners.add(listener);
+    return () => this.allListeners.delete(listener);
+  }
+
   private ensure(gameId: string): GameRecord {
     let record = this.games.get(gameId);
     if (!record) {
@@ -117,6 +136,9 @@ export class GameStateStore {
 
   private notify(record: GameRecord): void {
     for (const listener of record.listeners) {
+      listener(record.state);
+    }
+    for (const listener of this.allListeners) {
       listener(record.state);
     }
   }
