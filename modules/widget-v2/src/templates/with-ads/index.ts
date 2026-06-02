@@ -8,6 +8,8 @@
  */
 export { AdPanel } from './AdPanel';
 export type { AdPanelContext, AdPanelInstance, AdPanelPosition } from './AdPanel';
+export { SingleGameOverlayAd } from './SingleGameOverlayAd';
+export type { SingleGameOverlayAdDeps } from './SingleGameOverlayAd';
 export { MultiGameWithAdsTemplate } from './MultiGameWithAdsTemplate';
 export type { MultiGameWithAdsContext } from './MultiGameWithAdsTemplate';
 export { FixturesWithAdsTemplate } from './FixturesWithAdsTemplate';
