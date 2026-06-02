@@ -54,6 +54,20 @@ describe('DwellTimer', () => {
     expect(fired).toEqual(['second']);
   });
 
+  it('treats a non-positive dwell target as infinite: no boundary is armed (SPEC-CRWDQ-052)', () => {
+    const timer = new DwellTimer(systemDwellClock);
+    let fired = false;
+    // The SPEC-CRWDQ-052 synthetic safe state arms dwell_target_ms:0 = infinite;
+    // the player-fallback panel must stay mounted until recovery, never timing out.
+    timer.arm(0, () => {
+      fired = true;
+    });
+    vi.advanceTimersByTime(60 * 60_000);
+    expect(fired).toBe(false);
+    // An infinite arm reports no live elapsed (nothing is scheduled).
+    expect(timer.elapsed()).toBeNull();
+  });
+
   it('reports live elapsed while armed and null when idle', () => {
     const timer = new DwellTimer(systemDwellClock);
     expect(timer.elapsed()).toBeNull();

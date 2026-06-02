@@ -39,9 +39,17 @@ export class DwellTimer {
   /**
    * Arm a one-shot boundary. Replaces any prior schedule (the prior boundary
    * never fires). `onBoundary` receives the actual elapsed wall-clock at fire.
+   *
+   * A non-positive `dwellTargetMs` (`<= 0`) means INFINITE dwell (SPEC-CRWDQ-052
+   * synthetic safe state): no boundary is scheduled and the timer reports idle,
+   * so a player-fallback panel stays mounted until the controller supersedes it
+   * on recovery — it never times out. A prior schedule is still cancelled.
    */
   arm(dwellTargetMs: number, onBoundary: (actualDwellMs: number) => void): void {
     this.cancel();
+    if (dwellTargetMs <= 0) {
+      return;
+    }
     const armedAt = this.clock.now();
     const handle = this.clock.setTimer(() => {
       // The schedule has fired; clear armed BEFORE the callback so a re-arm
