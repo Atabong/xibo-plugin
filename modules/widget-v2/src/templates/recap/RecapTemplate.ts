@@ -305,9 +305,11 @@ function momentDetail(detail: Record<string, unknown>): string {
 
 /**
  * Resolve the sport/league badge from the AssetManifest (keyed by sport +
- * league, both on `sport_context`). A synchronous cache hit paints the badge
- * `<img>`; a miss leaves the slot empty (no error). There is NO per-team logo —
- * no wire payload carries a `team_id`.
+ * league, both on `sport_context`). A synchronous `get` hit paints the badge
+ * `<img>` immediately; a miss calls `ensure(...)` once and swaps the `<img>` in
+ * when the fetch resolves. A badge the manifest does not carry (or a fetch
+ * failure) leaves the slot EMPTY without error — the sport/league text remains
+ * legible. There is NO per-team logo — no wire payload carries a `team_id`.
  */
 function renderBadge(root: HTMLElement, state: GameState, assets: AssetManifestStore): void {
   const slot = root.querySelector<HTMLElement>('.cdq-sport-context');
@@ -317,10 +319,30 @@ function renderBadge(root: HTMLElement, state: GameState, assets: AssetManifestS
   if (typeof sport !== 'string' || typeof league !== 'string' || sport.length === 0 || league.length === 0) {
     return;
   }
-  const cached = assets.get(badgeAssetId(sport, league));
-  if (cached === null) return;
+  const assetId = badgeAssetId(sport, league);
+
+  const cached = assets.get(assetId);
+  if (cached !== null) {
+    paintBadge(slot, cached.url);
+    return;
+  }
+
+  // Miss: leave the slot empty, then ensure once and fill in on resolve.
+  void assets
+    .ensure(assetId)
+    .then((asset) => {
+      if (slot.querySelector('img') === null) paintBadge(slot, asset.url);
+    })
+    .catch(() => {
+      // The badge is absent from the manifest or failed to fetch: the empty
+      // slot degrades gracefully (the sport/league text is still shown).
+    });
+}
+
+/** Paint a badge `<img>` with the resolved asset url. */
+function paintBadge(slot: HTMLElement, url: string): void {
   const img = document.createElement('img');
   img.alt = '';
-  img.setAttribute('src', cached.url);
+  img.setAttribute('src', url);
   slot.append(img);
 }

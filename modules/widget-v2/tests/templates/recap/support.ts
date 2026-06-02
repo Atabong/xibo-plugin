@@ -91,7 +91,7 @@ export function makeAssetStore(): AssetManifestStore {
   });
 }
 
-/** Apply a manifest that declares `assetIds` as warm (empty-byte) assets. */
+/** Apply a manifest that declares `assetIds` as (empty-byte) assets. */
 export function applyBadgeManifest(store: AssetManifestStore, assetIds: string[]): void {
   const assets: AssetEntry[] = assetIds.map((id) => ({
     asset_id: id,
@@ -102,6 +102,15 @@ export function applyBadgeManifest(store: AssetManifestStore, assetIds: string[]
     needed_by: null,
   }));
   store.apply({ message_type: 'AssetManifest', payload: { version: 'v1', assets } } as AssetManifestFrame);
+}
+
+/**
+ * Warm an asset into the synchronous hot map so a later `get(assetId)` hits
+ * without an async fetch — mirrors a badge already pre-fetched by the time the
+ * recap mounts. The id must already be in the applied manifest.
+ */
+export async function warmAsset(store: AssetManifestStore, assetId: string): Promise<void> {
+  await store.ensure(assetId);
 }
 
 /** A complete fixture with sensible defaults. */
@@ -178,6 +187,7 @@ export function makeRecapHarness(opts: {
     assetManifestStore: assetStore,
     headlineMoment: opts.headlineMoment ?? null,
     pendingApply: null,
+    journal,
   };
 
   return { host, ctx, journal, gameStateStore, fixtureListStore, assetStore };
