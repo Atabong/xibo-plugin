@@ -1,3 +1,5 @@
+> **⚠️ ARCHIVED — v1 (SSE) widget.** This documents the legacy SSE widget `modules/crowdaq-widget.xml`. Current direction is **widget-v2** (WebSocket/JSONL) — see [`docs/ARCHITECTURE.md`](../../ARCHITECTURE.md). v1 still ships side-by-side with v2; this doc is retained for v1 operators only.
+
 # Multi-bar targeting via display properties
 
 _Status: loop iter17. Path chosen: **B (client-side substitution)**. See

@@ -2,6 +2,15 @@
 
 This directory is intentionally empty in phase 1.
 
+It exists for an **optional v1 PHP data-provider class only**. The v2 player
+runtime is **TypeScript, not PHP** — it lives under
+[`modules/widget-v2/`](../modules/widget-v2/) (`@crowdaq/widget-v2`), built
+with its own `tsup`/`vitest`/`eslint` toolchain. v2 does not use this
+directory, and the v2 work does not repopulate it. `src/` only ever gains
+files if the **v1** widget grows a server-side PHP data provider (see
+[When we'd add PHP here](#when-wed-add-php-here) below) — otherwise it stays
+empty / PHP-only.
+
 Xibo CMS 4.x custom modules are **XML-first**: a widget is fully defined
 by its `<module>` manifest under `modules/` and an inline `<stencil>`
 block (mirrored for IDE editing under `stencils/`). A server-side PHP

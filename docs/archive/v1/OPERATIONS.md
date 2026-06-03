@@ -2,6 +2,8 @@
   Copyright (C) 2026 CROWDAQ
   Licensed under AGPL-3.0-or-later.
 -->
+> **⚠️ ARCHIVED — v1 (SSE) widget.** This documents the legacy SSE widget `modules/crowdaq-widget.xml`. Current direction is **widget-v2** (WebSocket/JSONL) — see [`docs/ARCHITECTURE.md`](../../ARCHITECTURE.md). v1 still ships side-by-side with v2; this doc is retained for v1 operators only.
+
 # CROWDAQ Xibo plugin — operations runbook
 
 Operator-side procedures for inspecting and debugging a deployed CROWDAQ
@@ -135,7 +137,7 @@ Common failure shapes:
 ## Refreshing a deployed widget
 
 The widget XML is shipped via the GitOps Job in `k8s/`:
-[`k8s/job.yaml`](../k8s/job.yaml) + Flux. Editing
+[`k8s/job.yaml`](../../../k8s/job.yaml) + Flux. Editing
 `modules/crowdaq-widget.xml` on `main` re-hashes the kustomize-generated
 `crowdaq-manifests` ConfigMap, which re-creates the install Job, which
 copies the new XML into `/var/www/cms/custom/modules/` in the CMS pod
@@ -219,7 +221,7 @@ working — they just are not actionable until the snap fork ships.
 
 Independent of the CSP block, the widget's `score-update` handler
 expects a nested payload shape per
-[`docs/contract/events/score-update.json`](contract/events/score-update.json):
+[`docs/contract/events/score-update.json`](../../contract/events/score-update.json):
 
 ```json
 {
