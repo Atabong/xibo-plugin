@@ -30,6 +30,10 @@ export function teamNameKey(name: string): string {
 export class CrestResolver {
   /** Built lazily + rebuilt on each manifest apply: name_key → asset_id. */
   private crestByRef = new Map<string, string>();
+  /** asset_ids we've already kicked a warm-fetch for this manifest version, so
+   *  a per-frame render never re-fires a fetch (and a failed/unreachable crest
+   *  never churns the network). Cleared on each manifest apply. */
+  private warmAttempted = new Set<string>();
 
   constructor(private readonly store: AssetManifestStore) {
     this.rebuildIndex();
@@ -46,6 +50,9 @@ export class CrestResolver {
       }
     }
     this.crestByRef = next;
+    // A new manifest may carry fresh bytes / fixed URLs — allow one warm
+    // attempt per id again.
+    this.warmAttempted = new Set<string>();
   }
 
   /** The crest asset_id for a team display name, or null when none is published. */
@@ -64,8 +71,19 @@ export class CrestResolver {
     if (assetId === null) return null;
     const cached = this.store.get(assetId);
     if (cached) return cached.url;
-    // Bytes not warm yet — kick a fetch so the next render finds them.
-    void this.store.ensure(assetId).catch(() => {});
+    // Bytes not warm yet — kick ONE best-effort warm-fetch (fire-and-forget,
+    // never awaited by the render path) so a LATER render can swap the badge
+    // in. Guarded by `warmAttempted` so a per-frame render of an unreachable /
+    // slow crest never re-fires the fetch (no churn). Always returns null here
+    // so the caller renders its colour-block fallback IMMEDIATELY — the render
+    // NEVER blocks or hangs on a crest. The CrestResolver does not even hold the
+    // bytes; it only reads what AssetManifestStore has already cached.
+    if (!this.warmAttempted.has(assetId)) {
+      this.warmAttempted.add(assetId);
+      void this.store.ensure(assetId).catch(() => {
+        /* unreachable/slow/hash-mismatch crest — stay on the colour block. */
+      });
+    }
     return null;
   }
 }

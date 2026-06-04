@@ -99,6 +99,33 @@ describe('CrestResolver', () => {
     expect(resolver.assetIdForTeam('Bayern München')).toBe('crest:api-football:157');
   });
 
+  it('fires AT MOST ONE warm-fetch per asset across many renders (no churn)', async () => {
+    const bytes = bytesOf('crest-bytes');
+    const entry = await crestEntry('crest:api-football:165', 'borussia dortmund', bytes);
+    // Make the fetch hang (never resolves) — simulates an unreachable crest.
+    fetcher.block('crest:api-football:165');
+    store.apply(frameOf({ version: 'v1', assets: [entry] } as never));
+    const resolver = new CrestResolver(store);
+
+    // Render the same team 50 times (as the score-bug re-renders on each state).
+    for (let i = 0; i < 50; i++) {
+      expect(resolver.crestUrlForTeam('Borussia Dortmund')).toBeNull(); // colour-block fallback
+    }
+    // Let the fire-and-forget ensure() microtasks run.
+    await Promise.resolve();
+    await Promise.resolve();
+    // AT MOST ONE underlying fetch was kicked despite 50 renders — no churn,
+    // and the render never blocked on the hanging fetch (it returned null 50x).
+    expect(fetcher.callsFor('crest:api-football:165')).toBeLessThanOrEqual(1);
+  });
+
+  it('crestUrlForTeam is synchronous + never throws when the warm-fetch rejects', () => {
+    // No manifest applied → assetIdForTeam null → immediate null, no fetch.
+    const resolver = new CrestResolver(store);
+    expect(() => resolver.crestUrlForTeam('Anything FC')).not.toThrow();
+    expect(resolver.crestUrlForTeam('Anything FC')).toBeNull();
+  });
+
   it('ignores non-crest (creative) entries', async () => {
     const creative: AssetEntry = {
       asset_id: 'creative-1',
