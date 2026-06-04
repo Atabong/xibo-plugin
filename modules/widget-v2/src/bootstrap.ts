@@ -284,15 +284,16 @@ function isFrame(r: ParseResult): r is ServerFrame {
 /**
  * HTTP `fetch` asset fetcher (D-GRH-74 publicly-readable URLs).
  *
- * CSP / cross-origin note (SPEC-CRWDQ-S11, learned LIVE): the asset bytes live
- * on a DIFFERENT origin than the widget (the game-delivery tailnet host vs the
- * player's `http://localhost:9696` web root). The player's Content-Security-
- * Policy `img-src` refuses a cross-origin remote `<img src>` — but a `blob:`
- * object URL minted from the already-fetched bytes is same-document and loads
- * fine (and `connect-src`/CORS governs the fetch, which we satisfy with
- * `Access-Control-Allow-Origin: *` on the server). So the CachedAsset `url` is
- * an OBJECT URL over the bytes, NOT the remote URL — every `<img src>` /
- * `<link href>` consumer then loads from the local blob, CSP-safe.
+ * CSP / cross-origin note (SPEC-CRWDQ-S11, learned LIVE on the Xibo player):
+ * the asset bytes live on a DIFFERENT origin than the widget (the game-delivery
+ * tailnet host vs the player's `http://localhost:9696` web root). The Xibo
+ * player (Electron) enforces a Content-Security-Policy whose `img-src` refuses
+ * BOTH a cross-origin remote `<img src>` AND a `blob:` object URL — but it
+ * ALLOWS `data:` URIs (the player's own UI uses inline `data:` SVGs). So the
+ * CachedAsset `url` is a `data:<type>;base64,...` URI built from the
+ * already-fetched + hash-verified bytes; every `<img src>` consumer then loads
+ * inline, CSP-safe. The cross-origin FETCH itself is governed by `connect-src`
+ * + CORS, which we satisfy with `Access-Control-Allow-Origin: *` on the server.
  */
 export class HttpAssetFetcher implements AssetFetcher {
   async fetch(entry: AssetEntry): Promise<CachedAsset> {
@@ -301,22 +302,31 @@ export class HttpAssetFetcher implements AssetFetcher {
       throw new Error(`asset fetch ${entry.asset_id}: HTTP ${res.status}`);
     }
     const bytes = await res.arrayBuffer();
-    let url = entry.url;
-    try {
-      const type = entry.content_type || res.headers.get('content-type') || 'application/octet-stream';
-      url = URL.createObjectURL(new Blob([bytes], { type }));
-    } catch {
-      // No URL.createObjectURL (non-browser env / test) — fall back to the
-      // remote URL; the hash-verified bytes are still cached either way.
-    }
+    const type =
+      entry.content_type || res.headers.get('content-type') || 'application/octet-stream';
     return {
       asset_id: entry.asset_id,
       content_hash: entry.content_hash,
-      url,
+      url: toDataUri(bytes, type),
       content_type: entry.content_type,
       bytes,
     };
   }
+}
+
+/** Encode bytes as a `data:<type>;base64,...` URI (CSP-safe `img-src`). */
+function toDataUri(bytes: ArrayBuffer, contentType: string): string {
+  const u8 = new Uint8Array(bytes);
+  let binary = '';
+  const chunk = 0x8000;
+  for (let i = 0; i < u8.length; i += chunk) {
+    binary += String.fromCharCode(...u8.subarray(i, i + chunk));
+  }
+  const b64 =
+    typeof btoa === 'function'
+      ? btoa(binary)
+      : Buffer.from(u8).toString('base64'); // non-browser (tests)
+  return `data:${contentType};base64,${b64}`;
 }
 
 /**
