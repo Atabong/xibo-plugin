@@ -32,7 +32,8 @@
  * a mock crowdaq.v1 server.
  */
 import { CrowdaqWsClient, type WebSocketFactory, type WebSocketLike } from './transport/WsClient';
-import { WireDeserializer } from './transport/Deserializer';
+import { WireDeserializer, type Deserializer } from './transport/Deserializer';
+import type { ParseResult, ServerFrame } from './transport/types';
 import { FrameDispatcher, type ActiveGames } from './transport/Dispatcher';
 import type {
   Dispatcher,
@@ -214,6 +215,43 @@ export class InMemoryAssetCache implements AssetCache {
     this.rows.clear();
     return ids;
   }
+}
+
+/**
+ * Envelope-flattening deserializer (the live↔twin wire-shape adapter).
+ *
+ * The live game-delivery server nests per-type data under `payload`
+ * (`{ schema_version, channel, message_type, ts, payload, bar_id?, game_id?,
+ * seq? }`), but the implemented widget handlers — PlannedStateActivator,
+ * ProgramSlotResolver, the GameStateStore game-data handlers — read their fields
+ * at the TOP level (matching the SPEC-CRWDQ-017 twin + the on-branch fixtures).
+ * AssetManifestStore is the exception: it reads `frame.payload.{version,assets}`.
+ *
+ * This wrapper hoists `payload` keys to the top level on every parsed frame
+ * WITHOUT discarding `payload` (so AssetManifest still resolves), and lifts the
+ * envelope `seq` / `game_id` / `bar_id` so the seq-bearing game-data handlers
+ * see them. Top-level keys already present win over `payload` (a twin-shaped
+ * frame is passed through unchanged). This is the one place the live envelope is
+ * reconciled to the twin — the integration boundary, not a fork of every module.
+ */
+export class EnvelopeFlatteningDeserializer implements Deserializer {
+  constructor(private readonly inner: Deserializer = new WireDeserializer()) {}
+  parse(line: string): ParseResult {
+    const result = this.inner.parse(line);
+    if (!isFrame(result)) return result;
+    const frame = result as Record<string, unknown>;
+    const payload = frame['payload'];
+    if (payload == null || typeof payload !== 'object') return result;
+    // Hoist payload keys to top level without clobbering an existing top-level
+    // key and without dropping `payload` (AssetManifest reads frame.payload).
+    const flattened: Record<string, unknown> = { ...(payload as Record<string, unknown>), ...frame };
+    return flattened as unknown as ServerFrame;
+  }
+}
+
+/** True when a ParseResult is an actual frame (not an empty/parse-error marker). */
+function isFrame(r: ParseResult): r is ServerFrame {
+  return typeof (r as { message_type?: unknown }).message_type === 'string';
 }
 
 /** HTTP `fetch` asset fetcher (D-GRH-74 publicly-readable R2 URLs). */
@@ -434,16 +472,22 @@ export async function boot(
   assets.registerWith(dispatcher); // AssetManifest
 
   // ConfigPush: accept, persist, and update the bar-wide applied theme so the
-  // activator's theme fall-through resolves against it (AC8).
+  // activator's theme fall-through resolves against it (AC8). The SPEC-014
+  // validator is closed-shape (no extra keys), so the live envelope's `channel`
+  // / `payload` wrappers must be stripped — `toConfigPushFrame` reconstructs the
+  // exact validatable subset from either the live (payload-nested) or twin
+  // (top-level) shape.
   dispatcher.register(
     'ConfigPush',
     (frame) => {
-      void configHandler.handle(frame as ConfigPushFrame).then((outcome) => {
-        if (outcome.kind === 'first_push' || outcome.kind === 'replaced') {
-          const prefs = outcome.kind === 'first_push' ? outcome.preferences : null;
-          if (prefs) barTheme.set(prefs.theme);
-        }
-      });
+      void configHandler
+        .handle(toConfigPushFrame(frame as Record<string, unknown>) as ConfigPushFrame)
+        .then((outcome) => {
+          if (outcome.kind === 'first_push' || outcome.kind === 'replaced') {
+            const prefs = outcome.kind === 'first_push' ? outcome.preferences : null;
+            if (prefs) barTheme.set(prefs.theme);
+          }
+        });
     },
     'control',
   );
@@ -479,7 +523,7 @@ export async function boot(
   };
   const client = new CrowdaqWsClient(config, {
     webSocketFactory: deps.webSocketFactory ?? browserWebSocketFactory,
-    deserializer: new WireDeserializer(),
+    deserializer: new EnvelopeFlatteningDeserializer(),
     dispatcher,
     journal,
     now: deps.now ?? (() => Date.now()),
@@ -529,6 +573,31 @@ function toGameSnapshot(frame: GameStateFrame | GameStateSnapshotFrame): GameSta
 /** Map a GameEvent wire frame to the render `GameEvent` delta shape. */
 function toGameEvent(frame: GameEventFrame): GameEvent {
   return readGameFields(frame) as GameEvent;
+}
+
+/**
+ * Reconstruct the exact closed-shape ConfigPush frame the SPEC-014 validator
+ * accepts, from either the live (payload-nested) or twin (top-level) envelope.
+ * The validator demands EXACTLY {message_type, schema_version, ts, bar_id,
+ * display_id, config_hash, preferences, cache_ceiling_bytes, intervals} — so the
+ * live envelope's `channel` + `payload` wrappers (and the post-flatten duplicate
+ * keys) must be dropped. Reads each field from the flattened frame (which carries
+ * both top-level and hoisted-payload keys).
+ */
+function toConfigPushFrame(frame: Record<string, unknown>): Record<string, unknown> {
+  const payload = (frame['payload'] as Record<string, unknown> | undefined) ?? {};
+  const pick = (key: string): unknown => frame[key] ?? payload[key];
+  return {
+    message_type: 'ConfigPush',
+    schema_version: pick('schema_version') ?? 1,
+    ts: pick('ts'),
+    bar_id: pick('bar_id'),
+    display_id: pick('display_id') ?? null,
+    config_hash: pick('config_hash'),
+    preferences: pick('preferences'),
+    cache_ceiling_bytes: pick('cache_ceiling_bytes'),
+    intervals: pick('intervals'),
+  };
 }
 
 /** Shared field extraction for the game-data frames. */

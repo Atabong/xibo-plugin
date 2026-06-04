@@ -1,0 +1,196 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  CROWDAQ Widget v2 — Xibo 4.x custom module (WebSocket / JSONL crowdaq.v1).
+
+  This is the v2 successor to modules/crowdaq-widget.xml. The v1 widget speaks
+  Server-Sent Events against <apiBaseUrl>/events/<eventId>/stream; the BACKEND
+  no longer serves that as its primary path — it emits the crowdaq.v1 protocol
+  over a persistent WebSocket (subprotocol `crowdaq.v1`, JSONL Envelope frames).
+  So v1 cannot consume the current backend. v2 closes that gap.
+
+  Architecture, identical in spirit to v1 (XML-first, empty <class>/<dataType>,
+  pure client-side render in <onRender>):
+
+    * The runtime is a TypeScript module set (modules/widget-v2) bundled by tsup
+      into a single self-contained IIFE exposing the global `CrowdaqWidgetV2`
+      with `.boot(target, properties, deps)`. The bundle is INLINED into the
+      <onRender> block below at package time (the `__CROWDAQ_WIDGET_V2_BUNDLE__`
+      marker is replaced by tools/package.mjs with dist/crowdaq-widget-v2.global.js).
+
+    * boot() reads xiboIC.info() for the display identity (hardwareKey -> bar_id,
+      displayName -> display_id), resolves the WS URL from the `wsBaseUrl`
+      property (supports the v1 `display:<field>` targeting convention so one
+      layout serves many bars), opens a crowdaq.v1 WS, performs the D-GRH-61
+      DeviceRegistration handshake, and renders the single_game template into the
+      mount <div>. Score/overlay update in place on each GameEvent.
+
+    * The CMS pod NEVER opens the WS: no server-side data provider, empty
+      <class> + <dataType>, exactly like v1. Only the player's Chromium webview
+      dials the tailnet-resolved game-delivery /ws endpoint.
+
+  INSTALL: see docs at the foot of this file + the S5 EVIDENCE.md. The operator
+  builds a Layout with one region + this widget, sets `wsBaseUrl` to the
+  game-delivery WS base (e.g. wss://game-delivery.tailnet or
+  display:<field>), and assigns the Layout to the bar-demo display.
+-->
+<module>
+    <id>crowdaq-widget-v2</id>
+    <name>CROWDAQ (v2)</name>
+    <author>CROWDAQ</author>
+    <description>Renders a live CROWDAQ single-game scoreboard on a Xibo display over the crowdaq.v1 WebSocket protocol (score, clock, last notable moment). Updates the score in place on each game event.</description>
+    <icon>fa fa-bolt</icon>
+
+    <!-- Empty <class>: no server-side PHP data-provider. The widget opens the
+         crowdaq.v1 WS from the player's browser runtime inside <onRender>. -->
+    <class></class>
+
+    <type>crowdaq-widget-v2</type>
+
+    <!-- Empty <dataType> on purpose: pure client-side. The CMS pod is not on the
+         tailnet and must not attempt a server-side data cache (it would 500 and
+         collapse the player's getResource chain). Mirrors the upstream static
+         module template (embedded.xml / countdown-text.xml). -->
+    <dataType></dataType>
+
+    <schemaVersion>1</schemaVersion>
+    <assignable>1</assignable>
+    <regionSpecific>1</regionSpecific>
+    <renderAs>html</renderAs>
+
+    <defaultDuration>60</defaultDuration>
+
+    <startWidth>640</startWidth>
+    <startHeight>360</startHeight>
+
+    <settings></settings>
+
+    <properties>
+        <property id="wsBaseUrl" type="text">
+            <title>CROWDAQ WebSocket base URL</title>
+            <helpText>Base URL of the CROWDAQ game-delivery WebSocket (e.g. wss://game-delivery.tailnet or https://game-delivery.tailnet — http(s) is rewritten to ws(s)). The crowdaq.v1 /ws path is appended automatically. Multi-bar targeting: a value of the form display:&lt;field&gt; (e.g. display:displayName) is resolved at render time against the player's xiboIC.info() response so one layout serves many bars. Leave blank to render a "Configure wsBaseUrl" placeholder.</helpText>
+            <default></default>
+            <rule>
+                <test message="wsBaseUrl must be empty, a ws(s)://, an https?:// URL, or a display:&lt;field&gt; placeholder.">
+                    <condition type="matches">^$|^wss?://.*|^https?://.*|^display:[a-zA-Z][a-zA-Z0-9_]*$</condition>
+                </test>
+            </rule>
+        </property>
+        <property id="playerVersion" type="text">
+            <title>Player software version</title>
+            <helpText>Optional version string surfaced in the DeviceRegistration handshake. Defaults to "widget-v2".</helpText>
+            <default>widget-v2</default>
+        </property>
+        <property id="heartbeatIntervalMs" type="number">
+            <title>Heartbeat interval (ms)</title>
+            <helpText>WebSocket heartbeat cadence. The crowdaq.v1 default is 30000 ms (30 s). Minimum 5000.</helpText>
+            <default>30000</default>
+            <rule>
+                <test message="Heartbeat interval must be at least 5000 ms.">
+                    <condition type="gte">5000</condition>
+                </test>
+            </rule>
+        </property>
+    </properties>
+
+    <preview></preview>
+
+    <stencil>
+        <twig><![CDATA[
+<div
+    class="crowdaq-widget-v2-host"
+    data-crowdaq-v2-root="1"
+    data-crowdaq-ws-base-url="{{ wsBaseUrl }}"
+    data-crowdaq-player-version="{{ playerVersion }}"
+    data-crowdaq-heartbeat-interval-ms="{{ heartbeatIntervalMs }}">
+    <!-- boot() mounts the single_game template (a <section class="crowdaq-single-game">)
+         into this host. Until the WS handshake completes the host is empty. -->
+</div>
+        ]]></twig>
+        <style><![CDATA[
+/* CROWDAQ Widget v2 — host + single_game template style. Self-contained so the
+   widget renders under a strict no-JS-fallback / strict-CSP signage profile. */
+html, body { margin: 0; padding: 0; height: 100%; background: #0b0e14; }
+.crowdaq-widget-v2-host {
+    position: absolute; inset: 0;
+    display: flex; align-items: center; justify-content: center;
+    font-family: -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    color: #f4f6fb; background: #0b0e14;
+    overflow: hidden;
+}
+.crowdaq-configure-placeholder {
+    font-size: 1.4rem; opacity: 0.6; letter-spacing: 0.04em;
+}
+.crowdaq-single-game {
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    gap: 0.6em; width: 100%; height: 100%; padding: 4% 6%; box-sizing: border-box;
+}
+.crowdaq-single-game .cdq-sport-context {
+    font-size: 1rem; text-transform: uppercase; letter-spacing: 0.12em; opacity: 0.7; color: #aeb6c6;
+}
+.crowdaq-single-game .cdq-score {
+    display: flex; align-items: center; justify-content: center; gap: 0.8em;
+    font-variant-numeric: tabular-nums;
+}
+.crowdaq-single-game .cdq-team {
+    font-size: clamp(2rem, 9vw, 5rem); font-weight: 700; white-space: nowrap; color: #f4f6fb;
+}
+.crowdaq-single-game .cdq-clock { font-size: 1.4rem; opacity: 0.8; min-width: 3ch; text-align: center; color: #aeb6c6; }
+.crowdaq-single-game .cdq-overlay {
+    font-size: 1.3rem; font-weight: 600; color: #ffd166;
+    padding: 0.3em 0.8em; border-radius: 999px; background: rgba(255,209,102,0.12);
+}
+.crowdaq-single-game .cdq-overlay[hidden] { display: none; }
+.crowdaq-single-game .cdq-no-live-game { font-size: 1.4rem; opacity: 0.5; }
+        ]]></style>
+    </stencil>
+
+    <onRender><![CDATA[
+// CROWDAQ Widget v2 renderer.
+//
+// Module renderer options:
+//   id:         the id of the widget
+//   target:     the target element to render into
+//   properties: the widget properties (wsBaseUrl, playerVersion, heartbeatIntervalMs)
+//
+// This block (a) inlines the self-contained CrowdaqWidgetV2 bundle, then
+// (b) boots it against the mount host inside `target`. The bundle reads
+// xiboIC.info() itself; we only pass the widget properties through.
+//
+// NB: no <dataType>, so Xibo passes no `items` array — we never reference it.
+
+(function () {
+    'use strict';
+
+    // ---- inlined bundle (global CrowdaqWidgetV2) -------------------------------
+    // Replaced at package time (tools/package.mjs) with the tsup build output
+    // dist/crowdaq-widget-v2.global.js. Until packaged this marker is inert and
+    // boot is skipped (the host stays at the empty stencil).
+    /* __CROWDAQ_WIDGET_V2_BUNDLE__ */
+
+    if (typeof CrowdaqWidgetV2 === 'undefined' || typeof CrowdaqWidgetV2.boot !== 'function') {
+        // Unpackaged XML (the bundle marker was not substituted). Leave the
+        // stencil as-is rather than throwing — the layout still renders.
+        return;
+    }
+
+    // Resolve the host the stencil rendered + the widget properties.
+    var root = (typeof target !== 'undefined' && target) ? target : document;
+    var host = root.querySelector('[data-crowdaq-v2-root]') || root;
+    var props = (typeof properties !== 'undefined' && properties) ? properties : {};
+
+    // Properties may arrive as strings (data-attributes); coerce the number.
+    var heartbeat = parseInt(props.heartbeatIntervalMs, 10);
+
+    CrowdaqWidgetV2.boot(host, {
+        wsBaseUrl: typeof props.wsBaseUrl === 'string' ? props.wsBaseUrl : (host.getAttribute && host.getAttribute('data-crowdaq-ws-base-url')) || '',
+        playerVersion: typeof props.playerVersion === 'string' ? props.playerVersion : 'widget-v2',
+        heartbeatIntervalMs: isNaN(heartbeat) ? 30000 : heartbeat
+    }).then(function (rt) {
+        // Expose the runtime for a headless probe / DevTools inspection.
+        try { host.__crowdaqWidgetV2 = rt; } catch (e) { /* ignore */ }
+    }).catch(function (err) {
+        try { console.error('[crowdaq-widget-v2] boot failed', err); } catch (e) { /* ignore */ }
+    });
+})();
+    ]]></onRender>
+</module>

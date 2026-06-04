@@ -131,6 +131,11 @@ export class CrowdaqWsClient implements WsClient {
   }
 
   send(frame: PlayerToServerFrame): void {
+    // Each WS text frame is exactly ONE JSON object with NO trailing newline.
+    // The live game-delivery server closes the socket with code 4000
+    // (malformed_frame) on a trailing '\n', so we deliberately use
+    // JSON.stringify here, NOT the codec `serialize()` (which appends '\n' for
+    // file-based JSONL). Do not "fix" this to add a newline.
     this.socket?.send(JSON.stringify(buildEnvelope(frame)));
   }
 

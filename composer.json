@@ -26,7 +26,8 @@
         "lint": "find src -type f -name '*.php' -print0 | xargs -0 -n1 php -l",
         "cs": "php-cs-fixer fix --dry-run --diff",
         "analyse": "phpstan analyse --level=1 src",
-        "package": "@php -r \"echo 'TODO: implement dist zip build — see .github/workflows/ci.yml.' . PHP_EOL;\""
+        "package": "@php -r \"echo 'v1 plugin: see build/. For the v2 widget run: cd modules/widget-v2 && npm ci && node tools/package.mjs --build (produces build/crowdaq-widget-v2-<sha>.zip).' . PHP_EOL;\"",
+        "package-v2": "cd modules/widget-v2 && node tools/package.mjs --build"
     },
     "config": {
         "sort-packages": true

@@ -1,0 +1,61 @@
+<!DOCTYPE html>
+<!--
+  SPEC-CRWDQ-027 headless e2e harness page.
+
+  Loads the REAL built bundle (dist/crowdaq-widget-v2.global.js, injected by the
+  test as a <script>) into a real Chromium DOM, mocks the xiboIC interaction
+  contract, and boots the widget against the mock crowdaq.v1 WS URL passed via
+  ?ws=. This is the page the player's webview is analogous to: same bundle, same
+  global, same boot() entrypoint.
+-->
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>CROWDAQ Widget v2 — e2e harness</title>
+  <style>
+    html, body { margin: 0; padding: 0; height: 100%; background: #0b0e14; }
+    #stage { position: absolute; inset: 0; }
+    .crowdaq-widget-v2-host {
+      position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
+      font-family: -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      color: #f4f6fb; background: #0b0e14; overflow: hidden;
+    }
+    .crowdaq-single-game {
+      display: flex; flex-direction: column; align-items: center; justify-content: center;
+      gap: 0.6em; width: 100%; height: 100%; padding: 4% 6%; box-sizing: border-box;
+    }
+    .crowdaq-single-game .cdq-sport-context { font-size: 1rem; text-transform: uppercase; letter-spacing: 0.12em; opacity: 0.7; color: #aeb6c6; }
+    .crowdaq-single-game .cdq-score { display: flex; align-items: center; justify-content: center; gap: 0.8em; font-variant-numeric: tabular-nums; }
+    .crowdaq-single-game .cdq-team { font-size: clamp(2rem, 9vw, 5rem); font-weight: 700; white-space: nowrap; color: #f4f6fb; }
+    .crowdaq-single-game .cdq-clock { font-size: 1.4rem; opacity: 0.8; min-width: 3ch; text-align: center; color: #aeb6c6; }
+    .crowdaq-single-game .cdq-overlay { font-size: 1.3rem; font-weight: 600; color: #ffd166; padding: 0.3em 0.8em; border-radius: 999px; background: rgba(255,209,102,0.12); }
+    .crowdaq-single-game .cdq-overlay[hidden] { display: none; }
+  </style>
+</head>
+<body>
+  <div id="stage"></div>
+  <script>
+    // Mock the xibo interaction-contract global the bundle reads at boot.
+    // Mirrors the live player's xiboIC.info({done,error}) callback shape.
+    window.xiboIC = {
+      info: function (cb) {
+        cb.done({
+          responseText: JSON.stringify({
+            hardwareKey: '11111111-1111-1111-1111-111111111111',
+            displayName: 'bar-demo',
+            displayId: 1
+          })
+        });
+      }
+    };
+  </script>
+  <!-- the test injects the bundle <script> here, then calls window.__bootWidget() -->
+  <script>
+    window.__bootWidget = function (wsUrl) {
+      var stage = document.getElementById('stage');
+      return CrowdaqWidgetV2.boot(stage, { wsBaseUrl: wsUrl, heartbeatIntervalMs: 30000 })
+        .then(function (rt) { window.__rt = rt; return true; });
+    };
+  </script>
+</body>
+</html>

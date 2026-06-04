@@ -10,7 +10,7 @@
  * score render, and the in-place score update on a GameEvent.
  */
 import { describe, it, expect, beforeEach, vi } from 'vitest';
-import { boot, resolveWsUrl, HOST_TESTID } from '../src/bootstrap';
+import { boot, resolveWsUrl, HOST_TESTID, EnvelopeFlatteningDeserializer } from '../src/bootstrap';
 import { FakeWebSocket } from './transport/support/FakeWebSocket';
 import { TESTID } from '../src/templates/single-game/SingleGameTemplate';
 
@@ -82,6 +82,50 @@ describe('resolveWsUrl', () => {
   });
   it('returns null for an unresolvable display field', () => {
     expect(resolveWsUrl('display:missing', {})).toBeNull();
+  });
+});
+
+describe('EnvelopeFlatteningDeserializer (live payload-nested shape)', () => {
+  const d = new EnvelopeFlatteningDeserializer();
+
+  it('hoists payload keys to top level for a game-data frame (live shape)', () => {
+    const live = JSON.stringify({
+      schema_version: 1,
+      channel: 'game_data',
+      message_type: 'GameEvent',
+      ts: '2026-06-03T00:00:00Z',
+      bar_id: 'bar-1',
+      game_id: 'game-7',
+      seq: 11,
+      payload: { home_score: 1, last_moment: 'GOAL' },
+    });
+    const frame = d.parse(live) as Record<string, unknown>;
+    expect(frame['message_type']).toBe('GameEvent');
+    expect(frame['game_id']).toBe('game-7'); // envelope-level, preserved
+    expect(frame['seq']).toBe(11);
+    expect(frame['home_score']).toBe(1); // hoisted from payload
+    expect(frame['last_moment']).toBe('GOAL');
+  });
+
+  it('passes a top-level (twin-shaped) frame through unchanged', () => {
+    const twin = JSON.stringify({ message_type: 'GameEvent', game_id: 'g', seq: 5, home_score: 2 });
+    const frame = d.parse(twin) as Record<string, unknown>;
+    expect(frame['home_score']).toBe(2);
+    expect(frame['seq']).toBe(5);
+  });
+
+  it('preserves payload for AssetManifest (which reads frame.payload)', () => {
+    const live = JSON.stringify({
+      schema_version: 1, channel: 'control', message_type: 'AssetManifest', ts: 't',
+      payload: { version: 'v1', assets: [] },
+    });
+    const frame = d.parse(live) as Record<string, unknown>;
+    expect((frame['payload'] as Record<string, unknown>)['version']).toBe('v1');
+  });
+
+  it('returns parse-error / empty markers untouched', () => {
+    expect(d.parse('').kind).toBe('empty_line');
+    expect(d.parse('not json').kind).toBe('parse_error');
   });
 });
 
