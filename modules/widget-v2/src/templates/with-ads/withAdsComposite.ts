@@ -107,38 +107,20 @@ export function mountWithAdsComposite(
   // 3. Mount the ad panel as the section's right-column `<aside>` (the spec DOM
   //    shape: section > .cdq-content + aside.cdq-ad-panel). A cache miss falls
   //    back to the bare child (D-GRH-16).
-  const panel = new AdPanel().mount(section, {
+  // SPEC-CRWDQ-S11 — mount the panel DEFERRED: it appears immediately and the
+  // real creative swaps in when its bytes warm (eager prefetch / on-demand), so
+  // a creative that hasn't finished prefetching at mount no longer forces the
+  // composite to fall back to the bare grid. Content stays visible throughout
+  // (D-GRH-16): the grid renders beside the (initially-empty) ad column.
+  const panel = new AdPanel().mountDeferred(section, {
     adSlot,
     assetManifestStore: ctx.assetManifestStore,
     journal: ctx.journal,
     stateId: ctx.stateId,
     positionClass: 'right',
   });
-  if (panel === null) {
-    return fallBackToBareChild(host, section, content, contentHost, child);
-  }
 
   return new WithAdsCompositeInstance(section, content, panel, adSlot, ctx);
-}
-
-/**
- * Cache-miss fall-through (D-GRH-16): discard the composite shell and re-host
- * the already-mounted child DIRECTLY in the original host, so the content is
- * preserved with no composite chrome and no blank ad panel. The child keeps its
- * live subscriptions — its DOM is moved, not remounted, so per-game state and
- * the card set are untouched.
- */
-function fallBackToBareChild(
-  host: HTMLElement,
-  section: HTMLElement,
-  content: TemplateInstance,
-  contentHost: HTMLElement,
-  _child: ContentChild,
-): TemplateInstance {
-  // Move every child node the content template rendered up into the host.
-  while (contentHost.firstChild) host.append(contentHost.firstChild);
-  section.remove();
-  return content;
 }
 
 /**
