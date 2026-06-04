@@ -166,6 +166,22 @@ html, body { margin: 0; padding: 0; height: 100%; background: var(--cdq-bg-0); }
   color: var(--team-ink);
   text-shadow: 0 1px 0 rgba(255, 255, 255, 0.25);
 }
+/* SPEC-CRWDQ-S11 — a REAL club badge image. When present, the crest box drops
+   its team-colour gradient + monogram and shows the badge on a clean plate so
+   the actual club identity reads cleanly on the broadcast scoreboard. */
+.crowdaq-single-game .cdq-crest[data-has-crest='true'] {
+  background: rgba(255, 255, 255, 0.06);
+  box-shadow:
+    0 14px 38px -12px rgba(0, 0, 0, 0.55),
+    inset 0 0 0 1px rgba(255, 255, 255, 0.16);
+}
+.crowdaq-single-game .cdq-crest[data-has-crest='true']::after { content: none; }
+.crowdaq-single-game .cdq-crest-img {
+  position: relative; z-index: 1;
+  width: 86%; height: 86%;
+  object-fit: contain;
+  filter: drop-shadow(0 3px 6px rgba(0, 0, 0, 0.45));
+}
 
 .crowdaq-single-game .cdq-team-name {
   font-family: var(--cdq-display); font-weight: 800;
@@ -560,6 +576,20 @@ html, body { margin: 0; padding: 0; height: 100%; background: var(--cdq-bg-0); }
 .crowdaq-multi-game .cdq-card-team::after {
   /* the team line is "NAME N" text; nothing extra — keep tabular score legible */
 }
+/* SPEC-CRWDQ-S11 — a small real club badge before the card's team line. The
+   line keeps flex:1 so "NAME N" still spans the row; the badge is a fixed chip. */
+.crowdaq-multi-game .cdq-card-crest {
+  flex: 0 0 auto;
+  display: inline-flex; align-items: center; justify-content: center;
+  width: clamp(20px, 2.6vw, 40px); height: clamp(20px, 2.6vw, 40px);
+  align-self: center;
+}
+.crowdaq-multi-game .cdq-card-crest-img {
+  width: 100%; height: 100%; object-fit: contain;
+  filter: drop-shadow(0 2px 4px rgba(0, 0, 0, 0.4));
+}
+.crowdaq-multi-game .cdq-card-team-line { flex: 1 1 auto; display: inline-flex;
+  align-items: baseline; justify-content: space-between; gap: 0.5em; min-width: 0; }
 .crowdaq-multi-game .cdq-card-clock {
   justify-self: start;
   font-family: var(--cdq-tech); font-weight: 600;

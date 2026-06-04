@@ -57,6 +57,7 @@ import {
   type TransitionPlayer,
 } from './render/TransitionExecutor';
 import { AssetManifestStore, type ManifestJournal, type ManifestJournalEntry } from './render/AssetManifestStore';
+import { CrestResolver } from './render/CrestResolver';
 import type { AssetCache, AssetCacheRow } from './render/AssetCache';
 import type { AssetFetcher } from './render/AssetFetcher';
 import type { AssetEntry, CachedAsset } from './render/AssetTypes';
@@ -478,6 +479,11 @@ export async function boot(
     fetcher: deps.assetFetcher ?? new HttpAssetFetcher(),
     journal,
   });
+  // SPEC-CRWDQ-S11 — resolve real club crests from the AssetManifest by team
+  // (kind=crest, ref=team name_key). Shared by single_game + multiple_games so
+  // the scoreboard renders the real badge image, falling back to the existing
+  // colour block when a team's crest isn't published/warmed (never a fake).
+  const crestResolver = new CrestResolver(assets);
   const transitions = new TransitionExecutor({
     // Pre-baked catalog: the two transitions the activator names directly
     // (incoming default + supersede). Misses fall through to the default fade.
@@ -516,6 +522,8 @@ export async function boot(
     // Late-bound: forwards each activation to the SafeStateController (built
     // just below) so its no_recent_state / data_stale probes track the mode.
     onActivated: (mode) => safeController.notePlannedState(mode),
+    // SPEC-CRWDQ-S11 — real club crests for the built-in single_game score-bug.
+    crestResolver,
   });
 
   // 3b. Register the non-game-data standing-display modes so the bar shows
@@ -595,6 +603,7 @@ export async function boot(
       template: new MultiGameTemplate(),
       journal,
       cardTransitions: noopCardTransitions,
+      crestResolver,
     }),
   );
 
@@ -649,6 +658,7 @@ export async function boot(
       cardTransitions: noopCardTransitions,
       assetManifestStore: assets,
       adSlots,
+      crestResolver,
     }),
   );
 

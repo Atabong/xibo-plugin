@@ -19,6 +19,7 @@
  */
 import type { GameStateStore } from '../../render/GameStateStore';
 import type { GameState } from '../../render/types';
+import type { CrestResolver } from '../../render/CrestResolver';
 
 /** Per-card sub-region test ids (stable across mount + reconcile). */
 export const CARD_TESTID = {
@@ -64,12 +65,16 @@ export interface CardSetDeps {
   grid: HTMLElement;
   gameStateStore: GameStateStore;
   cardTransitions: CardTransitions;
+  /** SPEC-CRWDQ-S11 — resolve real club crests from the AssetManifest by team.
+   *  Optional: absent → cards render the name-only line (existing behaviour). */
+  crestResolver?: CrestResolver;
 }
 
 export class CardSet {
   private readonly grid: HTMLElement;
   private readonly store: GameStateStore;
   private readonly transitions: CardTransitions;
+  private readonly crestResolver: CrestResolver | undefined;
   /** Cards in display order; index IS the grid position. */
   private readonly cards: CardRecord[] = [];
   private primaryGameId: string | null = null;
@@ -78,6 +83,7 @@ export class CardSet {
     this.grid = deps.grid;
     this.store = deps.gameStateStore;
     this.transitions = deps.cardTransitions;
+    this.crestResolver = deps.crestResolver;
   }
 
   /** The currently rendered game ids, in display order. */
@@ -93,7 +99,8 @@ export class CardSet {
    */
   async addCard(gameId: string, position: number, animationId?: string): Promise<void> {
     const element = buildCard(gameId, position);
-    const render = (state: GameState | null): void => renderCard(element, state);
+    const render = (state: GameState | null): void =>
+      renderCard(element, state, this.crestResolver);
     render(this.store.get(gameId));
     const unsubscribe = this.store.subscribe(gameId, render);
     this.cards.splice(position, 0, { gameId, element, unsubscribe });
@@ -172,24 +179,37 @@ function buildCard(gameId: string, position: number): HTMLElement {
   header.className = 'cdq-card-sport-context';
   header.dataset['testid'] = CARD_TESTID.sportContext;
 
-  const home = document.createElement('div');
-  home.className = 'cdq-card-team cdq-card-home';
-  home.dataset['testid'] = CARD_TESTID.homeTeam;
-
+  const home = buildCardTeam('cdq-card-home', CARD_TESTID.homeTeam);
   const clock = document.createElement('div');
   clock.className = 'cdq-card-clock';
   clock.dataset['testid'] = CARD_TESTID.clock;
-
-  const away = document.createElement('div');
-  away.className = 'cdq-card-team cdq-card-away';
-  away.dataset['testid'] = CARD_TESTID.awayTeam;
+  const away = buildCardTeam('cdq-card-away', CARD_TESTID.awayTeam);
 
   card.append(header, home, clock, away);
   return card;
 }
 
+/** A card team block: a crest slot (real badge img, S11) + a text line. The
+ *  text line keeps the `data-testid` so the existing "NAME N" assertions hold. */
+function buildCardTeam(sideClass: string, testid: string): HTMLElement {
+  const team = document.createElement('div');
+  team.className = `cdq-card-team ${sideClass}`;
+  team.dataset['testid'] = testid;
+  const crest = document.createElement('span');
+  crest.className = 'cdq-card-crest';
+  crest.hidden = true;
+  const line = document.createElement('span');
+  line.className = 'cdq-card-team-line';
+  team.append(crest, line);
+  return team;
+}
+
 /** Populate one card's score / clock / sport-context from current state. */
-function renderCard(card: HTMLElement, state: GameState | null): void {
+function renderCard(
+  card: HTMLElement,
+  state: GameState | null,
+  crestResolver?: CrestResolver,
+): void {
   const sel = (testid: string): HTMLElement | null =>
     card.querySelector(`[data-testid="${testid}"]`);
 
@@ -200,12 +220,42 @@ function renderCard(card: HTMLElement, state: GameState | null): void {
       .filter((p): p is string => typeof p === 'string' && p.length > 0)
       .join(' · ');
   }
-  const home = sel(CARD_TESTID.homeTeam);
-  if (home) home.textContent = teamLine(state?.home_team, state?.home_score);
-  const away = sel(CARD_TESTID.awayTeam);
-  if (away) away.textContent = teamLine(state?.away_team, state?.away_score);
+  paintCardTeam(sel(CARD_TESTID.homeTeam), state?.home_team, state?.home_score, crestResolver);
+  paintCardTeam(sel(CARD_TESTID.awayTeam), state?.away_team, state?.away_score, crestResolver);
   const clock = sel(CARD_TESTID.clock);
   if (clock) clock.textContent = state?.sport_context?.period_clock ?? '';
+}
+
+/** Paint a card team block: the text line ("NAME N") + a real crest badge from
+ *  the AssetManifest when published (falls back to no badge — text only). */
+function paintCardTeam(
+  team: HTMLElement | null,
+  name: string | undefined,
+  score: number | undefined,
+  crestResolver?: CrestResolver,
+): void {
+  if (!team) return;
+  const line = team.querySelector<HTMLElement>('.cdq-card-team-line');
+  if (line) line.textContent = teamLine(name, score);
+  const crest = team.querySelector<HTMLElement>('.cdq-card-crest');
+  if (!crest) return;
+  const url = crestResolver?.crestUrlForTeam(name) ?? null;
+  if (url) {
+    let img = crest.querySelector<HTMLImageElement>('img.cdq-card-crest-img');
+    if (!img) {
+      img = document.createElement('img');
+      img.className = 'cdq-card-crest-img';
+      img.alt = '';
+      img.decoding = 'async';
+      crest.appendChild(img);
+    }
+    if (img.getAttribute('src') !== url) img.src = url;
+    crest.hidden = false;
+    team.dataset['hasCrest'] = 'true';
+  } else {
+    crest.hidden = true;
+    delete team.dataset['hasCrest'];
+  }
 }
 
 function teamLine(name: string | undefined, score: number | undefined): string {

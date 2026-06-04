@@ -25,6 +25,7 @@
 import type { PlannedStateFrame, ProgramSlotFrame, ThemeChoiceWire, BarPreferencesWire, BusinessMode } from '../wire';
 import type { Dispatcher } from '../transport/types';
 import type { GameStateStore } from './GameStateStore';
+import type { CrestResolver } from './CrestResolver';
 import type { ProgramSlotResolver } from './ProgramSlotResolver';
 import type { TransitionExecutor } from './TransitionExecutor';
 import type { DwellTimer, DwellClock } from './DwellTimer';
@@ -123,6 +124,13 @@ export interface PlannedStateActivatorDeps {
    * controller off the dispatcher's single-handler-per-type path.
    */
   onActivated?: (mode: BusinessMode) => void;
+  /**
+   * SPEC-CRWDQ-S11 — resolve a real club crest from the AssetManifest by team.
+   * Forwarded into the built-in single_game context so the score-bug renders
+   * the real badge image (falling back to its colour block on a miss). Optional
+   * so a deployment without crest assets keeps the colour-block behaviour.
+   */
+  crestResolver?: CrestResolver;
 }
 
 /** A PlannedState whose ProgramSlot has not yet arrived (AC4 buffer). */
@@ -168,6 +176,7 @@ export class PlannedStateActivator {
           programSlot: args.slot,
           theme: args.theme,
           gameStateStore: this.deps.gameStateStore,
+          ...(this.deps.crestResolver ? { crestResolver: this.deps.crestResolver } : {}),
         }),
         subscribedGameIds:
           args.slot.primary_game_id === null ? new Set() : new Set([args.slot.primary_game_id]),

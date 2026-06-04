@@ -27,6 +27,7 @@ import type { GameStateStore } from '../../render/GameStateStore';
 import type { TemplateInstance } from '../../render/TemplateInstance';
 import { themeAttr, type ResolvedTheme } from '../../render/ThemeResolver';
 import type { GameState, ProgramSlotPayload } from '../../render/types';
+import type { CrestResolver } from '../../render/CrestResolver';
 
 /** Stable test ids for the template's sub-regions (AC1). */
 export const TESTID = {
@@ -54,6 +55,14 @@ export interface SingleGameContext {
   gameStateStore: GameStateStore;
   /** Last-moment text cap; defaults to the existing widget convention. */
   maxMomentLength?: number;
+  /**
+   * SPEC-CRWDQ-S11 — resolve a real club crest from the AssetManifest by team.
+   * When present and the team's crest is published + warmed, the team block
+   * renders the real badge IMAGE; otherwise it falls back to the existing
+   * derived-colour monogram block (never a broken image). Optional so existing
+   * callers/tests that don't pass it keep the colour-block behaviour.
+   */
+  crestResolver?: CrestResolver;
 }
 
 /**
@@ -89,7 +98,8 @@ export class SingleGameTemplate {
       // (not the template) owns the fallback journal; the template only renders.
       renderPlaceholder(root);
     } else {
-      const render = (state: GameState | null): void => renderGame(root, state, maxMoment, memo);
+      const render = (state: GameState | null): void =>
+        renderGame(root, state, maxMoment, memo, ctx.crestResolver);
       render(ctx.gameStateStore.get(gameId));
       unsubscribe = ctx.gameStateStore.subscribe(gameId, (state) => render(state));
     }
@@ -195,7 +205,13 @@ function renderPlaceholder(root: HTMLElement): void {
 }
 
 /** Populate the score / clock / sport-context / overlay from current state. */
-function renderGame(root: HTMLElement, state: GameState | null, maxMoment: number, memo: RenderMemo): void {
+function renderGame(
+  root: HTMLElement,
+  state: GameState | null,
+  maxMoment: number,
+  memo: RenderMemo,
+  crestResolver?: CrestResolver,
+): void {
   const sel = (testid: string): HTMLElement | null => root.querySelector(`[data-testid="${testid}"]`);
   const q = (cls: string): HTMLElement | null => root.querySelector(`.${cls}`);
 
@@ -209,9 +225,9 @@ function renderGame(root: HTMLElement, state: GameState | null, maxMoment: numbe
     ctxText.textContent = parts.length ? parts.join('  ·  ') : 'LIVE';
   }
 
-  // ---- team blocks (name + derived colour) --------------------------------
-  paintTeam(sel(TESTID.homeTeam), state?.home_team, state?.home_score);
-  paintTeam(sel(TESTID.awayTeam), state?.away_team, state?.away_score);
+  // ---- team blocks (name + real crest, falling back to derived colour) ----
+  paintTeam(sel(TESTID.homeTeam), state?.home_team, state?.home_score, crestResolver);
+  paintTeam(sel(TESTID.awayTeam), state?.away_team, state?.away_score, crestResolver);
 
   // ---- big score numerals -------------------------------------------------
   const hNum = q('cdq-score-home');
@@ -258,21 +274,51 @@ function renderGame(root: HTMLElement, state: GameState | null, maxMoment: numbe
   memo.awayScore = newAway;
 }
 
-/** Paint one team block: name treatment + derived team colour + monogram. */
-function paintTeam(block: HTMLElement | null, name: string | undefined, score: number | undefined): void {
+/** Paint one team block: name treatment + REAL crest image when published,
+ *  else the derived-colour monogram block. */
+function paintTeam(
+  block: HTMLElement | null,
+  name: string | undefined,
+  score: number | undefined,
+  crestResolver?: CrestResolver,
+): void {
   if (!block) return;
   const n = (name ?? '').trim();
   const nameEl = block.querySelector<HTMLElement>('.cdq-team-name');
   if (nameEl) nameEl.textContent = n;
-  // The crest monogram = the team's first 3 letters. When the name IS already a
-  // short code (<= 3 chars), the big name reads as the code, so the monogram
-  // would be redundant — suppress the crest in that case (the colour block
-  // still anchors the side via the name treatment).
   const mono = block.querySelector<HTMLElement>('.cdq-crest-mono');
   const crest = block.querySelector<HTMLElement>('.cdq-crest');
   const shortCode = n.length > 0 && n.length <= 3;
-  if (mono) mono.textContent = shortCode ? '' : n.slice(0, 3).toUpperCase();
-  if (crest) crest.hidden = shortCode;
+
+  // SPEC-CRWDQ-S11 — prefer the REAL club badge resolved from the AssetManifest.
+  const crestUrl = crestResolver?.crestUrlForTeam(name) ?? null;
+  if (crest) {
+    let img = crest.querySelector<HTMLImageElement>('img.cdq-crest-img');
+    if (crestUrl) {
+      if (!img) {
+        img = document.createElement('img');
+        img.className = 'cdq-crest-img';
+        img.alt = '';
+        img.decoding = 'async';
+        crest.appendChild(img);
+      }
+      if (img.getAttribute('src') !== crestUrl) img.src = crestUrl;
+      img.hidden = false;
+      crest.dataset['hasCrest'] = 'true';
+      if (mono) mono.hidden = true;
+      crest.hidden = false; // a real badge always shows, even for a short code
+    } else {
+      // No real crest — colour-block monogram fallback (unchanged behaviour).
+      if (img) img.hidden = true;
+      delete crest.dataset['hasCrest'];
+      if (mono) {
+        mono.hidden = false;
+        mono.textContent = shortCode ? '' : n.slice(0, 3).toUpperCase();
+      }
+      crest.hidden = shortCode;
+    }
+  }
+
   // Data line kept for the e2e contract: "NAME N" (hidden, used by assertions).
   const full = block.querySelector<HTMLElement>('.cdq-team-full');
   if (full) full.textContent = teamLine(name, score);

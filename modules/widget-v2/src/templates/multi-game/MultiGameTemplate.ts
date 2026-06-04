@@ -24,6 +24,7 @@ import type {
 import { themeAttr, type ResolvedTheme } from '../../render/ThemeResolver';
 import type { ProgramSlotPayload } from '../../render/types';
 import { CardSet, CARD_ANIMATION, noopCardTransitions, type CardTransitions } from './CardSet';
+import type { CrestResolver } from '../../render/CrestResolver';
 
 /** Stable test ids for the grid root (cards carry their own, see CardSet). */
 export const MULTI_TESTID = {
@@ -43,6 +44,8 @@ export interface MultiGameContext {
   journal: RenderJournal;
   /** Card-level animation seam; defaults to no-op when omitted. */
   cardTransitions?: CardTransitions;
+  /** SPEC-CRWDQ-S11 — resolve real club crests from the AssetManifest by team. */
+  crestResolver?: CrestResolver;
 }
 
 /**
@@ -78,6 +81,7 @@ export class MultiGameTemplate {
       grid,
       gameStateStore: ctx.gameStateStore,
       cardTransitions: ctx.cardTransitions ?? noopCardTransitions,
+      ...(ctx.crestResolver ? { crestResolver: ctx.crestResolver } : {}),
     });
     // Mount adds cards with NO card-level animation (AC5).
     gameIds.forEach((gameId, position) => void cardSet.addCard(gameId, position));
