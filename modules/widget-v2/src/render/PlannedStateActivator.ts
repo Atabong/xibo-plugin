@@ -119,6 +119,16 @@ export class PlannedStateActivator {
     this.deps = deps;
   }
 
+  /**
+   * The `program_slot_id` of the currently-rendered state, or null between
+   * renders. A narrow read the composition root's dispatcher uses to gate
+   * seq-tracking to the active slot's game (D-GRH-63) without reaching into the
+   * activator's internals.
+   */
+  activeProgramSlotId(): string | null {
+    return this.activeGate?.programSlotId ?? null;
+  }
+
   /** Register the activator as the PlannedState + ProgramSlot dispatch handlers. */
   registerWith(dispatcher: Dispatcher): void {
     dispatcher.register('PlannedState', (frame) => this.activate(frame as PlannedStateFrame), 'control');
