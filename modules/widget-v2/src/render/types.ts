@@ -26,6 +26,16 @@ export interface SportContext {
   venue?: string;
   /** Period / quarter / inning + game clock, pre-formatted for display. */
   period_clock?: string;
+  /**
+   * SPEC-CRWDQ-S13 (D-GRH-78) — the REAL backend-computed excitement scalar
+   * (0–100) the broadcast meter renders. Present on every live GameState +
+   * re-push GameState, and re-stamped on a GameEvent so it SPIKES the instant a
+   * goal lands. When absent (an older backend / a pure twin frame) the template
+   * falls back to its derived proxy.
+   */
+  excitement?: number;
+  /** SPEC-CRWDQ-S13 — signed momentum lean [-100,100], +home / −away. */
+  momentum?: number;
 }
 
 /**

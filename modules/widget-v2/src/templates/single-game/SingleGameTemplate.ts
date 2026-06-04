@@ -487,13 +487,26 @@ function parsePeriodClock(pc: string | undefined): { period: string; clock: stri
 }
 
 /**
- * A derived excitement percentage (0–100) for the momentum meter. The wire
- * carries no excitement signal yet, so this is a deterministic, non-alarming
- * proxy: a base level lifted by total goals and by a recent notable moment.
- * Flagged in the evidence as DERIVED (not real backend excitement data).
+ * The excitement percentage (0–100) for the broadcast momentum meter.
+ *
+ * SPEC-CRWDQ-S13 (D-GRH-78): the backend now computes a REAL excitement signal
+ * from the live GameState (score, period, clock) + the recent GameEvent history
+ * and emits it on `sport_context.excitement`. When that wire value is present we
+ * render it verbatim — so the meter reflects the actual match and SPIKES the
+ * instant a goal lands (the backend re-stamps the spiked value on the GameEvent,
+ * which the GameStateStore merges into `sport_context`).
+ *
+ * The legacy DERIVED proxy is kept ONLY as a fallback for a frame that carries
+ * no `sport_context.excitement` (an older backend, or a twin/mock frame): a
+ * deterministic base lifted by total goals + closeness + a recent moment.
  */
 function excitementPct(state: GameState | null): number {
   if (!state) return 18;
+  const real = state.sport_context?.excitement;
+  if (typeof real === 'number' && Number.isFinite(real)) {
+    return Math.max(0, Math.min(100, real));
+  }
+  // Fallback proxy (no real signal on this frame).
   const goals = (state.home_score ?? 0) + (state.away_score ?? 0);
   const close = Math.abs((state.home_score ?? 0) - (state.away_score ?? 0)) <= 1 ? 18 : 0;
   const moment = state.last_moment && state.last_moment.length > 0 ? 22 : 0;
