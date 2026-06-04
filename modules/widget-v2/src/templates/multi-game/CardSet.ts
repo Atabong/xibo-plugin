@@ -79,11 +79,25 @@ export class CardSet {
   private readonly cards: CardRecord[] = [];
   private primaryGameId: string | null = null;
 
+  private unsubCrest: () => void = () => {};
+
   constructor(deps: CardSetDeps) {
     this.grid = deps.grid;
     this.store = deps.gameStateStore;
     this.transitions = deps.cardTransitions;
     this.crestResolver = deps.crestResolver;
+    // SPEC-CRWDQ-S11 — when a crest warms, re-paint every card so the real
+    // badge swaps in over the colour block (no new GameState needed).
+    if (this.crestResolver) {
+      this.unsubCrest = this.crestResolver.onCrestReady(() => this.repaintAll());
+    }
+  }
+
+  /** Re-paint each live card from its current GameState (crest-warm swap-in). */
+  private repaintAll(): void {
+    for (const card of this.cards) {
+      renderCard(card.element, this.store.get(card.gameId), this.crestResolver);
+    }
   }
 
   /** The currently rendered game ids, in display order. */
@@ -151,6 +165,7 @@ export class CardSet {
 
   /** Unsubscribe + detach every card (the supersede / detach path, AC9). */
   teardown(): void {
+    this.unsubCrest();
     for (const card of this.cards) {
       card.unsubscribe();
       card.element.remove();

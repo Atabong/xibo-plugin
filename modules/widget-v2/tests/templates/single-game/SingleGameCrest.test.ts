@@ -40,6 +40,7 @@ function stubResolver(map: Record<string, string>): CrestResolver {
   return {
     crestUrlForTeam: (name?: string) => (name && map[name]) ?? null,
     assetIdForTeam: (name?: string) => (name && map[name] ? `crest:${name}` : null),
+    onCrestReady: () => () => {},
   } as unknown as CrestResolver;
 }
 

@@ -126,6 +126,30 @@ describe('CrestResolver', () => {
     expect(resolver.crestUrlForTeam('Anything FC')).toBeNull();
   });
 
+  it('notifies onCrestReady when a warm-fetch completes so a template can re-paint', async () => {
+    const bytes = bytesOf('crest-bytes');
+    const entry = await crestEntry('crest:api-football:165', 'borussia dortmund', bytes);
+    fetcher.setBody('crest:api-football:165', bytes);
+    store.apply(frameOf({ version: 'v1', assets: [entry] } as never));
+    const resolver = new CrestResolver(store);
+
+    let readyFired = 0;
+    resolver.onCrestReady(() => {
+      readyFired += 1;
+    });
+
+    // First render: cold → null + kicks the warm-fetch.
+    expect(resolver.crestUrlForTeam('Borussia Dortmund')).toBeNull();
+    // Let the ensure() resolve + notify.
+    await new Promise((r) => setTimeout(r, 0));
+    await Promise.resolve();
+    expect(readyFired).toBeGreaterThanOrEqual(1);
+    // After warm, the URL resolves (the re-paint would now show the badge).
+    expect(resolver.crestUrlForTeam('Borussia Dortmund')).toBe(
+      'http://admin-gateway.example/assets/crest:api-football:165',
+    );
+  });
+
   it('ignores non-crest (creative) entries', async () => {
     const creative: AssetEntry = {
       asset_id: 'creative-1',

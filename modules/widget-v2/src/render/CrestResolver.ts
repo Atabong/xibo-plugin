@@ -35,10 +35,36 @@ export class CrestResolver {
    *  never churns the network). Cleared on each manifest apply. */
   private warmAttempted = new Set<string>();
 
+  /** Listeners notified when a crest's bytes become available (warmed), so a
+   *  mounted template can re-paint and swap the badge in. */
+  private readonly readyListeners = new Set<() => void>();
+
   constructor(private readonly store: AssetManifestStore) {
     this.rebuildIndex();
     // Rebuild the ref→asset_id index whenever a new manifest is applied.
     this.store.subscribeManifest(() => this.rebuildIndex());
+  }
+
+  /**
+   * Subscribe to "a crest just warmed" — fired after a best-effort `ensure()`
+   * resolves so a mounted scoreboard can re-paint and swap the real badge in
+   * (the operator requirement: render immediately, swap the crest in WHEN it
+   * loads). Returns an unsubscribe fn. The callback must be cheap + must not
+   * throw (a re-paint).
+   */
+  onCrestReady(listener: () => void): () => void {
+    this.readyListeners.add(listener);
+    return () => this.readyListeners.delete(listener);
+  }
+
+  private notifyReady(): void {
+    for (const l of this.readyListeners) {
+      try {
+        l();
+      } catch {
+        /* a re-paint listener must never break the resolver. */
+      }
+    }
   }
 
   private rebuildIndex(): void {
@@ -80,9 +106,16 @@ export class CrestResolver {
     // bytes; it only reads what AssetManifestStore has already cached.
     if (!this.warmAttempted.has(assetId)) {
       this.warmAttempted.add(assetId);
-      void this.store.ensure(assetId).catch(() => {
-        /* unreachable/slow/hash-mismatch crest — stay on the colour block. */
-      });
+      void this.store
+        .ensure(assetId)
+        .then(() => {
+          // Bytes are now warm — tell mounted templates to re-paint so the
+          // real badge swaps in over the colour block.
+          this.notifyReady();
+        })
+        .catch(() => {
+          /* unreachable/slow/hash-mismatch crest — stay on the colour block. */
+        });
     }
     return null;
   }

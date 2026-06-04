@@ -92,6 +92,7 @@ export class SingleGameTemplate {
     const gameId = ctx.programSlot.primary_game_id;
     const memo: RenderMemo = { homeScore: null, awayScore: null, goalTimer: null };
     let unsubscribe = (): void => {};
+    let unsubCrest = (): void => {};
 
     if (gameId === null) {
       // No live game referenced — the "no live game" placeholder. The activator
@@ -102,11 +103,19 @@ export class SingleGameTemplate {
         renderGame(root, state, maxMoment, memo, ctx.crestResolver);
       render(ctx.gameStateStore.get(gameId));
       unsubscribe = ctx.gameStateStore.subscribe(gameId, (state) => render(state));
+      // SPEC-CRWDQ-S11 — when a crest warms (async, best-effort), re-paint so
+      // the real badge swaps in over the colour block (no new GameState needed).
+      if (ctx.crestResolver) {
+        unsubCrest = ctx.crestResolver.onCrestReady(() =>
+          render(ctx.gameStateStore.get(gameId)),
+        );
+      }
     }
 
     return {
       detach(): HTMLElement {
         unsubscribe();
+        unsubCrest();
         if (memo.goalTimer !== null) clearTimeout(memo.goalTimer);
         root.remove();
         return root;
