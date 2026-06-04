@@ -1,6 +1,20 @@
 # Copyright (C) 2026 CROWDAQ
 # Licensed under AGPL-3.0-or-later. See the LICENSE file at the repo root.
 #
+# ============================================================================
+# ARCHIVED — v1 (SSE) data contract.
+# This OpenAPI + the JSON Schemas under docs/contract/events/ describe the
+# LEGACY SSE widget (modules/crowdaq-widget.xml). The current direction is
+# widget-v2 (WebSocket/JSONL); its wire surface is documented in
+# docs/WIRE_PROTOCOL.md and docs/ARCHITECTURE.md, with the canonical types in
+# modules/widget-v2/src/wire.ts (vendored SPEC-CRWDQ-017). This contract is
+# retained IN PLACE (not moved under docs/archive/v1/) because CI's `contract`
+# job lints docs/contract/openapi.yaml + docs/contract/events/*.json from
+# these exact paths, and the `package` job zips docs/contract into the release
+# artifact. v1 still ships side-by-side with v2; this file stays accurate for
+# v1 operators only.
+# ============================================================================
+#
 # OpenAPI 3.1 description of the CROWDAQ --> Xibo widget data contract.
 #
 # Why this spec exists:

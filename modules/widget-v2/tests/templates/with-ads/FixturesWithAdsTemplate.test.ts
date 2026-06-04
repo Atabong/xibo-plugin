@@ -117,12 +117,15 @@ describe('FixturesWithAdsTemplate.mount (SPEC-CRWDQ-041 #55)', () => {
       stateId: 'st-1',
     });
 
+    // Content preserved (D-GRH-16). SPEC-CRWDQ-S11 (deferred swap-in, commit
+    // 1bf96e2): on a cold creative the composite keeps the shell + a deferred
+    // `.cdq-ad-panel` (the real creative swaps in WHEN it warms) rather than
+    // eagerly collapsing to a bare list. The fixtures list mounts inside
+    // `.cdq-content` and stays visible throughout.
     expect(instance).not.toBeNull();
-    expect(host.querySelector('section.crowdaq-with-ads')).toBeNull();
-    expect(host.querySelector('.cdq-ad-panel')).toBeNull();
-    expect(host.querySelector('.crowdaq-fixtures')).not.toBeNull();
+    expect(host.querySelector('section.crowdaq-with-ads')).not.toBeNull();
+    expect(host.querySelector('.cdq-content .crowdaq-fixtures')).not.toBeNull();
     expect(fixtureCards(host)).toEqual(['e1', 'e2', 'e3']);
-    expect(journal.typesOf('ad_asset_cache_miss')).toHaveLength(1);
   });
 
   it('declines with template_input_invalid when the ad_slot is null', async () => {

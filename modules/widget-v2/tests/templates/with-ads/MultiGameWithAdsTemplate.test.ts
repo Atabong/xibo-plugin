@@ -84,13 +84,15 @@ describe('MultiGameWithAdsTemplate.mount (SPEC-CRWDQ-041 #55)', () => {
       stateId: 'st-1',
     });
 
-    // Content preserved (D-GRH-16): the grid mounted, but NOT inside a composite.
+    // Content preserved (D-GRH-16). SPEC-CRWDQ-S11 (deferred swap-in, commit
+    // 1bf96e2): the composite no longer eagerly falls back to a bare grid on a
+    // cold creative — it keeps the shell + a deferred `.cdq-ad-panel` so the
+    // real creative swaps in WHEN it warms, while the grid stays visible
+    // throughout. The grid therefore mounts inside `.cdq-content` of the shell.
     expect(instance).not.toBeNull();
-    expect(host.querySelector('section.crowdaq-with-ads')).toBeNull();
-    expect(host.querySelector('.cdq-ad-panel')).toBeNull();
-    expect(host.querySelector('.crowdaq-multi-game')).not.toBeNull();
+    expect(host.querySelector('section.crowdaq-with-ads')).not.toBeNull();
+    expect(host.querySelector('.cdq-content .crowdaq-multi-game')).not.toBeNull();
     expect(cardIds(host)).toEqual(['g1', 'g2', 'g3', 'g4']);
-    expect(journal.typesOf('ad_asset_cache_miss')).toHaveLength(1);
   });
 
   it('declines with template_input_invalid when the ad_slot is null (no mount)', async () => {

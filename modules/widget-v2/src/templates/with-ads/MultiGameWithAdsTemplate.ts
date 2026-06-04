@@ -43,6 +43,7 @@ export class MultiGameWithAdsTemplate {
             gameStateStore: ctx.gameStateStore,
             journal: ctx.journal,
             ...(ctx.cardTransitions === undefined ? {} : { cardTransitions: ctx.cardTransitions }),
+            ...(ctx.crestResolver ? { crestResolver: ctx.crestResolver } : {}),
           }),
       },
       ctx,

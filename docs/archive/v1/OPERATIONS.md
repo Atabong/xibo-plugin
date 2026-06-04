@@ -2,15 +2,9 @@
   Copyright (C) 2026 CROWDAQ
   Licensed under AGPL-3.0-or-later.
 -->
-# CROWDAQ Xibo plugin — operations runbook
+> **⚠️ ARCHIVED — v1 (SSE) widget.** This documents the legacy SSE widget `modules/crowdaq-widget.xml`. Current direction is **widget-v2** (WebSocket/JSONL) — see [`docs/ARCHITECTURE.md`](../../ARCHITECTURE.md). v1 still ships side-by-side with v2; this doc is retained for v1 operators only.
 
-> Status: **current implementation / Phase-1 widget operations**.
->
-> This runbook covers the currently implemented or currently intended single-widget SSE runtime and its operational/debugging model.
->
-> It does **not** describe the future backend-orchestrated dynamic layout platform from `../planned/PRODUCT_REQUIREMENTS.md`.
->
-> See `../index.md` for the documentation map.
+# CROWDAQ Xibo plugin — operations runbook
 
 Operator-side procedures for inspecting and debugging a deployed CROWDAQ
 widget. Targets the production stack (k3s + Flux + Xibo CMS pod) reached
@@ -107,7 +101,7 @@ existing ones do not change shape.
 
 | event | level | fields | meaning |
 | --- | --- | --- | --- |
-| `server-error-event` | error | `code`, `message` | Server emitted an `event: error` SSE frame (per `docs/current/contract/events/error.json`). |
+| `server-error-event` | error | `code`, `message` | Server emitted an `event: error` SSE frame (per `docs/contract/events/error.json`). |
 | `handler-throw` | error | `event`, `error`, `stack` | A widget event handler threw — caught so the stream stays alive. Indicates a bug in the dispatch path. |
 
 ### Liveness watchdogs
@@ -143,7 +137,7 @@ Common failure shapes:
 ## Refreshing a deployed widget
 
 The widget XML is shipped via the GitOps Job in `k8s/`:
-[`k8s/job.yaml`](../k8s/job.yaml) + Flux. Editing
+[`k8s/job.yaml`](../../../k8s/job.yaml) + Flux. Editing
 `modules/crowdaq-widget.xml` on `main` re-hashes the kustomize-generated
 `crowdaq-manifests` ConfigMap, which re-creates the install Job, which
 copies the new XML into `/var/www/cms/custom/modules/` in the CMS pod
@@ -227,7 +221,7 @@ working — they just are not actionable until the snap fork ships.
 
 Independent of the CSP block, the widget's `score-update` handler
 expects a nested payload shape per
-[`docs/current/contract/events/score-update.json`](contract/events/score-update.json):
+[`docs/contract/events/score-update.json`](../../contract/events/score-update.json):
 
 ```json
 {
@@ -249,7 +243,7 @@ event that lands at the widget will fail to populate the score row
 This is a separate todo and requires either:
 
 1. Backend emits the contract-compliant nested shape (preferred — the
-   contract under `docs/current/contract/` is source of truth), or
+   contract under `docs/contract/` is source of truth), or
 2. Widget grows a shape-translation shim in `onScoreUpdate` that accepts
    either shape.
 

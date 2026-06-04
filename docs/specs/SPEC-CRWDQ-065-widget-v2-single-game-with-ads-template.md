@@ -1,14 +1,14 @@
 ---
 spec_id: SPEC-CRWDQ-065
-title: Widget v2 single_game_with_ads template
-status: draft
+title: Widget v2 single_game overlay-ad rendering
+status: impl-ready
 owner: player-runtime/widget-v2/templates/with-ads
 depends_on: [SPEC-CRWDQ-023, SPEC-CRWDQ-041, SPEC-CRWDQ-064]
 generated_by: grill-amendment
 generated_at: 2026-05-15
 ---
 
-# SPEC-CRWDQ-065 — Widget v2 single_game_with_ads template
+# SPEC-CRWDQ-065 — Widget v2 single_game overlay-ad rendering
 
 ## Metadata
 
@@ -18,120 +18,137 @@ generated_at: 2026-05-15
 | Plane epic | CRWDQ-9 |
 | Decisions referenced | D-GRH-15, D-GRH-16, D-GRH-21, D-GRH-23, D-GRH-30, D-GRH-50, D-GRH-55, D-GRH-62 |
 | Source files | `modules/widget-v2/src/templates/single-game/SingleGameTemplate.ts` (composed), `modules/widget-v2/src/templates/with-ads/AdPanel.ts` (composed), `modules/widget-v2/src/render/AssetManifestStore.ts` (consumed), `modules/widget-v2/src/render/AdSlotResolver.ts` (consumed) |
-| New files | `modules/widget-v2/src/templates/with-ads/SingleGameWithAdsTemplate.ts`, `modules/widget-v2/src/templates/with-ads/single-game-with-ads.css`, `modules/widget-v2/tests/templates/with-ads/single-game-with-ads.test.ts` |
+| New files | `modules/widget-v2/src/templates/with-ads/SingleGameOverlayAd.ts`, `modules/widget-v2/src/templates/with-ads/single-game-overlay-ad.css`, `modules/widget-v2/tests/templates/with-ads/single-game-overlay-ad.test.ts` |
+
+> **Backend authority note — this spec was materially redesigned.** The
+> authoritative backend spec `crowdaq-backend/docs/specs/SPEC-CRWDQ-039`
+> (AdSlot interleave logic) is explicit that there is **NO
+> `single_game_with_ads` business mode** — the closed 9-member D-GRH-30
+> `BusinessMode` enum (confirmed in SPEC-CRWDQ-011) does not contain it.
+> When the backend interleaver attaches an ad to a `single_game` content
+> state it keeps `business_mode: "single_game"` UNCHANGED and only
+> populates `ad_slot_id` (SPEC-CRWDQ-039 §6); the attached `AdSlot` is
+> constrained to `ad_class: "overlay"` (SPEC-CRWDQ-039 §5). An earlier
+> draft of this spec invented a `single_game_with_ads` mode and a
+> player-side ad-rotation feature (`ad_rotation` / `rotation_cadence_ms`
+> wire fields). Both are removed: the mode does not exist, and player-side
+> ad progression contradicts D-GRH-62 ("the player has no ad-progression
+> logic — `BarPlayerSchedulerService` pre-computes everything"). This spec
+> is now the player-side rendering of an **overlay ad on an ordinary
+> `single_game` `PlannedState`**.
 
 ## Module
 
-`player-runtime :: widget-v2 :: templates/with-ads` (extends) — the `single_game_with_ads` composite template (D-GRH-30 mode #5). Composes `SingleGameTemplate` (SPEC-CRWDQ-023) with `AdPanel` (SPEC-CRWDQ-041) inside the same with-ads grid shell SPEC-CRWDQ-041 introduces for `multiple_games_with_ads` and `fixtures_with_ads`. The `AdPanel` rotates ad creatives dwell-aware — rotation happens within the parent `PlannedState`'s `dwell_target_ms`, not bypassing it.
+`player-runtime :: widget-v2 :: templates/with-ads` (extends) — the player-side rendering path for a `single_game` `PlannedState` that carries a non-null `ad_slot_id`. There is no distinct `single_game_with_ads` business mode: the `PlannedState`'s `business_mode` stays `"single_game"`, and the presence of a non-null `ad_slot_id` is what selects this composite render over the bare `SingleGameTemplate`. The composite places the `SingleGameTemplate` (SPEC-CRWDQ-023) output as the full-surface content and renders the `AdPanel` (SPEC-CRWDQ-041) as an `overlay`-class ad layer above it. The ad creative is static for the slot's lifetime (D-GRH-62 — the player has no ad-progression logic; one creative per `AdSlot`, no rotation).
 
-This spec is intentionally thin. SPEC-CRWDQ-041 explicitly flags it as a future thin compose-and-mount file ("the same `AdPanel` primitive added here makes the future `single_game_with_ads` spec a thin compose-and-mount file"). The grill amendment promotes that future to a present spec because D-GRH-30 mode #5 is a first-class business mode.
+This spec is intentionally thin: it adds one new template file plus one CSS file. It introduces NO wire-protocol changes and NO new business mode.
 
 ## Current shape
 
-- SPEC-CRWDQ-023 renders `single_game` with no ad surface. SPEC-CRWDQ-041 renders `multiple_games_with_ads` and `fixtures_with_ads` but explicitly defers `single_game_with_ads`.
-- D-GRH-30 enumerates 9 explicit modes; #5 is `single_game_with_ads`. Backend `BarPlayerSchedulerService` (per D-GRH-62) emits `PlannedState` with this mode and an `ad_slot_id`.
-- D-GRH-15 establishes ad-coexistence semantics: ad slots and content slots are independent but co-rendered; the ad does not displace content.
-- D-GRH-16 establishes the uniform "ad never displaces content" rule, applying to all with-ads composites including this one.
-- Dwell-aware ad rotation is new to this spec. SPEC-CRWDQ-041's ad panel is static-per-slot (mounted once, unmounted on supersede). For `single_game_with_ads`, the live game state may persist for a long dwell (the game is in progress), so a single ad creative across the full dwell is undesirable. This spec adds rotation INSIDE the panel without affecting the parent dwell — i.e., the panel cycles through `AdSlot.ad_rotation[]` entries on a sub-dwell cadence; the parent slot's dwell timer is untouched.
+- SPEC-CRWDQ-023 renders `single_game` with no ad surface. SPEC-CRWDQ-041 renders `multiple_games_with_ads` and `fixtures_with_ads` (the two genuine `_with_ads` composite modes) and explicitly defers the `single_game` overlay-ad path to this spec.
+- Per SPEC-CRWDQ-039, the backend interleaver, when it attaches an ad to a `single_game` content state: keeps `business_mode: "single_game"`, keeps `template_id` unchanged, sets `ad_slot_id` to an `overlay`-class `AdSlot`'s id. It never produces a `single_game_with_ads` mode or template.
+- D-GRH-15 / D-GRH-16 establish ad-coexistence: an ad never displaces content. For `single_game` the ad is an `overlay`-class layer drawn above the score render, not a side panel that re-flows the content.
+- D-GRH-62: the player has no ad-progression logic — the backend pre-computes ad timing and inventory. A `single_game` `AdSlot` carries exactly one `ad_ref`; the player renders it static for the slot.
+
+## Detecting the overlay-ad case
+
+The shared `PlannedStateActivator` (SPEC-CRWDQ-023) dispatches a `PlannedStateFrame` whose `payload.business_mode === "single_game"` to the `single_game` activation path. That path branches on `payload.ad_slot_id`:
+
+- `ad_slot_id === null` → mount the bare `SingleGameTemplate` (the SPEC-CRWDQ-023 path, unchanged).
+- `ad_slot_id` non-null → mount `SingleGameOverlayAd` (this spec) — the `SingleGameTemplate` content with an `AdPanel` overlay.
+
+Resolution: SPEC-CRWDQ-023 § single_game activation step 6 now declares the `ad_slot_id !== null` branch, and § Ad-slot branch owns the activator-side composite-shell instantiation, the empty-overlay placeholder behavior (with `ad_slot_payload_unavailable` journal) pending backend `AdSlot` delivery, and the `OverlayAdInstance` lifecycle contract. This spec is the owner of the composite template (`SingleGameOverlayAd`) the activator delegates to once an `AdSlot` payload is available.
 
 ## Proposed deep interface
 
 ```ts
-// modules/widget-v2/src/templates/with-ads/SingleGameWithAdsTemplate.ts
-export interface SingleGameWithAdsTemplate {
-  mount(host: HTMLElement, ctx: SingleGameContext & { adSlot: AdSlot }): SingleGameWithAdsInstance;
+// modules/widget-v2/src/templates/with-ads/SingleGameOverlayAd.ts
+export interface SingleGameOverlayAd {
+  mount(host: HTMLElement, ctx: SingleGameContext & { adSlot: AdSlot }): SingleGameOverlayAdInstance;
 }
 
-export interface SingleGameWithAdsInstance {
+export interface SingleGameOverlayAdInstance extends TemplateInstance {
   detach(): HTMLElement;
+  /** Implements the shared TemplateInstance.reconcile? hook (canonical
+   *  signature owned by SPEC-CRWDQ-023). On a 'program_slot' variant the
+   *  composite delegates to the content child's update path — for the
+   *  bare single_game content child this is the SPEC-CRWDQ-023 soft
+   *  re-render via ProgramSlotResolver / GameStateStore (the bare
+   *  SingleGameInstance does not itself implement reconcile?, so this
+   *  composite's reconcile is what bridges the program_slot event into
+   *  a content refresh for the new primary_game_id). On an 'ad_slot'
+   *  variant (unreachable until backend AdSlot delivery lands) the
+   *  composite would refresh the overlay AdPanel; until then this is
+   *  documented but unexercised. 'game_state_revision' is a no-op
+   *  (the content child's GameStateStore subscription handles it). */
+  reconcile(event: TemplateReconcileEvent): Promise<void>;
 }
 ```
 
-The template reuses `SingleGameContext` from SPEC-CRWDQ-023 verbatim — no new field shape. The added `adSlot` field is the same shape `MultiGameWithAdsTemplate` / `FixturesWithAdsTemplate` from SPEC-CRWDQ-041 already consume.
+`TemplateInstance` and `TemplateReconcileEvent` are declared by SPEC-CRWDQ-023 (§ Reconcile dispatch) and consumed here verbatim.
 
-### Ad rotation extension to AdSlot (additive, backward-compatible)
+The template reuses `SingleGameContext` from SPEC-CRWDQ-023 verbatim — no new field shape. `AdSlot` is the SPEC-CRWDQ-017 `AdSlotPayload` consumed via SPEC-CRWDQ-041's `AdSlotResolver` — exactly the shape `MultiGameWithAdsTemplate` / `FixturesWithAdsTemplate` already consume. This spec introduces NO new `AdSlot` fields. (An earlier draft added `ad_rotation` / `rotation_cadence_ms`; those are removed — the backend `AdSlotPayload` has no such fields and D-GRH-62 forbids player-side ad progression.)
 
-```ts
-// extends AdSlot from SPEC-CRWDQ-041
-export interface AdSlot {
-  ad_slot_id: string;
-  ad_class: string;
-  ad_ref: string;                // phase-1: asset_id key into AssetManifest
-  ad_ref_type: 'asset_id';
-  policy: Record<string, unknown>;
+For a `single_game` `AdSlot` the backend constrains `ad_class` to `"overlay"` (SPEC-CRWDQ-039 §5). The player does not re-validate `ad_class` but reads it for journaling.
 
-  /**
-   * Optional rotation set. If present and non-empty, the AdPanel
-   * cycles through these references at `rotation_cadence_ms`. If
-   * absent, the panel renders only `ad_ref` for the full slot
-   * (existing SPEC-CRWDQ-041 behavior). Backend-authored.
-   */
-  ad_rotation?: ReadonlyArray<{ ad_ref: string; ad_ref_type: 'asset_id' }>;
-  rotation_cadence_ms?: number;  // default 8000 if `ad_rotation` present and field omitted
-}
-```
+### DOM shape — overlay composite
 
-`ad_rotation` is optional; SPEC-CRWDQ-041 templates ignore it (`AdPanel.mount` reads only `ad_ref`). This spec's `SingleGameWithAdsTemplate` consults it. Future SPEC may also opt SPEC-CRWDQ-041 templates into rotation by passing the rotation context to the panel — out of scope here.
-
-### DOM shape — composite
-
-Identical to SPEC-CRWDQ-041's grid shell, mode value differs:
+The `single_game` ad is an `overlay`-class ad: an absolutely-positioned layer ABOVE the full-surface `single_game` content, not a side panel. The content does NOT re-flow (D-GRH-16).
 
 ```
-<section class="crowdaq-with-ads cdq-with-ads-right" data-mode="single_game_with_ads">
-  <div class="cdq-content"><!-- SingleGameTemplate output, untouched --></div>
-  <aside class="cdq-ad-panel" data-position="right" data-ad-slot-id data-ad-class data-rotation-index>
+<section class="crowdaq-single-game-overlay-ad" data-game-id data-theme>
+  <div class="cdq-content"><!-- SingleGameTemplate output, full surface, untouched --></div>
+  <aside class="cdq-ad-overlay" data-ad-slot-id data-ad-class="overlay">
     <img class="cdq-ad-creative" alt="" src="<ad-asset-url>" />
   </aside>
 </section>
 ```
 
-`data-rotation-index` is new (vs SPEC-CRWDQ-041) — present when `ad_rotation` is in effect, value is the current index into the rotation array. Helpful for tests + debug.
+```css
+.crowdaq-single-game-overlay-ad { position: relative; }
+.crowdaq-single-game-overlay-ad .cdq-content { position: absolute; inset: 0; }
+.crowdaq-single-game-overlay-ad .cdq-ad-overlay {
+  position: absolute;
+  /* overlay-class anchor — corner or lower band; chosen by theme CSS (D-GRH-51) */
+  pointer-events: none;
+}
+```
+
+The content keeps the full surface; the ad overlay floats above it with `pointer-events: none`, so it never displaces or re-flows the score render — the D-GRH-16 "ad never displaces content" rule.
 
 ### Activation flow
 
-For `PlannedState` with `mode: "single_game_with_ads"` and `ad_slot_id: A`, `program_slot_id: X`:
+For a `single_game` `PlannedStateFrame` with a non-null `payload.ad_slot_id: A` and `payload.program_slot_id: X`:
 
-1. **Resolve `ProgramSlot`** + **resolve `AdSlot`.** Same as SPEC-CRWDQ-041. Either missing → journal `template_input_invalid` and fall through to safe.
-2. **Validate ad asset(s).** If `adSlot.ad_rotation` is absent: same as SPEC-CRWDQ-041 — resolve `adSlot.ad_ref` via `AssetManifestStore.ensure("ad:" + ad_ref)`. Cache miss → journal `ad_asset_cache_miss` and fall back to mounting `SingleGameTemplate` directly (no composite shell, no ad panel). If `adSlot.ad_rotation` is present: resolve EVERY referenced `ad_ref` in the rotation (parallel `ensure()`). Any single miss does NOT fall back — the rotation skips missed entries with `journal ad_rotation_entry_cache_miss`. If ALL entries miss, fall back to non-ad single_game (same path as the single-ref miss).
-3. **Run transition.** Same shared `TransitionExecutor`.
-4. **Mount composite shell.** Build the `<section>` with content + ad-panel children. (Same DOM shape as SPEC-CRWDQ-041; only `data-mode` differs.)
-5. **Mount content child.** `SingleGameTemplate.mount(contentHost, ctx)` — unchanged behavior from SPEC-CRWDQ-023.
-6. **Mount ad panel.**
-   - No rotation: `AdPanel.mount(adHost, { adSlot, assetManifestStore, positionClass: 'right' })`. Identical to SPEC-CRWDQ-041.
-   - Rotation: mount the first entry's creative, then start a rotation interval at `rotation_cadence_ms` that:
-     - Increments index (mod rotation.length).
-     - Skips entries that were cache-miss during step 2 (their `ad_ref` is in a per-slot skip set).
-     - Updates the `<img src>` and `data-rotation-index` attribute.
-     - Journals `ad_rotation_advanced` with `ad_ref` (new), `ad_rotation_index`.
-7. **Apply pending preferences** + **Arm parent dwell.** Same shared boundaries; the parent `DwellTimer` is untouched by ad rotation.
+1. **Resolve `ProgramSlot`** + **resolve `AdSlot`.** The shared `PlannedStateActivator` buffers the `PlannedStateFrame` until BOTH `ProgramSlotResolver.has(X)` and `AdSlotResolver.has(A)` are true, with the SPEC-CRWDQ-023 5 s buffer timeout. On timeout, journal `template_buffer_timeout` and escalate to safe (SPEC-CRWDQ-052 Path C). (See the OPEN QUESTION in SPEC-CRWDQ-041 about how the `AdSlot` frame reaches the player.)
+2. **Validate the ad asset.** `AssetManifestStore.get(adSlot.ad_ref)` — `ad_ref` is the `AssetManifest` `asset_id` directly. A synchronous cache hit → render the overlay composite. A miss → journal `ad_asset_cache_miss`, call `AssetManifestStore.ensure(adSlot.ad_ref)` to warm the cache, and fall back to mounting the bare `SingleGameTemplate` directly (no overlay layer). Per D-GRH-16, a missing ad creative must not blank or displace the game content.
+3. **Run transition.** The shared `TransitionExecutor.run(plannedState.payload.transition, host)` — the wire catalog-name string; a catalog miss falls back per the SPEC-CRWDQ-023 `TransitionExecutor` contract.
+4. **Mount the composite shell.** Build the `<section class="crowdaq-single-game-overlay-ad">` with the content + ad-overlay children.
+5. **Mount the content child.** `SingleGameTemplate.mount(contentHost, ctx)` — unchanged behavior from SPEC-CRWDQ-023; the content subscribes to `GameStateStore` for `primary_game_id`.
+6. **Mount the ad overlay.** `AdPanel.mount(adHost, { adSlot, assetManifestStore, positionClass: 'top' })` — the SPEC-CRWDQ-041 `AdPanel` primitive, rendering the single creative static for the slot. (`positionClass` selects an overlay-appropriate anchor; the SPEC-CRWDQ-041 `AdPanelContext.positionClass` enum already includes `'top'` / `'bottom'`.)
+7. **Apply pending preferences** + **Arm dwell.** The same shared SPEC-CRWDQ-023 boundaries; the `AdPanel` records `ad_slot_rendered` on the image `load` event with `ad_slot_id`, `ad_ref`, `state_id`.
 
-### Dwell-aware rotation contract
+### Static, not rotating, ad
 
-> Rotation cadence is INDEPENDENT of the parent `dwell_target_ms`. The parent slot's dwell is the schedule-driven lifetime of the live game render; ad rotation is content delivery inside that lifetime. They MUST NOT interact: rotating an ad does not cancel or extend the parent dwell; the parent dwell expiring does cancel the rotation interval (via the detach path below).
-
-If `dwell_target_ms < rotation_cadence_ms` (e.g., a 10s slot with 30s rotation), only the first entry is shown; the parent supersedes before any rotation tick. This is correct — no need for "compressed" rotation.
-
-If `dwell_target_ms` is exceptionally long (e.g., a 4-hour live game), rotation will cycle through the full set repeatedly. Journal `ad_rotation_cycled` once per full lap (not per entry) to keep journal volume bounded.
+Per D-GRH-62 the player has no ad-progression logic. The overlay ad is mounted at slot start and unmounted at slot end. There is NO rotation between creatives within a slot — a `single_game` `AdSlot` carries exactly one `ad_ref`. If the backend wants a different ad later, it emits a new `single_game` `PlannedState` with a different `ad_slot_id` (a normal supersede). No video, no click behavior (bar screens are passive).
 
 ### Supersede / detach
 
-When the parent `PlannedState` is superseded:
+When the parent `PlannedState` is superseded (a new `PlannedState` with a different `state_id`):
 
-1. Cancel the rotation interval (`clearInterval`).
-2. Shared outgoing transition runs on the `<section>`.
-3. `SingleGameWithAdsInstance.detach()` calls both children:
+1. The shared outgoing transition runs on the `<section>`.
+2. `SingleGameOverlayAdInstance.detach()` calls both children:
    - `SingleGameTemplate.detach()` (unsubscribes the `GameStateStore` listener for `primary_game_id`).
-   - `AdPanel.detach()`.
-4. Journal `ad_slot_completed` with final `dwell_actual_ms` (from the shared `DwellTimer`) AND `ad_rotation_final_index` (or `null` if no rotation).
+   - `AdPanel.detach()` (no subscriptions to unwind).
+3. Journal `ad_slot_completed` with `ad_slot_id`, `ad_ref`, `state_id`, and the final `dwell_actual_ms` from the shared `DwellTimer`.
 
 ### Reconcile
 
-Like SPEC-CRWDQ-041, the `single_game` content reacts to `GameState` events without re-mount. The ad panel is unaffected by `ProgramSlot` mutations (which only affect content). The `AdSlot` itself is not reconciled in place — an `AdSlot` change arrives as a new `PlannedState` (different `state_id`), not as a `ProgramSlot` mutation.
+Like SPEC-CRWDQ-041, the `single_game` content reacts to `GameState` events without a re-mount. A `ProgramSlot` revision (D-GRH-13, same `program_slot_id`) — for `single_game`, a `primary_game_id` change — propagates into `.cdq-content` via the content child's update path; the ad overlay is unaffected (it depends on the `AdSlot`, not the `ProgramSlot`). An `AdSlot` change arrives as a new `PlannedState` (different `state_id`), never as a `ProgramSlot` mutation.
 
 ### No new orchestration
 
-Everything else — `PlannedStateActivator`, `ProgramSlotResolver`, `GameStateStore`, `DwellTimer`, `TransitionExecutor`, `AssetManifestStore`, `AdSlotResolver`, `OverrideSuppressionState` — is consumed from earlier specs. This spec adds exactly one new template file + one new CSS file + the optional `ad_rotation` extension to `AdSlot`. The activator's dispatch on `mode == "single_game_with_ads"` routes here.
+Everything else — `PlannedStateActivator`, `ProgramSlotResolver`, `GameStateStore`, `DwellTimer`, `TransitionExecutor`, `AssetManifestStore`, `AdSlotResolver`, `OverrideSuppressionState` — is consumed from earlier specs. This spec adds exactly one new template file + one new CSS file. It introduces NO wire-protocol change and NO new business mode.
 
 ## Test strategy
 
@@ -140,49 +157,44 @@ Everything else — `PlannedStateActivator`, `ProgramSlotResolver`, `GameStateSt
 | Shared orchestration | 1 in-process | Real instances from SPEC-CRWDQ-023. |
 | `SingleGameTemplate` | 1 in-process | Real instance — not mocked (INV-FACTORY-16). |
 | `AdPanel` | 1 in-process | Real instance from SPEC-CRWDQ-041. |
-| `AssetManifestStore` | 1 in-process | Real instance from SPEC-CRWDQ-064; pre-seed with rotation asset URLs via test driver. |
+| `AssetManifestStore` | 1 in-process | Real instance from SPEC-CRWDQ-064; pre-seed the ad asset URL via test driver. |
 | `AdSlotResolver` | 1 in-process | Real. |
-| DOM | 1 in-process | jsdom; assert grid + ad-panel + `data-rotation-index` attribute. |
+| DOM | 1 in-process | jsdom; assert the overlay composite structure + `data-ad-slot-id`. |
 | Image `load` event | system boundary | Stub as in SPEC-CRWDQ-041. |
 | `DwellTimer`, clock | system boundary | Fake timers. |
 | Journal sink | 2 local-substitutable | In-memory. |
 
 Test cases:
 
-- **Happy mount — single ad_ref.** No `ad_rotation`; assert: content `.cdq-content` has `SingleGameTemplate` output; `.cdq-ad-panel` has `<img>` with `src` from manifest; no `data-rotation-index` attribute; mode `single_game_with_ads`.
-- **Happy mount — rotation.** `ad_rotation` length 3, `rotation_cadence_ms: 5000`. Mount; assert: `data-rotation-index="0"`. Advance fake clock 5s → `data-rotation-index="1"`, `<img src>` updated, journal `ad_rotation_advanced`. Advance another 5s → index 2. Advance another 5s → index 0 (mod 3), journal `ad_rotation_cycled` once per lap.
-- **Rotation entry cache miss.** Rotation length 3, middle entry miss. Mount + rotate: indexes 0 → 2 → 0 (skips 1); journal `ad_rotation_entry_cache_miss` for the missed entry; rotation does not stall on the gap.
-- **All rotation entries cache miss.** Rotation length 3, all miss. Assert: composite falls back — mounts `SingleGameTemplate` directly into the bare slot host, no composite shell, no ad panel; journal `ad_asset_cache_miss`. Same fallback path as the no-rotation case.
-- **No rotation cache miss falls back to non-ad single_game.** SPEC-CRWDQ-041 parity test.
-- **GameState event mutates only `.cdq-content`.** Mount with rotation. Send a `GameEvent` for `primary_game_id`. Assert: score block in `.cdq-content` updates; `.cdq-ad-panel` `<img>` does NOT reload (same src, same `data-rotation-index`).
-- **Rotation INDEPENDENT of parent dwell.** Mount with `dwell_target_ms: 30000`, `rotation_cadence_ms: 5000`. Advance fake clock 5s; assert: rotation advanced; parent `DwellTimer.elapsed()` ≈ 5000 (not reset); parent `onBoundary` NOT called.
-- **Short dwell skips rotation.** `dwell_target_ms: 3000`, `rotation_cadence_ms: 8000`. Mount; advance 3s → parent boundary fires; assert: only first ad ever rendered (index stayed 0); rotation interval cleared by detach; no `ad_rotation_advanced` journal entries.
-- **Long dwell cycles.** `dwell_target_ms: 60000`, `rotation_cadence_ms: 5000`, rotation length 3. Advance fake clock to 30s; assert: ≥ 1 `ad_rotation_cycled` journal (lap detected at index wrap, t=15s); index counts are correct.
-- **Supersede mid-rotation.** Mount with rotation at index 2; send new `PlannedState` → assert: rotation interval cleared; `ad_slot_completed` journal contains `ad_rotation_final_index: 2`; both children detach.
-- **Missing `AdSlot`.** `ad_slot_id` references unknown — journal `template_input_invalid`; no mount; falls through to safe.
-- **Reconcile underlying `ProgramSlot`.** `programSlot.primary_game_id` changes via D-GRH-13 path (same `program_slot_id`, new `primary_game_id`). Assert: content sub-template re-renders for new game; ad panel + rotation untouched (no flicker on `<img>`, no rotation-index reset).
+- **Happy mount.** A `single_game` `PlannedState` with a non-null `ad_slot_id` referencing an `overlay`-class `AdSlot`. Assert: `<section class="crowdaq-single-game-overlay-ad">`; `.cdq-content` has `SingleGameTemplate` output; `.cdq-ad-overlay` has an `<img>` with `src` from the manifest; `data-ad-slot-id` equals `adSlot.ad_slot_id`.
+- **Bare single_game (no ad).** A `single_game` `PlannedState` with `ad_slot_id === null` → the bare `SingleGameTemplate` is mounted (no `crowdaq-single-game-overlay-ad` section); this spec's composite is not used.
+- **Composite buffered until `AdSlot` resolves.** A `single_game` `PlannedState` with `ad_slot_id` arrives before its `AdSlot` frame → the activator buffers and mounts on the `AdSlot` arrival within 5 s.
+- **Missing `AdSlot` (never resolves).** `ad_slot_id` never resolves within 5 s → journal `template_buffer_timeout`; escalate to safe.
+- **Ad asset cache miss.** `AssetManifestStore.get(adSlot.ad_ref)` → null → journal `ad_asset_cache_miss`, `ensure(adSlot.ad_ref)` called once; the composite falls back to the bare `SingleGameTemplate` (no overlay layer); the game content is preserved (D-GRH-16).
+- **`ad_slot_rendered` journal.** Fires on the ad image's `load` event with `ad_slot_id`, `ad_ref`, `state_id`.
+- **GameState event isolation.** A `GameEvent` for `primary_game_id` updates the score block in `.cdq-content`; the `.cdq-ad-overlay` `<img>` does NOT reload (same `src`).
+- **Coexistence (no displacement).** In the rendered DOM, `.cdq-ad-overlay` is absolutely positioned with `pointer-events: none` and does not change the layout/size of `.cdq-content`.
+- **Supersede.** A new `PlannedState` (different `state_id`) → the outgoing transition runs; `detach()` calls both children's `detach` exactly once; `ad_slot_completed` journaled with `ad_slot_id`, `ad_ref`, `state_id`, `dwell_actual_ms`.
+- **Reconcile underlying `ProgramSlot`.** `programSlot.primary_game_id` changes via the D-GRH-13 path (same `program_slot_id`) → the content sub-template re-renders for the new game; the ad overlay `<img>` is unaffected (no flicker).
+- **No rotation.** The `AdSlot` carries exactly one `ad_ref`; the overlay creative is static for the full slot — there is no rotation interval, no `ad_rotation` field, no per-creative cadence.
 
 ## Vocabulary
 
-- `single_game_with_ads` — D-GRH-30 #5.
-- `AdSlot.ad_rotation`, `rotation_cadence_ms` — additive extension introduced by this spec; backend authoring extends accordingly. No D-GRH amendment required for this purely additive surface (closed enum changes would; this does not change any enum).
-- "coexistence" — D-GRH-16 uniform rule.
-- "rotation cadence" — internal term defined in this spec.
+- `single_game` overlay ad — a `single_game` `PlannedState` (`business_mode` stays `"single_game"`) carrying a non-null `ad_slot_id`. There is no `single_game_with_ads` business mode (SPEC-CRWDQ-039 / SPEC-CRWDQ-011 9-member enum).
+- `overlay`-class ad — the `ad_class` value the backend constrains a `single_game` `AdSlot` to (SPEC-CRWDQ-039 §5); the player renders it as an absolutely-positioned layer above the content.
+- "coexistence" — D-GRH-16: an ad never displaces or re-flows content.
 
 ## Acceptance Criteria
 
-- [ ] `SingleGameWithAdsTemplate.mount(host, ctx)` renders `<section class="crowdaq-with-ads cdq-with-ads-right" data-mode="single_game_with_ads">` containing `.cdq-content` (with `SingleGameTemplate` output unmodified) and `.cdq-ad-panel` (with `AdPanel` output).
-- [ ] `PlannedStateActivator` dispatches `mode: "single_game_with_ads"` to this template; the activator path is unchanged otherwise.
-- [ ] Missing referenced `AdSlot` journals `template_input_invalid` and does not mount.
-- [ ] When `adSlot.ad_rotation` is absent, behavior is identical to a SPEC-CRWDQ-041 composite for `single_game`: static ad creative for full slot lifetime, `ad_slot_rendered` on `<img>` load.
-- [ ] When `adSlot.ad_rotation` is present, the `AdPanel` cycles through entries on `rotation_cadence_ms` (default 8000 if omitted); `data-rotation-index` attribute reflects the current index; `<img src>` updates per cycle; journals `ad_rotation_advanced` per advance, `ad_rotation_cycled` once per full lap.
-- [ ] Rotation cadence is independent of parent `DwellTimer`: rotating an ad does NOT cancel or extend the parent dwell; the parent `onBoundary` callback fires at `dwell_target_ms` regardless of rotation activity.
-- [ ] Per-entry cache miss in a rotation: missed `ad_ref` is added to a per-slot skip set; rotation continues, skipping missed entries; journals `ad_rotation_entry_cache_miss`.
-- [ ] All-entries cache miss in a rotation OR single-`ad_ref` cache miss falls back to mounting `SingleGameTemplate` directly (no composite shell, no ad panel); journals `ad_asset_cache_miss` per D-GRH-16 content-preservation rule.
-- [ ] `GameState` events update only `.cdq-content`; `.cdq-ad-panel` does not re-render (image not reloaded, rotation index unchanged).
-- [ ] Underlying `ProgramSlot` reconcile (e.g., `primary_game_id` change via D-GRH-13) propagates into `.cdq-content`; rotation index and ad-panel `<img>` are unaffected.
-- [ ] Supersede cancels the rotation interval; `ad_slot_completed` journal carries `dwell_actual_ms` and `ad_rotation_final_index` (or `null` if no rotation); both children detach exactly once.
-- [ ] Short-dwell case (`dwell_target_ms < rotation_cadence_ms`): only the first rotation entry is rendered; no `ad_rotation_advanced` journal entries are emitted.
-- [ ] Long-dwell case: `ad_rotation_cycled` journals once per full rotation lap, not per entry.
-- [ ] Tests cover: happy mount (no rotation), happy mount (rotation), per-entry cache miss + skip, all-miss fallback, no-rotation cache miss fallback, GameState event isolation, dwell independence, short-dwell, long-dwell cycling, supersede mid-rotation, missing AdSlot, ProgramSlot reconcile.
+- [ ] The `single_game` activation path branches on `payload.ad_slot_id`: a `null` `ad_slot_id` mounts the bare `SingleGameTemplate` (SPEC-CRWDQ-023, unchanged); a non-null `ad_slot_id` mounts `SingleGameOverlayAd`. There is NO `single_game_with_ads` business mode and no dispatch on such a mode value.
+- [ ] `SingleGameOverlayAd.mount(host, ctx)` renders `<section class="crowdaq-single-game-overlay-ad">` containing `.cdq-content` (with `SingleGameTemplate` output unmodified, full surface) and `.cdq-ad-overlay` (with `AdPanel` output, absolutely positioned, `pointer-events: none`).
+- [ ] A `single_game` `PlannedState` with a non-null `ad_slot_id` is buffered by the shared `PlannedStateActivator` until both its `ProgramSlot` and its `AdSlot` resolve (5 s timeout → `template_buffer_timeout` + escalate to safe).
+- [ ] An `AssetManifestStore.get(adSlot.ad_ref)` miss journals `ad_asset_cache_miss`, calls `ensure(adSlot.ad_ref)`, and falls back to mounting the bare `SingleGameTemplate` (no overlay layer); the game content is preserved (D-GRH-16).
+- [ ] The overlay ad is static for the slot's lifetime — exactly one `ad_ref` is rendered; there is NO rotation, NO `ad_rotation` field, NO rotation cadence (D-GRH-62 — the player has no ad-progression logic). The spec introduces NO new `AdSlot` / `AdSlotPayload` wire fields.
+- [ ] `ad_slot_rendered` journal fires on the ad image's `load` event with `ad_slot_id`, `ad_ref`, `state_id`.
+- [ ] `GameState` events update only `.cdq-content`; the `.cdq-ad-overlay` `<img>` does not re-render.
+- [ ] Coexistence: the ad overlay is absolutely positioned and never changes the layout or size of `.cdq-content` (D-GRH-15, D-GRH-16).
+- [ ] `SingleGameOverlayAdInstance` implements the shared `TemplateInstance.reconcile?(event: TemplateReconcileEvent)` hook owned by SPEC-CRWDQ-023. On `{ kind: 'program_slot', slot }` an underlying `ProgramSlot` reconcile (e.g. a `primary_game_id` change via D-GRH-13) propagates into `.cdq-content`; the ad overlay `<img>` is unaffected. `ad_slot` variant is documented but unreachable until backend `AdSlot` delivery lands; `game_state_revision` is a no-op.
+- [ ] Supersede: the outgoing transition runs; `detach()` calls both children's `detach` exactly once; `ad_slot_completed` is journaled with `ad_slot_id`, `ad_ref`, `state_id`, and `dwell_actual_ms` from the shared `DwellTimer`.
+- [ ] Tests cover: happy mount, bare single_game (no ad), composite buffered until AdSlot resolves, missing AdSlot, ad asset cache miss fallback, `ad_slot_rendered` journal, GameState event isolation, coexistence (no displacement), supersede, ProgramSlot reconcile, no-rotation.
 - [ ] Tests use real `SingleGameTemplate` and real `AdPanel` instances (INV-FACTORY-16); only the WS source, clock, image `load` event, and journal sink are substituted (INV-FACTORY-17).

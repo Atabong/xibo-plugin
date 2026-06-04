@@ -15,7 +15,8 @@ class RecordingJournal implements RenderJournal {
 const slot = (primaryGameId: string | null): ProgramSlotPayload => ({
   program_slot_id: 'slot-1',
   primary_game_id: primaryGameId,
-  game_ids: primaryGameId === null ? [] : [primaryGameId],
+  game_ids: [],
+  fixture_ids: [],
 });
 
 const baseState = (over: Partial<GameState> = {}): GameState => ({
@@ -151,6 +152,57 @@ describe('SingleGameTemplate scope (no other-template DOM)', () => {
     expect(host.querySelector('.cdq-card-grid')).toBeNull();
     expect(host.querySelector('.cdq-ad-panel')).toBeNull();
     expect(host.querySelector('.cdq-fixture-card')).toBeNull();
+  });
+});
+
+describe('SingleGameTemplate excitement meter (SPEC-CRWDQ-S13)', () => {
+  const fillPct = (root: ParentNode): number => {
+    const fill = root.querySelector('.cdq-excitement-fill') as HTMLElement | null;
+    return fill ? parseFloat(fill.style.width) : NaN;
+  };
+
+  it('renders the REAL backend sport_context.excitement value (not the proxy)', () => {
+    const { host, store, template } = setup({ primaryGameId: 'g1' });
+    // Real backend signal = 73; the derived proxy for 2-1 would be ~66 — assert
+    // the meter shows the backend value, proving it reads the wire field.
+    store.upsertSnapshot(
+      baseState({ sport_context: { sport: 'soccer', league: 'EPL', period_clock: "88'", excitement: 73 } }),
+    );
+    template.mount(host, { programSlot: slot('g1'), theme: { state: 'default' }, gameStateStore: store });
+    expect(fillPct(host)).toBe(73);
+  });
+
+  it('SPIKES when a goal GameEvent re-stamps a higher sport_context.excitement', () => {
+    const { host, store, template } = setup({ primaryGameId: 'g1' });
+    store.upsertSnapshot(
+      baseState({ home_score: 0, away_score: 0, sport_context: { sport: 'soccer', league: 'EPL', period_clock: "70'", excitement: 34 } }),
+    );
+    template.mount(host, { programSlot: slot('g1'), theme: { state: 'default' }, gameStateStore: store });
+    const before = fillPct(host);
+    expect(before).toBe(34);
+
+    // Backend re-stamps the SPIKED excitement on the GameEvent's sport_context
+    // (the goal just landed). The store merges sport_context field-by-field.
+    store.applyEvent({
+      game_id: 'g1',
+      seq: 2,
+      home_score: 1,
+      last_moment: 'GOAL! Lions 1-0',
+      sport_context: { excitement: 91, momentum: 80 },
+    });
+    const after = fillPct(host);
+    expect(after).toBe(91);
+    expect(after).toBeGreaterThan(before);
+  });
+
+  it('falls back to the derived proxy when the frame carries no real excitement', () => {
+    const { host, store, template } = setup({ primaryGameId: 'g1' });
+    store.upsertSnapshot(baseState({ sport_context: { sport: 'soccer', league: 'EPL', period_clock: "45'" } }));
+    template.mount(host, { programSlot: slot('g1'), theme: { state: 'default' }, gameStateStore: store });
+    // No sport_context.excitement → proxy in [12,100].
+    const pct = fillPct(host);
+    expect(pct).toBeGreaterThanOrEqual(12);
+    expect(pct).toBeLessThanOrEqual(100);
   });
 });
 

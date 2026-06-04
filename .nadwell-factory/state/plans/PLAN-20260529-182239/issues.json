@@ -1,0 +1,305 @@
+[
+  {
+    "Id": "ISS-PLAN-20260529-182239-001",
+    "Title": "Scaffold widget-v2 TypeScript toolchain \u002B SPEC-CRWDQ-017 wire-module integration",
+    "AcceptanceSketch": [
+      "modules/widget-v2/package.json \u002B tsconfig.json \u002B vitest.config.ts; npm test runs Vitest\u002Bjsdom green",
+      "jsdom env with crypto.subtle/LocalStorage/IndexedDB shims for tests",
+      "single src/wire.ts re-exports Envelope, all *Payload types, 20-value MessageType, CHANNELS, canonicalChannel, parseLine/buildEnvelope/serialize, 7 WireError codes from SPEC-CRWDQ-017",
+      "ESLint \u002B type-check gate; no @latest pins",
+      "additive Node CI job in .github/workflows/ci.yml scoped to modules/widget-v2/**; PHP jobs unchanged",
+      "v1 crowdaq-widget.xml untouched; v2 bundle entry point produced"
+    ],
+    "DependsOn": [
+      "SPEC-CRWDQ-017 (crowdaq-backend, external) via OQ-1/OQ-2"
+    ],
+    "DomainContext": {
+      "BoundedContext": "composition/build root; establishes the wire port (no bounded context)",
+      "Port": null,
+      "Adapter": null
+    },
+    "Verification": "npm test green in CI on a placeholder spec; a real-import test asserts parseLine round-trips a fixture envelope (proves integration, not a stub)"
+  },
+  {
+    "Id": "ISS-PLAN-20260529-182239-002",
+    "Title": "SPEC-CRWDQ-022 WebSocket client \u002B wire-protocol deserializer",
+    "AcceptanceSketch": [
+      "transport/{WsClient,Deserializer,Dispatcher,Heartbeat,GameStateRequest,types}.ts per spec interfaces",
+      "connect() opens with subprotocol crowdaq.v1, sends DeviceRegistration first on every open, resolves on first server frame",
+      "Deserializer wraps real parseLine, never throws; empty_line/parse_error(7 codes)/typed ServerFrame",
+      "Dispatcher one-handler-per-type (DuplicateHandlerError); synchronous receipt-order; per-game_id seq tracking for active-ProgramSlot games",
+      "Heartbeat 30s \u002B ackTimeoutMs liveness close(1000)-\u003Ereconnect; exp full-jitter backoff; trigger set incl 4004 3-strike ceiling",
+      "seq-gap-\u003Esingle coalesced GameStateRequest; GameState snapshot re-baselines",
+      "schema-violation/binary/\u003E1MB frames journaled\u002Bdropped, never reach handlers"
+    ],
+    "DependsOn": [
+      "ISS-PLAN-20260529-182239-001"
+    ],
+    "DomainContext": {
+      "BoundedContext": "transport bounded context; port=WsClient (FakeWebSocket); consumes wire module in-process",
+      "Port": null,
+      "Adapter": null
+    },
+    "Verification": "Vitest tests/transport/* with fixtures/wire/re-push-happy.jsonl: handler order, parse-error markers, heartbeat/reconnect via fake timers, seq-gap coalescing; no mock of Deserializer/Dispatcher/Heartbeat/wire module"
+  },
+  {
+    "Id": "ISS-PLAN-20260529-182239-003",
+    "Title": "SPEC-CRWDQ-014 ConfigPush consumer with local cache \u002B apply",
+    "AcceptanceSketch": [
+      "config/{ConfigPushHandler,PreferenceStore,ApplyPreferenceState,types}.ts; wire types imported, no hand-rolled duplicates",
+      "handle() never throws; first_push|unchanged|replaced|rejected; closed-shape 5 payload keys (incl required display_id) \u002B 10 BarPreferencesWire keys",
+      "theme 3-state \u002B coupling/extra-key rejects; IANA TZ via Intl; positive-safe-int intervals/cache_ceiling_bytes; config_hash_missing",
+      "persists full ConfigPushPayload to LocalStorage crowdaq.widgetV2.barPreferences; hash-equal=0 writes\u002B1 journal; hash-diff=save\u002Bevict\u002Bsingle queueApply",
+      "queueApply single pending slot (replace not append); superseded_by journaling; no render-loop port"
+    ],
+    "DependsOn": [
+      "ISS-PLAN-20260529-182239-001",
+      "ISS-PLAN-20260529-182239-002"
+    ],
+    "DomainContext": {
+      "BoundedContext": "config bounded context; ports=PreferenceStore (real jsdom LocalStorage), InMemoryAssetCacheAdapter, ApplyQueueProbe",
+      "Port": null,
+      "Adapter": null
+    },
+    "Verification": "Vitest\u002Bjsdom tests/config/* covers first/hash-match/hash-diff, schema-invalid (missing\u002Bextra\u002Bmissing display_id), theme/fallback_mode_order/intervals violations, TZ, reconnect idempotency, supersede, full round-trip"
+  },
+  {
+    "Id": "ISS-PLAN-20260529-182239-004",
+    "Title": "SPEC-CRWDQ-064 AssetManifestStore",
+    "AcceptanceSketch": [
+      "render/{AssetManifestStore,AssetCache,AssetFetcher,AssetEvictionPolicy}.ts per interfaces",
+      "apply() registered as AssetManifest control-channel handler; reads frame.payload; idempotent on identical (version,asset set); diff-\u003Estale-flag-\u003Epromote-\u003Eeager pre-fetch(cap 4, needed_by then lex)-\u003Enotify-\u003Ejournal",
+      "get() synchronous hot-map; ensure() fetch-on-demand with in-flight de-dup, retry, AssetFetchError on unknown id; SHA-256 verify (mismatch rejects, no write, journal)",
+      "eviction stale-first then LRU to \u003C=90% budget; persistence survives restart over seeded cache; IndexedDB-unavailable degrades in-memory\u002Bjournal"
+    ],
+    "DependsOn": [
+      "ISS-PLAN-20260529-182239-001",
+      "ISS-PLAN-20260529-182239-002"
+    ],
+    "DomainContext": {
+      "BoundedContext": "render/asset-manifest bounded context; ports=AssetFetcher (FakeAssetFetcher), AssetCache (MapAssetCache), clock; real eviction policy \u002B hash verifier",
+      "Port": null,
+      "Adapter": null
+    },
+    "Verification": "Vitest tests/render/asset-manifest/* covers apply happy/idempotent, hit/miss, version-bump re-fetch, concurrent de-dup, pre-fetch cap, stale\u002BLRU eviction, hash mismatch, restart survival, IndexedDB-unavailable, subscribe fanout"
+  },
+  {
+    "Id": "ISS-PLAN-20260529-182239-005",
+    "Title": "SPEC-CRWDQ-023 single_game template \u002B shared render orchestration",
+    "AcceptanceSketch": [
+      "render/{PlannedStateActivator,ProgramSlotResolver,GameStateStore,DwellTimer,TransitionExecutor}.ts \u002B templates/single-game/{SingleGameTemplate.ts,single-game.html,single-game.css}",
+      "activator registered as PlannedState handler; branches business_mode===\u0027single_game\u0027; idempotent repeat state_id; buffers missing ProgramSlot (5s-\u003Efallback)",
+      "primary_game_id from ProgramSlot only; null cases-\u003Eplaceholder\u002Btemplate_render_fallback\u002Bdwell armed",
+      "3-state theme (set/default/unset distinct) per-slot override-\u003Ebar ThemeChoiceWire-\u003Eboot default; CSS swap only at dwell boundary on pending apply",
+      "GameStateStore snapshot(always-apply,re-baseline)\u002Bevent(seq-ordered,regression dropped)\u002BlastEvent; subscription re-render no transition",
+      "TemplateInstance.reconcile? optional \u002B TemplateReconcileEvent union \u002B activator dispatch/gate/journal; bare SingleGameInstance omits reconcile?",
+      "ad_slot_id branch: null-\u003Ebare mount; non-null-\u003Ecomposite shell\u002Bempty overlay\u002Bad_slot_payload_unavailable journal"
+    ],
+    "DependsOn": [
+      "ISS-PLAN-20260529-182239-002",
+      "ISS-PLAN-20260529-182239-003"
+    ],
+    "DomainContext": {
+      "BoundedContext": "render orchestration \u002B templates/single-game; ports=Dispatcher/GameStateStore/ProgramSlotResolver (real), DwellTimer (fake timers), TransitionExecutor (InstantTransitionAdapter), AdSlotResolver/PendingApply/StyleSheetRegistry probes; soft non-blocking dep on ISS-004",
+      "Port": null,
+      "Adapter": null
+    },
+    "Verification": "Vitest\u002Bjsdom tests/templates/single-game/* covers happy, re-push order, null program_slot/primary_game, idempotent, supersede, theme(3), pending apply, seq regression, last-moment overlay, transition miss, dwell boundary, reconcile dispatch(5), overlay-ad branch(4)"
+  },
+  {
+    "Id": "ISS-PLAN-20260529-182239-006",
+    "Title": "SPEC-CRWDQ-027 e2e smoke test (real WS, real BarPreferences)",
+    "AcceptanceSketch": [
+      "tests/e2e/{smoke.spec.ts,playwright.config.ts,page-objects/WidgetPage.ts,host.html} \u002B .github/workflows/widget-v2-e2e.yml",
+      "real wss:// staging GDS at /ws with crowdaq.v1 subprotocol; no mock/localhost fallback",
+      "asserts boot-\u003EDeviceRegistration(valid payload, no capabilities/player_version)-\u003Ere-push subsequence-\u003Esingle_game DOM([data-testid=cdq-score]\u002Bdata-theme)-\u003E1 Heartbeat\u002B1 HeartbeatAck-\u003Eclean 1000 close",
+      "CI joins tailnet via tailscale action; fails fast tailnet_unavailable; \u003C=45s test, \u003C=5min job"
+    ],
+    "DependsOn": [
+      "ISS-PLAN-20260529-182239-003",
+      "ISS-PLAN-20260529-182239-005",
+      "SPEC-CRWDQ-026 (backend, external)",
+      "SPEC-CRWDQ-028 (backend, external)"
+    ],
+    "DomainContext": {
+      "BoundedContext": "tests/e2e; M2 cut gate; remote-owned staging GDS\u002Btailnet (R3 gated, not satisfiable from this repo alone)",
+      "Port": null,
+      "Adapter": null
+    },
+    "Verification": "single Playwright test green against staging proving the full happy connect\u002Brender\u002Bheartbeat\u002Bdisconnect path"
+  },
+  {
+    "Id": "ISS-PLAN-20260529-182239-007",
+    "Title": "SPEC-CRWDQ-031 multiple_games (2x2 grid) template \u002B dwell",
+    "AcceptanceSketch": [
+      "templates/multi-game/{MultiGameTemplate.ts,multi-game.html,multi-game.css,CardSet.ts}",
+      "implements reconcile? for card add/remove (D-GRH-13) without remount/transition/dwell-reset",
+      "2x2 grid render from ProgramSlot game_ids; per-card GameStateStore subscription"
+    ],
+    "DependsOn": [
+      "ISS-PLAN-20260529-182239-005"
+    ],
+    "DomainContext": {
+      "BoundedContext": "templates/multi-game bounded context; reuses shared render orchestration",
+      "Port": null,
+      "Adapter": null
+    },
+    "Verification": "Vitest\u002Bjsdom tests/templates/multi-game/* grid render \u002B dwell \u002B card reconcile (add/remove) tests"
+  },
+  {
+    "Id": "ISS-PLAN-20260529-182239-008",
+    "Title": "SPEC-CRWDQ-034 fixtures render template",
+    "AcceptanceSketch": [
+      "templates/fixtures/{FixturesTemplate.ts,fixtures.html,fixtures.css} \u002B render/FixtureListStore.ts",
+      "FixtureList frame consumed; badge assets via AssetManifestStore (ensure/get)",
+      "feed_status handling \u002B fixture_ids membership \u002B badge-miss fallback"
+    ],
+    "DependsOn": [
+      "ISS-PLAN-20260529-182239-005",
+      "ISS-PLAN-20260529-182239-004"
+    ],
+    "DomainContext": {
+      "BoundedContext": "templates/fixtures \u002B render/FixtureListStore; consumes AssetManifestStore",
+      "Port": null,
+      "Adapter": null
+    },
+    "Verification": "Vitest\u002Bjsdom tests/templates/fixtures/* fixture catalog render \u002B feed_status \u002B badge fallback tests"
+  },
+  {
+    "Id": "ISS-PLAN-20260529-182239-009",
+    "Title": "SPEC-CRWDQ-046 recap render template",
+    "AcceptanceSketch": [
+      "templates/recap/{RecapTemplate.ts,recap.html,recap.css}",
+      "post-game recap render; team assets via AssetManifestStore",
+      "null program_slot recap path (D-GRH-30 recap has no live game)"
+    ],
+    "DependsOn": [
+      "ISS-PLAN-20260529-182239-005",
+      "ISS-PLAN-20260529-182239-008",
+      "ISS-PLAN-20260529-182239-004"
+    ],
+    "DomainContext": {
+      "BoundedContext": "templates/recap; consumes shared orchestration \u002B AssetManifestStore",
+      "Port": null,
+      "Adapter": null
+    },
+    "Verification": "Vitest\u002Bjsdom tests/templates/recap/* recap render tests"
+  },
+  {
+    "Id": "ISS-PLAN-20260529-182239-010",
+    "Title": "SPEC-CRWDQ-049 MessagingLane overlay layer",
+    "AcceptanceSketch": [
+      "overlays/{MessagingLaneOverlay,MessagingLaneStore,OverlayLayer}.ts \u002B messaging-lane.css",
+      "overlay reads overrideSuppressionState token (consumer side of 049/063 contract)",
+      "out-of-band text overlay coexists with active template without remount"
+    ],
+    "DependsOn": [
+      "ISS-PLAN-20260529-182239-005"
+    ],
+    "DomainContext": {
+      "BoundedContext": "overlays bounded context; establishes overrideSuppressionState token consumer",
+      "Port": null,
+      "Adapter": null
+    },
+    "Verification": "Vitest\u002Bjsdom tests/overlays/* overlay render \u002B suppression-state tests"
+  },
+  {
+    "Id": "ISS-PLAN-20260529-182239-011",
+    "Title": "SPEC-CRWDQ-052 safe_info render template",
+    "AcceptanceSketch": [
+      "templates/safe-info/{SafeInfoTemplate.ts,safe-info.html,safe-info.css} \u002B render/SafeStateController.ts",
+      "safe-mode reason split (D-GRH-76); venue_brand asset via AssetManifestStore",
+      "fall-through target for template_render_fallback paths"
+    ],
+    "DependsOn": [
+      "ISS-PLAN-20260529-182239-005",
+      "ISS-PLAN-20260529-182239-003",
+      "ISS-PLAN-20260529-182239-004"
+    ],
+    "DomainContext": {
+      "BoundedContext": "templates/safe-info \u002B render/SafeStateController",
+      "Port": null,
+      "Adapter": null
+    },
+    "Verification": "Vitest\u002Bjsdom tests/templates/safe-info/* safe-mode render \u002B reason-split tests"
+  },
+  {
+    "Id": "ISS-PLAN-20260529-182239-012",
+    "Title": "SPEC-CRWDQ-053 ambient render template",
+    "AcceptanceSketch": [
+      "templates/ambient/{AmbientTemplate.ts,AmbientPlaylist.ts,ambient.html,ambient.css}",
+      "AmbientPlaylist consumes manifestEntries() ambient: prefix filter",
+      "empty-manifest -\u003E falls back to safe_info (depends 052)"
+    ],
+    "DependsOn": [
+      "ISS-PLAN-20260529-182239-011",
+      "ISS-PLAN-20260529-182239-004"
+    ],
+    "DomainContext": {
+      "BoundedContext": "templates/ambient; serializes on safe-info as fallback target",
+      "Port": null,
+      "Adapter": null
+    },
+    "Verification": "Vitest\u002Bjsdom tests/templates/ambient/* ambient playlist \u002B empty-manifest-\u003Esafe_info fallback tests"
+  },
+  {
+    "Id": "ISS-PLAN-20260529-182239-013",
+    "Title": "SPEC-CRWDQ-061 player-side metrics ping",
+    "AcceptanceSketch": [
+      "observability/{JournalStore,JournalSyncClient,JournalBatcher,types}.ts",
+      "HTTP JournalSync POST per D-GRH-52 (not WS) using intervals.journal_sync_ms from ConfigPush",
+      "batch \u002B retry; journal store accumulates D-GRH-29 events"
+    ],
+    "DependsOn": [
+      "ISS-PLAN-20260529-182239-002",
+      "ISS-PLAN-20260529-182239-003"
+    ],
+    "DomainContext": {
+      "BoundedContext": "observability bounded context; HTTP boundary for journal sync",
+      "Port": null,
+      "Adapter": null
+    },
+    "Verification": "Vitest tests/observability/* batch \u002B sync-client \u002B interval tests"
+  },
+  {
+    "Id": "ISS-PLAN-20260529-182239-014",
+    "Title": "SPEC-CRWDQ-041 ad render template \u002B fixtures_with_ads composite",
+    "AcceptanceSketch": [
+      "templates/with-ads/{AdPanel,MultiGameWithAdsTemplate,FixturesWithAdsTemplate}.ts \u002B with-ads.css \u002B render/AdSlotResolver.ts",
+      "AdPanel grid-shell \u002B ad creative via AssetManifestStore.get(adSlot.ad_ref)",
+      "ad_asset_cache_miss path; AdSlot delivery is backend gap (R4) - contract-pinned"
+    ],
+    "DependsOn": [
+      "ISS-PLAN-20260529-182239-007",
+      "ISS-PLAN-20260529-182239-008",
+      "ISS-PLAN-20260529-182239-004",
+      "SPEC-CRWDQ-039 (backend, external)"
+    ],
+    "DomainContext": {
+      "BoundedContext": "templates/with-ads \u002B render/AdSlotResolver; composes multi-game \u002B fixtures",
+      "Port": null,
+      "Adapter": null
+    },
+    "Verification": "Vitest\u002Bjsdom tests/templates/with-ads/* ad-panel \u002B composite render \u002B ad-asset-cache-miss tests"
+  },
+  {
+    "Id": "ISS-PLAN-20260529-182239-015",
+    "Title": "SPEC-CRWDQ-065 single_game overlay-ad rendering",
+    "AcceptanceSketch": [
+      "templates/with-ads/SingleGameOverlayAd.ts \u002B single-game-overlay-ad.css",
+      "implements overlay composite the SPEC-CRWDQ-023 activator delegates to when ad_slot_id non-null",
+      "creative paint via AssetManifestStore.get(adSlot.ad_ref); z-order above content, pointer-events none, no content reflow"
+    ],
+    "DependsOn": [
+      "ISS-PLAN-20260529-182239-005",
+      "ISS-PLAN-20260529-182239-014",
+      "ISS-PLAN-20260529-182239-004"
+    ],
+    "DomainContext": {
+      "BoundedContext": "templates/with-ads; heaviest fan-in (023\u002B041\u002B064)",
+      "Port": null,
+      "Adapter": null
+    },
+    "Verification": "Vitest\u002Bjsdom tests/templates/with-ads/single-game-overlay-ad.test.ts overlay-ad paint \u002B z-order \u002B cache-miss (contract-pinned per R4)"
+  }
+]

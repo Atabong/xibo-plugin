@@ -1,7 +1,7 @@
 ---
 spec_id: SPEC-CRWDQ-064
 title: Widget v2 AssetManifestStore
-status: draft
+status: impl-ready
 owner: player-runtime/widget-v2/asset-manifest
 depends_on: [SPEC-CRWDQ-022]
 generated_by: grill-amendment
@@ -20,16 +20,24 @@ generated_at: 2026-05-15
 | Source files | `modules/widget-v2/src/transport/Dispatcher.ts` (consumed) |
 | New files | `modules/widget-v2/src/render/AssetManifestStore.ts`, `modules/widget-v2/src/render/AssetCache.ts`, `modules/widget-v2/src/render/AssetFetcher.ts`, `modules/widget-v2/src/render/AssetEvictionPolicy.ts`, `modules/widget-v2/tests/render/asset-manifest/*.test.ts` |
 
+> **Backend authority note:** The `AssetManifest` wire frame consumed by
+> this store is governed by the wire-protocol spec
+> `crowdaq-backend/docs/specs/SPEC-CRWDQ-017` and delivered by
+> `SPEC-CRWDQ-020` (GameDeliveryService re-push). SPEC-CRWDQ-020 ships an
+> S3 *stub* `AssetManifest` payload (`{ "assets": [] }`); the full manifest
+> with real entries arrives in S6+. The frame-shape claims below are
+> cross-checked against those specs. The backend is the source of truth.
+
 ## Module
 
 `player-runtime :: widget-v2 :: render/asset-manifest` — the player-side cache of all asset blobs delivered via `AssetManifest` (D-GRH-23): theme stylesheets, font files, sport/league badges, team logos, animation definition files (D-GRH-31), ad creatives (D-GRH-55). Hash-keyed cache, lazy fetch on `ensure()`, eager pre-fetch on manifest receipt, in-flight de-duplication, version-bump invalidation, eviction by LRU + version-staleness, persistence to IndexedDB for cross-restart survival.
 
-This spec consolidates the `AssetManifestStore` interface that several other specs already declare as a consumed surface (SPEC-CRWDQ-034, 041, 053). Those specs reference the type without owning its full lifecycle. This spec owns it.
+This spec consolidates the `AssetManifestStore` interface that several other specs declare as a consumed surface (SPEC-CRWDQ-034, 041, 046, 052, 053, 063, 065, 066). Those specs reference the type without owning its full lifecycle. This spec owns it.
 
 ## Current shape
 
 - v1 had no asset cache. The legacy widget loaded team logos by URL on every render — no caching layer, no version awareness, no offline tolerance.
-- D-GRH-23 establishes `AssetManifest` as a push-channel message carrying the full asset set for a `theme_id` + bar configuration. The manifest entry shape (per D-GRH-23, D-GRH-31, D-GRH-55):
+- D-GRH-23 establishes `AssetManifest` as a control-channel message carrying the full asset set for a `theme_id` + bar configuration. It is a SPEC-CRWDQ-017 `Envelope<AssetManifestPayload>`; the payload carries a `version` and an `assets` list (SPEC-CRWDQ-020's S3 stub payload is `{ "assets": [] }` — the list key is `assets`). Each entry in `assets` has the shape (per D-GRH-23, D-GRH-31, D-GRH-55):
   ```jsonl
   {
     "asset_id": "string",
@@ -40,7 +48,8 @@ This spec consolidates the `AssetManifestStore` interface that several other spe
     "needed_by": "iso8601 | null"          // soft deadline for pre-fetch
   }
   ```
-- D-GRH-74 establishes Cloudflare R2 as the backend. The URL in the manifest entry is fully qualified — the store does not synthesize URLs.
+- D-GRH-74 establishes Cloudflare R2 as the backend. The URL in each asset entry is fully qualified — the store does not synthesize URLs.
+- SPEC-CRWDQ-020 ships an S3 *stub* `AssetManifest` (`assets: []`); the full manifest with real entries arrives in S6+. This store handles an empty `assets` list gracefully — `get` returns `null`, `ensure` rejects "not in manifest" — so it is correct against the S3 stub and the S6+ full manifest alike.
 - Without this store, SPEC-CRWDQ-034 (fixture badges), SPEC-CRWDQ-041 (ad creatives), and SPEC-CRWDQ-053 (ambient assets) each describe their own cache lookup informally. This spec replaces that informal scatter with one owned surface.
 
 ## Proposed deep interface
@@ -94,13 +103,38 @@ export interface AssetManifestStore {
    * of currently-referenced assets after a version bump.
    */
   subscribeManifest(listener: (version: string) => void): () => void;
+
+  /**
+   * The full entry list of the currently applied manifest. Used by
+   * consumers that must enumerate a family of assets rather than look
+   * one up by exact id — e.g. SPEC-CRWDQ-053's AmbientPlaylist filters
+   * every `ambient:`-prefixed entry. Returns a read-only snapshot;
+   * callers must not mutate it.
+   */
+  manifestEntries(): readonly AssetManifestEntry[];
 }
 
+/**
+ * The on-the-wire AssetManifest frame — a SPEC-CRWDQ-017
+ * Envelope<AssetManifestPayload>. `schema_version`, `channel`,
+ * `message_type`, `ts`, and `bar_id` are envelope-level; `version` and
+ * the `assets` list are payload-level. The dispatcher hands the parsed
+ * envelope to `apply()`, which reads `frame.payload`.
+ */
 export interface AssetManifestFrame {
+  schema_version: number;                  // 1 in phase-1
+  channel: 'control';                      // AssetManifest pins to the control channel
   message_type: 'AssetManifest';
+  ts: string;                              // RFC 3339 UTC
   bar_id: string;
-  version: string;
-  entries: AssetManifestEntry[];
+  payload: AssetManifestPayload;
+}
+
+export interface AssetManifestPayload {
+  version: string;                         // manifest-level version bump trigger
+  /** The asset set. Key is `assets` per SPEC-CRWDQ-020's stub payload
+   *  `{ "assets": [] }`. Empty in the S3 stub; populated S6+. */
+  assets: AssetManifestEntry[];
 }
 
 export interface AssetManifestEntry {
@@ -182,12 +216,12 @@ The store is constructed once at boot, threaded into every consumer (fixtures te
 
 ### Apply flow
 
-For an incoming `AssetManifestFrame`:
+For an incoming `AssetManifestFrame` (the manifest fields are read from `frame.payload`):
 
-1. **Version check.** If `manifest.version === currentVersion` AND entry set is identical (same `asset_id` × `content_hash` for every entry), no-op. Journal `asset_manifest_unchanged`.
-2. **Diff.** Build added / removed / changed sets vs the prior manifest's entries.
+1. **Version check.** If `frame.payload.version === currentVersion` AND the `assets` set is identical (same `asset_id` × `content_hash` for every entry), no-op. Journal `asset_manifest_unchanged`.
+2. **Diff.** Build added / removed / changed sets of `frame.payload.assets` vs the prior manifest's `assets`.
 3. **Mark stale.** Entries removed or with a different `content_hash` are flagged `isStaleVersion = true` on their cache rows — they remain readable via the OLD content hash until eviction (i.e., a template that has not yet seen the new manifest can keep rendering with the old asset).
-4. **Promote new entries.** Added or changed entries replace the applied set. `get()` from now on resolves against the new entries.
+4. **Promote new entries.** Added or changed entries replace the applied set. `get()` from now on resolves against the new `assets`.
 5. **Eager pre-fetch.** For each new/changed entry with non-null `needed_by`, schedule `ensure(asset_id)`. Pre-fetch runs concurrent with a default cap of 4 in-flight (so a 50-asset manifest does not flood the network). No prioritization beyond `needed_by` ordering (sooner first); inside the same deadline, `asset_id` lex order for determinism.
 6. **Notify.** Fire `subscribeManifest` listeners with the new `version`.
 7. **Journal.** `asset_manifest_applied` with counts: `added`, `changed`, `removed`, `total`.
@@ -196,7 +230,7 @@ For an incoming `AssetManifestFrame`:
 
 ```
 ensure(assetId):
-  entry = currentManifest.entries.find(asset_id == assetId)
+  entry = currentManifest.payload.assets.find(asset_id == assetId)
   if entry is null: reject(AssetFetchError "not in manifest")
   cached = cache.read(assetId, entry.content_hash)
   if cached: return cached
@@ -282,14 +316,15 @@ Test cases:
 ## Vocabulary
 
 - `AssetManifest`, `asset_id`, `content_hash`, `version`, `needed_by` — D-GRH-23, D-GRH-55.
+- `asset_id` is an opaque backend-minted string; this store treats it as a flat key. Consuming specs and the backend publisher agree on prefix conventions: `badge:<sport>:<league>` (SPEC-CRWDQ-034), `team:<team_id>` (SPEC-CRWDQ-046 / 066), `venue_brand:<bar_id>` (SPEC-CRWDQ-052), `ambient:<NNN>` (SPEC-CRWDQ-053), and ad creative ids carried directly as `AdSlot.ad_ref` (SPEC-CRWDQ-041 / 065). These conventions are not enforced by this store.
 - "animation definition assets" — D-GRH-31 (in-scope of this cache).
 - "R2 backend" — D-GRH-74 (informational: the URL host; this spec is backend-agnostic for fetch).
 - "stale version", "hot map" — internal terms defined in this spec.
 
 ## Acceptance Criteria
 
-- [ ] `AssetManifestStore.apply(frame)` is registered as the dispatcher's `AssetManifest` handler on the control channel.
-- [ ] `apply()` is idempotent on identical (version, entry-set) input — journals `asset_manifest_unchanged` and does not re-trigger pre-fetch or listener fanout.
+- [ ] `AssetManifestStore.apply(frame)` is registered as the dispatcher's `AssetManifest` handler on the control channel; `frame` is a SPEC-CRWDQ-017 `Envelope<AssetManifestPayload>` and `apply()` reads the manifest fields from `frame.payload` (`version` + the `assets` list).
+- [ ] `apply()` is idempotent on identical (`payload.version`, `payload.assets` set) input — journals `asset_manifest_unchanged` and does not re-trigger pre-fetch or listener fanout.
 - [ ] On version bump or entry change, `apply()` diffs the prior set, flags removed/changed entries as `isStaleVersion = true`, schedules eager pre-fetch for new/changed entries with non-null `needed_by`, and fires `subscribeManifest` listeners with the new version string.
 - [ ] Eager pre-fetch caps in-flight fetches at 4; ordering is by `needed_by` ascending, then `asset_id` lex order.
 - [ ] `get(assetId)` is synchronous; returns `null` when bytes are not in the hot map; never initiates fetch.
@@ -299,6 +334,7 @@ Test cases:
 - [ ] Persistence: cache survives a "restart" (new `AssetManifestStore` over a seeded `AssetCache` instance) — assets cached pre-restart are returned by `get()` after the same manifest is re-applied.
 - [ ] IndexedDB-unavailable degradation: `ensure()` still resolves (in-memory only); journals `asset_cache_persistence_unavailable` at boot; cross-restart persistence is lost.
 - [ ] `invalidate(version)` flags non-matching-version entries for eviction; subsequent `get()` returns null for those ids until next `ensure()` re-fetches.
+- [ ] `manifestEntries()` returns the full applied-manifest entry list as a read-only snapshot, enabling prefix-family enumeration (e.g. SPEC-CRWDQ-053's `ambient:` filter).
 - [ ] Eviction policy: stale-version entries evict first; same-version eviction is LRU by `lastAccessAt`; eviction continues until total size ≤ 90% of `maxBytes`; journals `asset_cache_evicted` with the evicted ids and reclaimed bytes.
 - [ ] Tests cover: apply happy path, cache hit/miss, version-bump re-fetch, concurrent ensure de-dup, eager pre-fetch + concurrency cap, stale eviction, LRU within same version, content-hash mismatch, persisted store survives restart, IndexedDB-unavailable degradation, idempotent apply, subscribeManifest fanout.
 - [ ] No mocks of `AssetCache`, `AssetEvictionPolicy`, or hash verifier (INV-FACTORY-16); only `AssetFetcher` (HTTP boundary) and clock are substituted (INV-FACTORY-17).

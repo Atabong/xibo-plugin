@@ -18,12 +18,15 @@ import type { RenderJournal } from '../../render/RenderJournal';
 import type { TemplateAdapter } from '../../render/PlannedStateActivator';
 import { MultiGameTemplate } from './MultiGameTemplate';
 import type { CardTransitions } from './CardSet';
+import type { CrestResolver } from '../../render/CrestResolver';
 
 export interface MultiGameAdapterDeps {
   template: MultiGameTemplate;
   journal: RenderJournal;
   /** Card-level animation seam; the activator-level executor is separate. */
   cardTransitions: CardTransitions;
+  /** SPEC-CRWDQ-S11 — real club crests resolved from the AssetManifest. */
+  crestResolver?: CrestResolver;
 }
 
 /** Build the `multiple_games` adapter for `PlannedStateActivator.registerTemplate`. */
@@ -36,6 +39,7 @@ export function makeMultiGameAdapter(deps: MultiGameAdapterDeps): TemplateAdapte
         gameStateStore: args.gameStateStore,
         journal: deps.journal,
         cardTransitions: deps.cardTransitions,
+        ...(deps.crestResolver ? { crestResolver: deps.crestResolver } : {}),
       });
       if (instance === null) return null;
       // Every rendered game gates per-game revisions through the activator (AC4).

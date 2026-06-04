@@ -25,6 +25,7 @@
 import type { PlannedStateFrame, ProgramSlotFrame, ThemeChoiceWire, BarPreferencesWire, BusinessMode } from '../wire';
 import type { Dispatcher } from '../transport/types';
 import type { GameStateStore } from './GameStateStore';
+import type { CrestResolver } from './CrestResolver';
 import type { ProgramSlotResolver } from './ProgramSlotResolver';
 import type { TransitionExecutor } from './TransitionExecutor';
 import type { DwellTimer, DwellClock } from './DwellTimer';
@@ -49,7 +50,12 @@ export interface PendingThemeApply {
   takePending(): BarPreferencesWire | null;
 }
 
-/** The arguments a template adapter needs to mount one PlannedState's render. */
+/**
+ * The arguments a per-`business_mode` template adapter needs to mount one
+ * PlannedState's render (SPEC-CRWDQ-052/-053 multi-mode seam, INV-FACTORY-19).
+ * The activator owns the shared lifecycle (buffer, transition, dwell, supersede,
+ * reconcile dispatch) and delegates ONLY the mode-specific mount to the adapter.
+ */
 export interface TemplateMountArgs {
   host: HTMLElement;
   payload: PlannedStatePayload;
@@ -66,13 +72,12 @@ export interface TemplateMount {
 }
 
 /**
- * A per-`business_mode` template seam (INV-FACTORY-19, 2+ adapters: the bare
- * single_game adapter + the multiple_games adapter). The activator owns the
- * shared lifecycle — supersede, incoming transition, dwell arm, reconcile
- * dispatch — and delegates ONLY the mode-specific mount to the adapter, so a
- * new mode plugs in without forking the orchestration. Returning `null`
- * declines the mount (the adapter has already journaled why, e.g. an
- * out-of-range card count, AC2); the activator then renders nothing.
+ * A per-`business_mode` template seam (INV-FACTORY-19). `single_game` is the
+ * activator's built-in adapter; safe_info (SPEC-CRWDQ-052) and ambient
+ * (SPEC-CRWDQ-053) register themselves via {@link PlannedStateActivator.registerTemplate}
+ * so they activate through the SAME orchestration — never a forked path.
+ * Returning `null` declines the mount (the adapter has journaled why); the
+ * activator then renders nothing for that state.
  */
 export interface TemplateAdapter {
   mount(args: TemplateMountArgs): TemplateMount | null;
@@ -111,6 +116,21 @@ export interface PlannedStateActivatorDeps {
    */
   adSlots?: AdSlotResolver;
   overlayAd?: SingleGameOverlayAd;
+  /**
+   * Optional post-activation observer (SPEC-CRWDQ-052). Fired with the
+   * business_mode immediately after a state is successfully rendered, so the
+   * SafeStateController can cancel its no_recent_state probe and arm/clear the
+   * data_stale probe per the activated mode — a narrow seam that keeps the
+   * controller off the dispatcher's single-handler-per-type path.
+   */
+  onActivated?: (mode: BusinessMode) => void;
+  /**
+   * SPEC-CRWDQ-S11 — resolve a real club crest from the AssetManifest by team.
+   * Forwarded into the built-in single_game context so the score-bug renders
+   * the real badge image (falling back to its colour block on a miss). Optional
+   * so a deployment without crest assets keeps the colour-block behaviour.
+   */
+  crestResolver?: CrestResolver;
 }
 
 /** A PlannedState whose ProgramSlot has not yet arrived (AC4 buffer). */
@@ -125,8 +145,6 @@ export class PlannedStateActivator {
   /** The `state_id` currently rendered — drives idempotency + supersede. */
   private activeStateId: string | null = null;
   private activeInstance: TemplateInstance | null = null;
-  /** Per-`business_mode` template adapters (single_game registered by default). */
-  private readonly adapters = new Map<BusinessMode, TemplateAdapter>();
   /**
    * The active state's reconcile gate (AC4): the slot/ad ids the dispatched
    * event must match, and the set of `game_id`s the active render subscribes to.
@@ -145,16 +163,20 @@ export class PlannedStateActivator {
   private reconcileChain: Promise<void> = Promise.resolve();
   /** PlannedStates buffered awaiting their ProgramSlot, keyed by slot id. */
   private readonly buffered = new Map<string, BufferedActivation>();
+  /** Per-`business_mode` template adapters (single_game built in). */
+  private readonly adapters = new Map<BusinessMode, TemplateAdapter>();
 
   constructor(deps: PlannedStateActivatorDeps) {
     this.deps = deps;
     // single_game is the built-in adapter; other modes register themselves.
+    // It preserves the established overlay-ad branch via mountForState.
     this.adapters.set('single_game', {
       mount: (args) => ({
         instance: this.mountForState(args.payload, {
           programSlot: args.slot,
           theme: args.theme,
           gameStateStore: this.deps.gameStateStore,
+          ...(this.deps.crestResolver ? { crestResolver: this.deps.crestResolver } : {}),
         }),
         subscribedGameIds:
           args.slot.primary_game_id === null ? new Set() : new Set([args.slot.primary_game_id]),
@@ -163,13 +185,23 @@ export class PlannedStateActivator {
   }
 
   /**
-   * Register a template adapter for a `business_mode` (INV-FACTORY-19). The
-   * multiple_games template (SPEC-CRWDQ-031) registers here so it activates
+   * Register a template adapter for a `business_mode` (INV-FACTORY-19). safe_info
+   * (SPEC-CRWDQ-052) and ambient (SPEC-CRWDQ-053) register here so they activate
    * through the SAME orchestration — buffer, transition, dwell, supersede,
    * reconcile dispatch — that single_game uses, never a forked activator.
    */
   registerTemplate(mode: BusinessMode, adapter: TemplateAdapter): void {
     this.adapters.set(mode, adapter);
+  }
+
+  /**
+   * The `program_slot_id` of the currently-rendered state, or null between
+   * renders. A narrow read the composition root's dispatcher uses to gate
+   * seq-tracking to the active slot's game (D-GRH-63) without reaching into the
+   * activator's internals.
+   */
+  activeProgramSlotId(): string | null {
+    return this.activeGate?.programSlotId ?? null;
   }
 
   /** Register the activator as the PlannedState + ProgramSlot dispatch handlers. */
@@ -193,7 +225,7 @@ export class PlannedStateActivator {
 
     // AC5: a null program_slot_id is an authoring error — never buffered.
     if (payload.program_slot_id === null) {
-      await this.render(payload, { program_slot_id: '', primary_game_id: null, game_ids: [] }, 'missing_slot');
+      await this.render(payload, { program_slot_id: '', primary_game_id: null, game_ids: [], fixture_ids: [] }, 'missing_slot');
       return;
     }
 
@@ -315,7 +347,7 @@ export class PlannedStateActivator {
       state_id: payload.state_id,
       program_slot_id: payload.program_slot_id,
     });
-    await this.render(payload, { program_slot_id: '', primary_game_id: null, game_ids: [] }, 'buffer_timeout');
+    await this.render(payload, { program_slot_id: '', primary_game_id: null, game_ids: [], fixture_ids: [] }, 'buffer_timeout');
   }
 
   /**
@@ -362,15 +394,15 @@ export class PlannedStateActivator {
         gameStateStore: this.deps.gameStateStore,
       }) ?? null;
     if (mounted === null) {
-      // The adapter declined (e.g. an out-of-range card count, AC2): nothing is
-      // rendered, no dwell is armed, and the active-state pointer stays cleared.
+      // The adapter declined (e.g. an empty manifest with no fallback): nothing
+      // is rendered, no dwell is armed, and the active-state pointer stays clear.
       this.activeStateId = null;
       return;
     }
     this.activeInstance = mounted.instance;
     this.activeStateId = payload.state_id;
     // Rebuild the reconcile gate (AC4): the slot id, the ad id, and the set of
-    // games the adapter subscribed to (one for single_game, all for multi-game).
+    // games the adapter subscribed to (one for single_game, none for safe/ambient).
     this.activeGate = {
       programSlotId: slot.program_slot_id.length > 0 ? slot.program_slot_id : payload.program_slot_id,
       adSlotId: payload.ad_slot_id,
@@ -381,6 +413,14 @@ export class PlannedStateActivator {
     this.deps.dwell.arm(payload.dwell_target_ms, (actualDwellMs) =>
       this.onDwellBoundary(actualDwellMs, payload, theme),
     );
+
+    // Notify the post-activation observer (SPEC-CRWDQ-052 data_stale/no_recent
+    // probes). A throw in the observer must never wedge a successful render.
+    try {
+      this.deps.onActivated?.(payload.business_mode);
+    } catch {
+      /* observer faults are non-fatal to the render path */
+    }
   }
 
   /**
@@ -432,15 +472,12 @@ export class PlannedStateActivator {
     this.applyThemeSwap(next);
   }
 
-  /**
-   * Apply a resolved theme to both the stylesheet seam and the rendered DOM.
-   * The rendered root is mode-agnostic: every template's root `<section>`
-   * carries `data-theme` (single_game + multiple_games alike), so the swap
-   * targets the first themed root rather than a single_game-specific test id —
-   * the SAME dwell-boundary contract for whichever mode is active (AC10).
-   */
+  /** Apply a resolved theme to both the stylesheet seam and the rendered DOM. */
   private applyThemeSwap(theme: ResolvedTheme): void {
     this.deps.styleSheets.applyTheme(theme.state === 'set' ? theme.id : null);
+    // The single_game root carries the canonical testid; other mode roots
+    // (safe_info, ambient) carry `data-theme` but a different testid, so fall
+    // back to the first themed element so the boundary swap is mode-agnostic.
     const root =
       this.deps.host.querySelector<HTMLElement>(`[data-testid="${TESTID.root}"]`) ??
       this.deps.host.querySelector<HTMLElement>('[data-theme]');

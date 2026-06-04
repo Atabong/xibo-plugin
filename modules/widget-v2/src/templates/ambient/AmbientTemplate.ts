@@ -81,6 +81,13 @@ class AmbientLoop implements AmbientInstance {
     this.root.className = 'crowdaq-ambient';
     this.root.dataset['theme'] = themeAttr(ctx.theme);
 
+    // Atmospheric depth chrome behind/over the creative (CSS-painted).
+    for (const cls of ['cdq-bg-mesh', 'cdq-bg-vignette']) {
+      const layer = document.createElement('div');
+      layer.className = cls;
+      this.root.append(layer);
+    }
+
     this.stage = document.createElement('div');
     this.stage.className = 'cdq-ambient-stage';
 
@@ -90,6 +97,20 @@ class AmbientLoop implements AmbientInstance {
 
     this.stage.append(this.img);
     this.root.append(this.stage);
+
+    // Branded CROWDAQ corner bug + a thin accent progress line — the "this is a
+    // CROWDAQ surface" identity over sponsor/branding creatives (D-GRH-22/26).
+    const bug = document.createElement('div');
+    bug.className = 'cdq-ambient-bug';
+    const dot = document.createElement('span');
+    dot.className = 'cdq-live-dot';
+    const word = document.createElement('span');
+    word.className = 'cdq-ambient-bug-word';
+    word.textContent = 'CROWDAQ';
+    bug.append(dot, word);
+    const progress = document.createElement('div');
+    progress.className = 'cdq-ambient-progress';
+    this.root.append(bug, progress);
   }
 
   /** Paint the first creative, prime the preload window, and arm the rotation. */
@@ -147,12 +168,29 @@ class AmbientLoop implements AmbientInstance {
     this.armRotation();
   }
 
-  /** Reflect the active creative onto the stage + `<img>` (AC1/AC4). */
+  /**
+   * Reflect the active creative onto the stage + `<img>` (AC1/AC4) with a
+   * CSS-only crossfade: drop opacity, swap src, then fade back in on the next
+   * frame. Also re-arms the dwell progress line so it sweeps once per creative.
+   */
   private paintActive(): void {
     const creative = this.playlist[this.activeIndex]!;
     this.stage.dataset['activeIndex'] = String(this.activeIndex);
+    this.img.classList.add('is-swapping');
     this.img.dataset['assetId'] = creative.asset_id;
     this.img.src = creative.url;
+    // Next frame: fade the new creative in.
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => this.img.classList.remove('is-swapping'));
+    });
+    // Re-arm the progress sweep (remove + reflow + re-add restarts the anim).
+    const progress = this.root.querySelector<HTMLElement>('.cdq-ambient-progress');
+    if (progress) {
+      progress.classList.remove('is-running');
+      void progress.offsetWidth;
+      progress.style.setProperty('--dwell-ms', `${this.ctx.dwellTargetMs}ms`);
+      progress.classList.add('is-running');
+    }
   }
 
   /**

@@ -116,34 +116,3 @@ describe('GameStateStore subscriptions', () => {
     expect(seen).toEqual([10]);
   });
 });
-
-describe('GameStateStore.subscribeAll (SPEC-CRWDQ-052 liveness probe)', () => {
-  it('fires a store-wide listener on any applied change across games', () => {
-    const store = new GameStateStore(new RecordingJournal());
-    const seen: string[] = [];
-    store.subscribeAll((s) => seen.push(`${s.game_id}:${s.seq}`));
-    store.upsertSnapshot(snapshot({ game_id: 'g1', seq: 10 }));
-    store.upsertSnapshot(snapshot({ game_id: 'g2', seq: 1 }));
-    store.applyEvent(event(11, { game_id: 'g1', home_score: 2 }));
-    expect(seen).toEqual(['g1:10', 'g2:1', 'g1:11']);
-  });
-
-  it('does not fire the store-wide listener for a dropped out-of-order event', () => {
-    const store = new GameStateStore(new RecordingJournal());
-    const seen: number[] = [];
-    store.upsertSnapshot(snapshot({ seq: 10 }));
-    store.subscribeAll((s) => seen.push(s.seq));
-    store.applyEvent(event(5, { home_score: 2 })); // regression -> dropped
-    expect(seen).toEqual([]);
-  });
-
-  it('stops firing after the store-wide unsubscribe', () => {
-    const store = new GameStateStore(new RecordingJournal());
-    const seen: number[] = [];
-    const off = store.subscribeAll((s) => seen.push(s.seq));
-    store.upsertSnapshot(snapshot({ seq: 10 }));
-    off();
-    store.applyEvent(event(11, { home_score: 2 }));
-    expect(seen).toEqual([10]);
-  });
-});

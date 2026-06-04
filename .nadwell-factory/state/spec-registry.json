@@ -1,0 +1,133 @@
+{
+  "Specs": [
+    {
+      "Path": "docs/specs/buildorder.md",
+      "Title": "xibo-plugin spec build order",
+      "Status": "unimplemented",
+      "LinkedIssueId": null,
+      "ImplementedAt": null
+    },
+    {
+      "Path": "docs/specs/index.md",
+      "Title": "xibo-plugin specs",
+      "Status": "unimplemented",
+      "LinkedIssueId": null,
+      "ImplementedAt": null
+    },
+    {
+      "Path": "docs/specs/SPEC-CRWDQ-014-widget-v2-configpush-consumer.md",
+      "Title": "SPEC-CRWDQ-014 \u2014 Widget v2 ConfigPush consumer with local cache \u002B apply",
+      "Status": "unimplemented",
+      "LinkedIssueId": null,
+      "ImplementedAt": null
+    },
+    {
+      "Path": "docs/specs/SPEC-CRWDQ-022-widget-v2-websocket-client.md",
+      "Title": "SPEC-CRWDQ-022 \u2014 Widget v2 WebSocket client \u002B wire-protocol deserializer",
+      "Status": "unimplemented",
+      "LinkedIssueId": null,
+      "ImplementedAt": null
+    },
+    {
+      "Path": "docs/specs/SPEC-CRWDQ-023-widget-v2-single-game-template.md",
+      "Title": "SPEC-CRWDQ-023 \u2014 Widget v2 single_game render template",
+      "Status": "unimplemented",
+      "LinkedIssueId": null,
+      "ImplementedAt": null
+    },
+    {
+      "Path": "docs/specs/SPEC-CRWDQ-027-widget-v2-e2e-smoke-test.md",
+      "Title": "SPEC-CRWDQ-027 \u2014 Widget v2 e2e smoke test on player side (real WS, real BarPreferences)",
+      "Status": "unimplemented",
+      "LinkedIssueId": null,
+      "ImplementedAt": null
+    },
+    {
+      "Path": "docs/specs/SPEC-CRWDQ-031-widget-v2-multiple-games-template.md",
+      "Title": "SPEC-CRWDQ-031 \u2014 Widget v2 multiple_games (2x2 grid) render template \u002B dwell handling",
+      "Status": "unimplemented",
+      "LinkedIssueId": null,
+      "ImplementedAt": null
+    },
+    {
+      "Path": "docs/specs/SPEC-CRWDQ-034-widget-v2-fixtures-template.md",
+      "Title": "SPEC-CRWDQ-034 \u2014 Widget v2 fixtures render template",
+      "Status": "unimplemented",
+      "LinkedIssueId": null,
+      "ImplementedAt": null
+    },
+    {
+      "Path": "docs/specs/SPEC-CRWDQ-041-widget-v2-ad-templates.md",
+      "Title": "SPEC-CRWDQ-041 \u2014 Widget v2 ad render template \u002B fixtures_with_ads composite",
+      "Status": "unimplemented",
+      "LinkedIssueId": null,
+      "ImplementedAt": null
+    },
+    {
+      "Path": "docs/specs/SPEC-CRWDQ-046-widget-v2-recap-template.md",
+      "Title": "SPEC-CRWDQ-046 \u2014 Widget v2 recap render template",
+      "Status": "unimplemented",
+      "LinkedIssueId": null,
+      "ImplementedAt": null
+    },
+    {
+      "Path": "docs/specs/SPEC-CRWDQ-049-widget-v2-messaging-lane-overlay.md",
+      "Title": "SPEC-CRWDQ-049 \u2014 Widget v2 overlay layer for MessagingLane render",
+      "Status": "unimplemented",
+      "LinkedIssueId": null,
+      "ImplementedAt": null
+    },
+    {
+      "Path": "docs/specs/SPEC-CRWDQ-052-widget-v2-safe-info-template.md",
+      "Title": "SPEC-CRWDQ-052 \u2014 Widget v2 safe_info render template",
+      "Status": "unimplemented",
+      "LinkedIssueId": null,
+      "ImplementedAt": null
+    },
+    {
+      "Path": "docs/specs/SPEC-CRWDQ-053-widget-v2-ambient-template.md",
+      "Title": "SPEC-CRWDQ-053 \u2014 Widget v2 ambient render template",
+      "Status": "unimplemented",
+      "LinkedIssueId": null,
+      "ImplementedAt": null
+    },
+    {
+      "Path": "docs/specs/SPEC-CRWDQ-061-widget-v2-player-metrics-ping.md",
+      "Title": "SPEC-CRWDQ-061 \u2014 Widget v2 player-side metrics ping",
+      "Status": "unimplemented",
+      "LinkedIssueId": null,
+      "ImplementedAt": null
+    },
+    {
+      "Path": "docs/specs/SPEC-CRWDQ-063-widget-v2-override-injection-handler.md",
+      "Title": "SPEC-CRWDQ-063 \u2014 Widget v2 OverrideInjection handler",
+      "Status": "unimplemented",
+      "LinkedIssueId": null,
+      "ImplementedAt": null
+    },
+    {
+      "Path": "docs/specs/SPEC-CRWDQ-064-widget-v2-asset-manifest-store.md",
+      "Title": "SPEC-CRWDQ-064 \u2014 Widget v2 AssetManifestStore",
+      "Status": "unimplemented",
+      "LinkedIssueId": null,
+      "ImplementedAt": null
+    },
+    {
+      "Path": "docs/specs/SPEC-CRWDQ-065-widget-v2-single-game-with-ads-template.md",
+      "Title": "SPEC-CRWDQ-065 \u2014 Widget v2 single_game overlay-ad rendering",
+      "Status": "unimplemented",
+      "LinkedIssueId": null,
+      "ImplementedAt": null
+    },
+    {
+      "Path": "docs/specs/SPEC-CRWDQ-066-widget-v2-fixtures-with-live-game-template.md",
+      "Title": "SPEC-CRWDQ-066 \u2014 Widget v2 fixtures_with_live_game template",
+      "Status": "unimplemented",
+      "LinkedIssueId": null,
+      "ImplementedAt": null
+    }
+  ],
+  "TrackingMethod": "frontmatter",
+  "LastScanned": "2026-05-29T18:22:39.4487373Z",
+  "PlannerMode": "SpecImpl"
+}

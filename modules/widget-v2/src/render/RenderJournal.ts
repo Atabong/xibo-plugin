@@ -22,28 +22,29 @@ export type RenderJournalEventType =
   | 'template_reconcile_dispatched'
   // --- part 2: overlay-ad branch (AC7) ---
   | 'ad_slot_payload_unavailable'
-  // --- multiple_games template (SPEC-CRWDQ-031) ---
-  | 'template_input_invalid'
+  // --- SPEC-CRWDQ-053 ambient template (D-GRH-26/27) ---
+  | 'ambient_empty_manifest'
+  | 'ambient_video_deferred'
+  | 'ambient_playlist_refreshed'
+  | 'ambient_creative_advanced'
+  // --- S9-modes assembly: multiple_games (SPEC-CRWDQ-031) ---
   | 'multi_game_reconciled'
-  // --- fixtures template (SPEC-CRWDQ-034) ---
+  // --- fixtures (SPEC-CRWDQ-033/-034) ---
   | 'fixture_cache_miss'
   | 'fixtures_reconciled'
   | 'template_locale_refresh'
-  // --- fixtures_with_live_game template (SPEC-CRWDQ-066) ---
-  | 'live_tile_reconciled'
-  // --- recap template (SPEC-CRWDQ-046) ---
+  // --- recap (SPEC-CRWDQ-046) ---
   | 'recap_no_gamestate'
   | 'recap_premature'
   | 'recap_late_event'
-  // --- with-ads composite templates (SPEC-CRWDQ-041) ---
+  // --- with-ads composites (SPEC-CRWDQ-041/-055/-065) ---
   | 'ad_asset_cache_miss'
   | 'ad_slot_rendered'
   | 'ad_slot_completed'
-  // --- ambient template (SPEC-CRWDQ-053) ---
-  | 'ambient_video_deferred'
-  | 'ambient_empty_manifest'
-  | 'ambient_creative_advanced'
-  | 'ambient_playlist_refreshed';
+  // --- shared mount-validation guard (multi/fixtures/recap/with-ads) ---
+  | 'template_input_invalid'
+  // --- fixtures_with_live_game template (SPEC-CRWDQ-066) ---
+  | 'live_tile_reconciled';
 
 export interface RenderJournalEntry {
   type: RenderJournalEventType;

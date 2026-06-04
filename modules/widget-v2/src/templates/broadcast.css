@@ -1,0 +1,853 @@
+/* =============================================================================
+   CROWDAQ Widget v2 — broadcast-grade render styles (S9 redesign).
+
+   Identity: on-air live-sports broadcast graphics for a bar TV — score-bug /
+   lower-third energy, bold + kinetic + high-contrast, legible from 10ft.
+
+   Source of truth for the visual design. Assembled (with the inlined @font-face
+   block from fonts.css.gen) into BOTH the module XML <style> (the live player
+   path) and tests/e2e/harness.html (the headless-proof path) by
+   tools/assemble-styles.mjs. CSS-only motion; smooth on the snap Chromium
+   (Chrome 134 / ES2019). No external CDN at render time.
+
+   Type:    Saira Condensed (display: scores, headlines, wordmark) + Saira
+            (technical companion: labels, clock, metadata).
+   Colour:  deep stadium-dark base with gradient-mesh depth + grain + vignette,
+            one vivid signature accent (electric cyan-green), and DYNAMIC team
+            colours derived per team in single_game (--team-accent / --team-h).
+   ========================================================================== */
+
+:root {
+  /* base palette ----------------------------------------------------------- */
+  --cdq-bg-0: #05070d;
+  --cdq-bg-1: #0a0f1c;
+  --cdq-bg-2: #111a30;
+  --cdq-ink: #f4f7ff;
+  --cdq-ink-dim: #9aa6c2;
+  --cdq-ink-faint: #586079;
+  --cdq-line: rgba(255, 255, 255, 0.08);
+
+  /* signature accent — electric cyan-green ("excitement") ------------------ */
+  --cdq-accent: #1fe3a0;
+  --cdq-accent-2: #19c2ff;
+  --cdq-accent-warm: #ffcf3f;
+  --cdq-accent-glow: rgba(31, 227, 160, 0.55);
+
+  /* type ------------------------------------------------------------------- */
+  --cdq-display: 'Saira Condensed', 'Saira', 'Arial Narrow', sans-serif;
+  --cdq-tech: 'Saira', system-ui, -apple-system, 'Segoe UI', sans-serif;
+}
+
+html, body { margin: 0; padding: 0; height: 100%; background: var(--cdq-bg-0); }
+
+.crowdaq-widget-v2-host {
+  position: absolute; inset: 0;
+  display: flex; align-items: center; justify-content: center;
+  font-family: var(--cdq-tech);
+  color: var(--cdq-ink);
+  background:
+    radial-gradient(120% 120% at 50% -10%, var(--cdq-bg-2) 0%, var(--cdq-bg-1) 38%, var(--cdq-bg-0) 100%);
+  overflow: hidden;
+}
+.crowdaq-configure-placeholder {
+  font-family: var(--cdq-tech);
+  font-size: 1.4rem; opacity: 0.6; letter-spacing: 0.04em;
+}
+
+/* shared atmospheric depth layers ----------------------------------------- */
+.cdq-bg-mesh, .cdq-bg-grain, .cdq-bg-vignette {
+  position: absolute; inset: 0; pointer-events: none; z-index: 0;
+}
+.cdq-bg-mesh {
+  background:
+    radial-gradient(40% 60% at 18% 20%, rgba(25, 194, 255, 0.18), transparent 60%),
+    radial-gradient(46% 64% at 84% 26%, rgba(31, 227, 160, 0.16), transparent 62%),
+    radial-gradient(60% 80% at 50% 116%, rgba(98, 70, 234, 0.20), transparent 60%);
+  filter: saturate(118%);
+}
+.cdq-bg-grain {
+  opacity: 0.05; mix-blend-mode: overlay;
+  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='120' height='120'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2'/></filter><rect width='120' height='120' filter='url(%23n)'/></svg>");
+  background-size: 240px 240px;
+}
+.cdq-bg-vignette {
+  background: radial-gradient(120% 100% at 50% 42%, transparent 52%, rgba(0, 0, 0, 0.55) 100%);
+}
+
+/* shared live dot --------------------------------------------------------- */
+.cdq-live-dot {
+  width: 0.62em; height: 0.62em; border-radius: 999px; flex: 0 0 auto;
+  background: var(--cdq-accent);
+  box-shadow: 0 0 0.7em var(--cdq-accent-glow);
+  animation: cdq-pulse 1.8s ease-in-out infinite;
+}
+@keyframes cdq-pulse {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.45; transform: scale(0.78); }
+}
+
+/* =============================================================================
+   single_game — the on-air scoreboard / score bug
+   ========================================================================== */
+.crowdaq-single-game {
+  position: absolute; inset: 0; z-index: 1;
+  display: grid;
+  grid-template-rows: auto 1fr auto;
+  align-items: center; justify-items: center;
+  width: 100%; height: 100%;
+  padding: clamp(20px, 4vh, 56px) clamp(28px, 5vw, 88px);
+  box-sizing: border-box;
+  font-family: var(--cdq-display);
+  --mount-in: cdq-rise 620ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+/* league / competition strap */
+.crowdaq-single-game .cdq-sport-context {
+  display: inline-flex; align-items: center; gap: 0.7em;
+  font-family: var(--cdq-tech);
+  font-weight: 600;
+  font-size: clamp(0.85rem, 1.7vw, 1.25rem);
+  text-transform: uppercase; letter-spacing: 0.34em;
+  color: var(--cdq-ink-dim);
+  padding: 0.5em 1.2em;
+  border: 1px solid var(--cdq-line);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.03);
+  backdrop-filter: blur(6px);
+  animation: var(--mount-in); animation-delay: 40ms;
+}
+.crowdaq-single-game .cdq-context-text { padding-left: 0.1em; }
+
+/* the score plate */
+.crowdaq-single-game .cdq-score {
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
+  align-items: center;
+  gap: clamp(18px, 4vw, 64px);
+  width: 100%;
+  max-width: 1500px;
+}
+
+.crowdaq-single-game .cdq-team {
+  display: grid; align-items: center; gap: clamp(8px, 1.4vw, 18px);
+  min-width: 0;
+  --team-accent: #2b6cff; --team-ink: #0b0e16; --team-h: 220;
+}
+.crowdaq-single-game .cdq-home { grid-template-columns: auto 1fr; text-align: left; animation: var(--mount-in); animation-delay: 120ms; }
+.crowdaq-single-game .cdq-away { grid-template-columns: 1fr auto; text-align: right; animation: var(--mount-in); animation-delay: 200ms; }
+.crowdaq-single-game .cdq-away .cdq-crest { order: 2; }
+.crowdaq-single-game .cdq-away .cdq-team-name { order: 1; }
+
+/* team crest = a strong colour block with a monogram (no logo data on wire) */
+.crowdaq-single-game .cdq-crest {
+  position: relative;
+  width: clamp(60px, 7vw, 118px); height: clamp(60px, 7vw, 118px);
+  flex: 0 0 auto;
+  display: flex; align-items: center; justify-content: center;
+  border-radius: 22px;
+  background:
+    linear-gradient(150deg,
+      hsl(var(--team-h) 80% 58%) 0%,
+      hsl(var(--team-h) 72% 42%) 100%);
+  box-shadow:
+    0 14px 38px -10px hsl(var(--team-h) 80% 45% / 0.7),
+    inset 0 0 0 1px rgba(255, 255, 255, 0.18),
+    inset 0 2px 14px rgba(255, 255, 255, 0.22);
+  overflow: hidden;
+}
+.crowdaq-single-game .cdq-crest::after {
+  content: ''; position: absolute; inset: 0;
+  background: radial-gradient(80% 60% at 30% 18%, rgba(255, 255, 255, 0.34), transparent 60%);
+}
+.crowdaq-single-game .cdq-crest-mono {
+  position: relative; z-index: 1;
+  font-family: var(--cdq-display); font-weight: 800;
+  font-size: clamp(1.5rem, 3.4vw, 3rem);
+  letter-spacing: 0.01em;
+  color: var(--team-ink);
+  text-shadow: 0 1px 0 rgba(255, 255, 255, 0.25);
+}
+/* SPEC-CRWDQ-S11 — a REAL club badge image. When present, the crest box drops
+   its team-colour gradient + monogram and shows the badge on a clean plate so
+   the actual club identity reads cleanly on the broadcast scoreboard. */
+.crowdaq-single-game .cdq-crest[data-has-crest='true'] {
+  background: rgba(255, 255, 255, 0.06);
+  box-shadow:
+    0 14px 38px -12px rgba(0, 0, 0, 0.55),
+    inset 0 0 0 1px rgba(255, 255, 255, 0.16);
+}
+.crowdaq-single-game .cdq-crest[data-has-crest='true']::after { content: none; }
+.crowdaq-single-game .cdq-crest-img {
+  position: relative; z-index: 1;
+  width: 86%; height: 86%;
+  object-fit: contain;
+  filter: drop-shadow(0 3px 6px rgba(0, 0, 0, 0.45));
+}
+
+/* S12 — full, legible team names: wrap to (at most) two balanced lines and
+   shrink-to-fit via --name-scale (set by the template's fit pass) so a long
+   club name reads in full instead of clipping mid-word with an ellipsis. */
+.crowdaq-single-game .cdq-team-name {
+  --name-scale: 1;
+  font-family: var(--cdq-display); font-weight: 800;
+  font-size: calc(clamp(1.8rem, 5.2vw, 5rem) * var(--name-scale));
+  line-height: 0.94; letter-spacing: 0.005em;
+  text-transform: uppercase;
+  color: var(--cdq-ink);
+  /* allow two-line wrap; balance the lines; break only between words */
+  white-space: normal; overflow-wrap: break-word; word-break: normal;
+  text-wrap: balance;
+  display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2;
+  overflow: hidden;
+  text-shadow: 0 2px 24px rgba(0, 0, 0, 0.5);
+}
+.crowdaq-single-game .cdq-home .cdq-team-name { text-align: left; }
+.crowdaq-single-game .cdq-away .cdq-team-name { text-align: right; }
+.crowdaq-single-game .cdq-team-full { display: none; }
+
+/* centre score column */
+.crowdaq-single-game .cdq-score-center {
+  display: grid; justify-items: center; gap: clamp(8px, 1.6vh, 20px);
+  animation: var(--mount-in); animation-delay: 80ms;
+}
+.crowdaq-single-game .cdq-score-nums {
+  display: inline-flex; align-items: baseline; gap: clamp(8px, 1.4vw, 22px);
+  font-family: var(--cdq-display); font-weight: 800;
+  font-variant-numeric: tabular-nums; font-feature-settings: 'tnum' 1;
+  line-height: 0.84;
+}
+.crowdaq-single-game .cdq-score-home,
+.crowdaq-single-game .cdq-score-away {
+  font-size: clamp(4.2rem, 16vw, 14rem);
+  color: var(--cdq-ink);
+  text-shadow: 0 0 48px rgba(31, 227, 160, 0.18), 0 6px 28px rgba(0, 0, 0, 0.55);
+  transition: color 220ms ease;
+  display: inline-block;
+}
+.crowdaq-single-game .cdq-score-sep {
+  font-size: clamp(2.6rem, 9vw, 7rem);
+  color: var(--cdq-ink-faint);
+  transform: translateY(-0.06em);
+}
+.crowdaq-single-game .cdq-score-sep::before { content: '–'; }
+
+/* clock + period pill */
+.crowdaq-single-game .cdq-clock {
+  display: inline-flex; align-items: center; gap: 0.55em;
+  font-family: var(--cdq-tech); font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  font-size: clamp(0.95rem, 2vw, 1.55rem);
+  letter-spacing: 0.08em;
+  padding: 0.34em 1em;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid var(--cdq-line);
+  color: var(--cdq-ink);
+}
+.crowdaq-single-game .cdq-period {
+  color: var(--cdq-accent); font-weight: 600;
+  text-transform: uppercase; letter-spacing: 0.14em;
+}
+.crowdaq-single-game .cdq-period:empty { display: none; }
+.crowdaq-single-game .cdq-clock-time:empty { display: none; }
+.crowdaq-single-game .cdq-clock.cdq-tick { animation: cdq-tickflash 600ms ease-out; }
+@keyframes cdq-tickflash {
+  0% { border-color: var(--cdq-accent); box-shadow: 0 0 0.7em var(--cdq-accent-glow); }
+  100% { border-color: var(--cdq-line); box-shadow: none; }
+}
+
+/* excitement / momentum meter */
+.crowdaq-single-game .cdq-excitement {
+  display: grid; grid-template-columns: auto 1fr; align-items: center; gap: 1em;
+  width: 100%; max-width: 1500px;
+  font-family: var(--cdq-tech);
+  animation: var(--mount-in); animation-delay: 280ms;
+}
+.crowdaq-single-game .cdq-excitement-label {
+  font-weight: 600; font-size: clamp(0.7rem, 1.3vw, 1rem);
+  letter-spacing: 0.34em; text-transform: uppercase; color: var(--cdq-ink-dim);
+}
+.crowdaq-single-game .cdq-excitement-track {
+  position: relative; height: clamp(7px, 0.9vh, 11px); border-radius: 999px;
+  background: rgba(255, 255, 255, 0.08);
+  overflow: hidden;
+  box-shadow: inset 0 0 0 1px var(--cdq-line);
+}
+.crowdaq-single-game .cdq-excitement-fill {
+  position: absolute; inset: 0 auto 0 0; width: 30%;
+  border-radius: 999px;
+  background: linear-gradient(90deg, var(--cdq-accent-2), var(--cdq-accent) 60%, var(--cdq-accent-warm));
+  box-shadow: 0 0 14px var(--cdq-accent-glow);
+  transition: width 900ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+.crowdaq-single-game .cdq-excitement-fill::after {
+  content: ''; position: absolute; inset: 0;
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.45), transparent);
+  animation: cdq-meter-sheen 2.6s linear infinite;
+}
+@keyframes cdq-meter-sheen { 0% { transform: translateX(-100%); } 100% { transform: translateX(100%); } }
+
+/* last-moment ticker overlay */
+.crowdaq-single-game .cdq-overlay {
+  position: absolute; left: 50%; bottom: clamp(10px, 2.4vh, 28px);
+  transform: translateX(-50%);
+  font-family: var(--cdq-tech); font-weight: 600;
+  font-size: clamp(0.85rem, 1.7vw, 1.25rem);
+  letter-spacing: 0.04em;
+  color: var(--cdq-bg-0);
+  padding: 0.5em 1.3em; border-radius: 999px;
+  background: linear-gradient(90deg, var(--cdq-accent), var(--cdq-accent-2));
+  box-shadow: 0 10px 30px -8px var(--cdq-accent-glow);
+  max-width: 80%; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  animation: cdq-rise 500ms cubic-bezier(0.22, 1, 0.36, 1) both;
+  z-index: 3;
+}
+.crowdaq-single-game .cdq-overlay[hidden] { display: none; }
+
+/* placeholder (no live game) */
+.crowdaq-single-game .cdq-no-live-game {
+  grid-row: 2; align-self: center;
+  font-family: var(--cdq-display); font-weight: 800;
+  font-size: clamp(2rem, 7vw, 5rem); letter-spacing: 0.22em;
+  color: var(--cdq-ink-dim); text-transform: uppercase;
+}
+
+/* ---- GOAL moment: punch + flash + banner -------------------------------- */
+.crowdaq-single-game[data-goal] .cdq-score-center { z-index: 2; }
+.crowdaq-single-game .cdq-score-home.cdq-punch,
+.crowdaq-single-game .cdq-score-away.cdq-punch {
+  animation: cdq-punch 760ms cubic-bezier(0.18, 1.4, 0.36, 1) both;
+  color: var(--cdq-accent);
+}
+@keyframes cdq-punch {
+  0% { transform: scale(1); }
+  18% { transform: scale(1.42) rotate(-1.5deg); text-shadow: 0 0 60px var(--cdq-accent-glow); }
+  40% { transform: scale(0.94); }
+  62% { transform: scale(1.12); }
+  100% { transform: scale(1); }
+}
+.crowdaq-single-game.cdq-flash::before {
+  content: ''; position: absolute; inset: 0; z-index: 4; pointer-events: none;
+  background: radial-gradient(60% 60% at 50% 50%, rgba(31, 227, 160, 0.5), transparent 70%);
+  animation: cdq-flash 720ms ease-out both;
+}
+@keyframes cdq-flash {
+  0% { opacity: 0; }
+  12% { opacity: 1; }
+  100% { opacity: 0; }
+}
+
+.crowdaq-single-game .cdq-goal-banner {
+  position: absolute; inset: 0; z-index: 5; pointer-events: none;
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  gap: 0.1em;
+  opacity: 0; visibility: hidden;
+}
+.crowdaq-single-game .cdq-goal-banner.is-on {
+  visibility: visible;
+  animation: cdq-goal-in 360ms cubic-bezier(0.22, 1, 0.36, 1) forwards,
+             cdq-goal-out 520ms ease-in 3.7s forwards;
+}
+.crowdaq-single-game .cdq-goal-banner::before {
+  content: ''; position: absolute; inset: 0;
+  background: linear-gradient(180deg, rgba(5, 7, 13, 0.72), rgba(5, 7, 13, 0.42));
+  backdrop-filter: blur(3px);
+}
+.crowdaq-single-game .cdq-goal-word {
+  position: relative;
+  font-family: var(--cdq-display); font-weight: 800;
+  font-size: clamp(5rem, 22vw, 19rem); line-height: 0.82;
+  letter-spacing: 0.02em; text-transform: uppercase;
+  color: var(--cdq-ink);
+  background: linear-gradient(90deg, var(--cdq-accent-2), var(--cdq-accent) 55%, var(--cdq-accent-warm));
+  -webkit-background-clip: text; background-clip: text;
+  -webkit-text-fill-color: transparent;
+  text-shadow: 0 0 80px var(--cdq-accent-glow);
+  animation: cdq-goal-punch 760ms cubic-bezier(0.18, 1.5, 0.34, 1) both;
+}
+.crowdaq-single-game .cdq-goal-sub {
+  position: relative;
+  font-family: var(--cdq-tech); font-weight: 600;
+  font-size: clamp(1.1rem, 3vw, 2.4rem); letter-spacing: 0.4em;
+  text-transform: uppercase; color: var(--cdq-ink);
+  padding-left: 0.4em;
+}
+@keyframes cdq-goal-in { from { opacity: 0; } to { opacity: 1; } }
+@keyframes cdq-goal-out { from { opacity: 1; } to { opacity: 0; } }
+@keyframes cdq-goal-punch {
+  0% { transform: scale(0.4) rotate(-3deg); }
+  55% { transform: scale(1.12) rotate(1deg); }
+  100% { transform: scale(1) rotate(0); }
+}
+
+/* staggered mount reveal */
+@keyframes cdq-rise {
+  from { opacity: 0; transform: translateY(18px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+/* overlay-ad composite (SPEC-CRWDQ-065 shell) — keep the score-bug full-bleed */
+.crowdaq-single-game-composite { position: absolute; inset: 0; }
+.crowdaq-single-game-composite .cdq-content { position: absolute; inset: 0; }
+.crowdaq-single-game-composite .cdq-ad-overlay {
+  position: absolute; right: clamp(16px, 3vw, 40px); bottom: clamp(16px, 3vh, 40px);
+  z-index: 6; pointer-events: none;
+}
+
+/* =============================================================================
+   safe_info — the designed standby / brand panel
+   ========================================================================== */
+.crowdaq-safe-info {
+  position: absolute; inset: 0; z-index: 1;
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  gap: clamp(14px, 3vh, 34px);
+  width: 100%; height: 100%;
+  padding: 4% 6%; box-sizing: border-box; text-align: center;
+  font-family: var(--cdq-display);
+}
+/* slow ambient aura (decorative chrome only — body stays still, AC6) */
+.crowdaq-safe-info .cdq-safe-aura {
+  position: absolute; inset: -20%; z-index: 0; pointer-events: none;
+  background:
+    radial-gradient(38% 38% at 32% 40%, var(--cdq-accent-glow), transparent 60%),
+    radial-gradient(40% 40% at 70% 58%, rgba(25, 194, 255, 0.4), transparent 62%);
+  filter: blur(40px); opacity: 0.5;
+  animation: cdq-aura-drift 22s ease-in-out infinite alternate;
+}
+@keyframes cdq-aura-drift {
+  from { transform: translate3d(-3%, -2%, 0) scale(1); }
+  to { transform: translate3d(4%, 3%, 0) scale(1.12); }
+}
+.crowdaq-safe-info .cdq-safe-header,
+.crowdaq-safe-info .cdq-safe-body,
+.crowdaq-safe-info .cdq-safe-footer { position: relative; z-index: 1; }
+
+.crowdaq-safe-info .cdq-safe-header { flex: 0 0 auto; }
+.crowdaq-safe-info .cdq-venue-name {
+  font-family: var(--cdq-tech); font-weight: 600;
+  letter-spacing: 0.4em; text-transform: uppercase;
+  font-size: clamp(0.85rem, 1.6vw, 1.2rem);
+  color: var(--cdq-ink-dim);
+}
+.crowdaq-safe-info .cdq-venue-brand-img { display: block; max-width: 260px; max-height: 110px; object-fit: contain; }
+
+.crowdaq-safe-info .cdq-safe-body {
+  flex: 1 1 auto; display: flex; flex-direction: column;
+  align-items: center; justify-content: center; gap: clamp(10px, 1.6vh, 18px);
+}
+.crowdaq-safe-info .cdq-safe-kicker {
+  display: inline-flex; align-items: center;
+  font-family: var(--cdq-tech); font-weight: 600;
+  font-size: clamp(0.78rem, 1.5vw, 1.1rem);
+  letter-spacing: 0.5em; text-transform: uppercase;
+  color: var(--cdq-accent);
+  padding: 0.45em 1.3em 0.45em 1.4em;
+  border: 1px solid rgba(31, 227, 160, 0.4); border-radius: 999px;
+  background: rgba(31, 227, 160, 0.06);
+}
+.crowdaq-safe-info .cdq-safe-lockup {
+  display: flex; flex-direction: column; align-items: center; gap: clamp(10px, 1.4vh, 18px);
+}
+.crowdaq-safe-info .cdq-safe-title {
+  margin: 0; font-family: var(--cdq-display); font-weight: 800;
+  letter-spacing: 0.12em;
+  font-size: clamp(2.8rem, 13vw, 8.5rem); line-height: 0.9;
+  color: var(--cdq-ink);
+  text-shadow: 0 0 70px rgba(31, 227, 160, 0.22), 0 8px 40px rgba(0, 0, 0, 0.5);
+}
+.crowdaq-safe-info .cdq-safe-rule {
+  width: clamp(120px, 22vw, 320px); height: 4px; border-radius: 999px;
+  background: linear-gradient(90deg, transparent, var(--cdq-accent) 30%, var(--cdq-accent-2) 70%, transparent);
+  box-shadow: 0 0 18px var(--cdq-accent-glow);
+}
+.crowdaq-safe-info .cdq-safe-tagline {
+  margin: 0; font-family: var(--cdq-tech); font-weight: 400;
+  font-size: clamp(1rem, 2.2vw, 1.7rem); letter-spacing: 0.28em;
+  text-transform: uppercase; color: var(--cdq-ink-dim);
+}
+.crowdaq-safe-info .cdq-safe-footer { flex: 0 0 auto; }
+.crowdaq-safe-info .cdq-safe-status {
+  font-family: var(--cdq-tech); font-size: 0.95rem; letter-spacing: 0.18em;
+  text-transform: uppercase; color: var(--cdq-ink-faint);
+}
+.crowdaq-safe-info .cdq-safe-status:empty { display: none; }
+
+/* =============================================================================
+   ambient — branded AssetManifest gap-filler
+   ========================================================================== */
+.crowdaq-ambient {
+  position: absolute; inset: 0; z-index: 1;
+  display: block; width: 100%; height: 100%; overflow: hidden;
+  background: var(--cdq-bg-0);
+}
+.crowdaq-ambient .cdq-ambient-stage { position: absolute; inset: 0; z-index: 1; }
+.crowdaq-ambient .cdq-ambient-creative {
+  display: block; width: 100%; height: 100%; object-fit: cover;
+  opacity: 1; transition: opacity 600ms ease;
+}
+.crowdaq-ambient .cdq-ambient-creative.is-swapping { opacity: 0; }
+.crowdaq-ambient .cdq-bg-vignette { z-index: 2; }
+
+/* branded corner bug */
+.crowdaq-ambient .cdq-ambient-bug {
+  position: absolute; left: clamp(18px, 3vw, 44px); bottom: clamp(18px, 3vh, 44px);
+  z-index: 3; display: inline-flex; align-items: center; gap: 0.6em;
+  font-family: var(--cdq-display); font-weight: 800;
+  font-size: clamp(0.9rem, 1.8vw, 1.4rem); letter-spacing: 0.22em;
+  text-transform: uppercase; color: var(--cdq-ink);
+  padding: 0.5em 1em; border-radius: 999px;
+  background: rgba(5, 7, 13, 0.55);
+  border: 1px solid var(--cdq-line);
+  backdrop-filter: blur(8px);
+  box-shadow: 0 8px 28px -10px rgba(0, 0, 0, 0.8);
+}
+.crowdaq-ambient .cdq-ambient-progress {
+  position: absolute; left: 0; bottom: 0; height: 4px; z-index: 3; width: 0;
+  background: linear-gradient(90deg, var(--cdq-accent-2), var(--cdq-accent));
+  box-shadow: 0 0 14px var(--cdq-accent-glow);
+}
+.crowdaq-ambient .cdq-ambient-progress.is-running {
+  animation: cdq-ambient-sweep var(--dwell-ms, 8000ms) linear forwards;
+}
+@keyframes cdq-ambient-sweep { from { width: 0; } to { width: 100%; } }
+.crowdaq-ambient link { display: none; }
+
+/* =============================================================================
+   S9-modes — broadcast styling for the remaining D-GRH-26 render modes.
+   Same design language as single_game/safe_info/ambient: Saira Condensed
+   display type, --cdq-* token palette, gradient-mesh depth, team-colour HSL
+   derivation, live dot, kinetic mount reveals, legible from 10ft.
+   ========================================================================== */
+
+/* derive a per-element team accent hue from a data attribute the templates set
+   (or a sensible default); reused by multi-game cards + recap teams. */
+:root { --cdq-card-h: 200; }
+
+/* -----------------------------------------------------------------------------
+   multiple_games — a grid of live score bugs (2..4 games)
+   --------------------------------------------------------------------------- */
+.crowdaq-multi-game {
+  position: absolute; inset: 0; z-index: 1;
+  display: grid; gap: clamp(10px, 1.6vw, 22px);
+  width: 100%; height: 100%;
+  padding: clamp(16px, 3vh, 40px) clamp(18px, 3vw, 48px);
+  box-sizing: border-box;
+  font-family: var(--cdq-display);
+  grid-template-columns: 1fr 1fr;
+  grid-auto-rows: 1fr;
+}
+/* 2 games → a single row of two wide bugs; 3 → 2-up + 1 spanning; 4 → 2x2. */
+.crowdaq-multi-game[data-card-count='2'] { grid-template-rows: 1fr; }
+.crowdaq-multi-game[data-card-count='3'] .cdq-card[data-position='2'] { grid-column: 1 / -1; }
+
+.crowdaq-multi-game .cdq-card {
+  position: relative; overflow: hidden;
+  display: grid; grid-template-rows: auto 1fr;
+  gap: clamp(8px, 1.4vh, 18px);
+  padding: clamp(16px, 2vw, 30px) clamp(18px, 2.4vw, 36px) clamp(18px, 2.2vw, 32px);
+  border-radius: 20px;
+  background:
+    linear-gradient(155deg, rgba(255, 255, 255, 0.05), rgba(255, 255, 255, 0.015)),
+    var(--cdq-bg-1);
+  border: 1px solid var(--cdq-line);
+  box-shadow: 0 18px 44px -22px rgba(0, 0, 0, 0.85), inset 0 1px 0 rgba(255, 255, 255, 0.06);
+  --team-h: var(--cdq-card-h);
+  animation: cdq-rise 560ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+.crowdaq-multi-game .cdq-card[data-position='1'] { animation-delay: 90ms; }
+.crowdaq-multi-game .cdq-card[data-position='2'] { animation-delay: 160ms; }
+.crowdaq-multi-game .cdq-card[data-position='3'] { animation-delay: 230ms; }
+/* a colour spine + a faint corner aura so each card reads as its own bug */
+.crowdaq-multi-game .cdq-card::before {
+  content: ''; position: absolute; left: 0; top: 0; bottom: 0; width: 5px;
+  background: linear-gradient(180deg, var(--cdq-accent), var(--cdq-accent-2));
+}
+.crowdaq-multi-game .cdq-card[data-primary='true'] {
+  border-color: rgba(31, 227, 160, 0.5);
+  box-shadow: 0 18px 50px -20px var(--cdq-accent-glow), inset 0 0 0 1px rgba(31, 227, 160, 0.22);
+}
+.crowdaq-multi-game .cdq-card[data-primary='true']::after {
+  content: 'LIVE'; position: absolute; top: clamp(12px, 1.6vw, 18px); right: clamp(14px, 1.8vw, 22px);
+  font-family: var(--cdq-tech); font-weight: 600; font-size: clamp(0.62rem, 1vw, 0.82rem);
+  letter-spacing: 0.3em; color: var(--cdq-accent); z-index: 2;
+}
+.crowdaq-multi-game .cdq-card-sport-context {
+  font-family: var(--cdq-tech); font-weight: 600;
+  font-size: clamp(0.66rem, 1.1vw, 0.95rem);
+  letter-spacing: 0.26em; text-transform: uppercase; color: var(--cdq-ink-dim);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+
+/* S12 — the card BODY fills the card: home row · divider+clock · away row,
+   evenly distributed so the content fills the space (no empty middle). */
+.crowdaq-multi-game .cdq-card-body {
+  display: grid; grid-template-rows: 1fr auto 1fr; align-items: center;
+  min-height: 0; row-gap: clamp(6px, 1vh, 14px);
+}
+
+/* a team ROW: [crest] [name] [score] together, score on the trailing edge */
+.crowdaq-multi-game .cdq-card-team {
+  display: grid; grid-template-columns: auto 1fr auto;
+  align-items: center; column-gap: clamp(10px, 1.4vw, 20px);
+  min-width: 0;
+  --team-ink: #0b0e16;
+}
+.crowdaq-multi-game .cdq-card-team-line { display: none; }
+
+/* the crest: a real badge, falling back to a team-colour monogram block so a
+   card is never sparse (consistent with single_game's crest treatment). */
+.crowdaq-multi-game .cdq-card-crest {
+  position: relative; flex: 0 0 auto; overflow: hidden;
+  width: clamp(44px, 5vw, 78px); height: clamp(44px, 5vw, 78px);
+  display: inline-flex; align-items: center; justify-content: center;
+  border-radius: 16px;
+  background:
+    linear-gradient(150deg, hsl(var(--team-h) 80% 58%), hsl(var(--team-h) 72% 42%));
+  box-shadow:
+    0 10px 26px -12px hsl(var(--team-h) 80% 45% / 0.7),
+    inset 0 0 0 1px rgba(255, 255, 255, 0.16);
+}
+.crowdaq-multi-game .cdq-card-crest::after {
+  content: ''; position: absolute; inset: 0;
+  background: radial-gradient(80% 60% at 30% 18%, rgba(255, 255, 255, 0.3), transparent 60%);
+}
+.crowdaq-multi-game .cdq-card-team[data-has-crest='true'] .cdq-card-crest {
+  background: rgba(255, 255, 255, 0.06);
+  box-shadow: 0 10px 26px -14px rgba(0, 0, 0, 0.55), inset 0 0 0 1px rgba(255, 255, 255, 0.14);
+}
+.crowdaq-multi-game .cdq-card-team[data-has-crest='true'] .cdq-card-crest::after { content: none; }
+.crowdaq-multi-game .cdq-card-crest-mono {
+  position: relative; z-index: 1;
+  font-family: var(--cdq-display); font-weight: 800;
+  font-size: clamp(0.9rem, 1.7vw, 1.6rem); color: var(--team-ink);
+  text-shadow: 0 1px 0 rgba(255, 255, 255, 0.22);
+}
+.crowdaq-multi-game .cdq-card-crest-img {
+  position: relative; z-index: 1; width: 88%; height: 88%; object-fit: contain;
+  filter: drop-shadow(0 2px 5px rgba(0, 0, 0, 0.45));
+}
+
+/* the team name: legible club name, wraps to two lines, never clipped mid-word */
+.crowdaq-multi-game .cdq-card-team-name {
+  min-width: 0;
+  font-family: var(--cdq-display); font-weight: 800;
+  font-size: clamp(1.1rem, 2.5vw, 2.6rem); line-height: 0.98;
+  text-transform: uppercase; color: var(--cdq-ink);
+  text-shadow: 0 2px 16px rgba(0, 0, 0, 0.5);
+  overflow-wrap: break-word; word-break: normal; text-wrap: balance;
+  display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden;
+}
+/* the prominent score numeral on the trailing edge */
+.crowdaq-multi-game .cdq-card-team-score {
+  justify-self: end; flex: 0 0 auto;
+  font-family: var(--cdq-display); font-weight: 800;
+  font-variant-numeric: tabular-nums; font-feature-settings: 'tnum' 1;
+  font-size: clamp(2rem, 5vw, 5rem); line-height: 0.84; color: var(--cdq-ink);
+  text-shadow: 0 0 36px rgba(31, 227, 160, 0.16), 0 4px 18px rgba(0, 0, 0, 0.5);
+}
+
+/* centre divider carrying the live clock pill between the two team rows */
+.crowdaq-multi-game .cdq-card-divider {
+  position: relative; display: flex; align-items: center; justify-content: center;
+  height: 1px; margin: clamp(2px, 0.6vh, 8px) 0;
+  background: linear-gradient(90deg, transparent, var(--cdq-line) 18%, var(--cdq-line) 82%, transparent);
+}
+.crowdaq-multi-game .cdq-card-clock {
+  font-family: var(--cdq-tech); font-weight: 600;
+  font-size: clamp(0.66rem, 1.2vw, 1rem); letter-spacing: 0.12em;
+  color: var(--cdq-accent); font-variant-numeric: tabular-nums;
+  padding: 0.28em 0.95em; border-radius: 999px;
+  background: var(--cdq-bg-1); border: 1px solid var(--cdq-line);
+}
+.crowdaq-multi-game .cdq-card-clock:empty { display: none; }
+
+/* -----------------------------------------------------------------------------
+   fixtures — the upcoming-fixture catalog
+   --------------------------------------------------------------------------- */
+.crowdaq-fixtures {
+  position: absolute; inset: 0; z-index: 1;
+  display: flex; flex-direction: column;
+  width: 100%; height: 100%;
+  padding: clamp(20px, 4vh, 52px) clamp(28px, 5vw, 80px);
+  box-sizing: border-box;
+  font-family: var(--cdq-display);
+}
+.crowdaq-fixtures .cdq-fixtures-header {
+  flex: 0 0 auto; display: flex; align-items: center; gap: 0.7em;
+  margin-bottom: clamp(14px, 2.4vh, 30px);
+}
+.crowdaq-fixtures .cdq-fixtures-header::before {
+  content: ''; width: 0.62em; height: 0.62em; border-radius: 999px;
+  background: var(--cdq-accent); box-shadow: 0 0 0.7em var(--cdq-accent-glow);
+  animation: cdq-pulse 1.8s ease-in-out infinite;
+}
+.crowdaq-fixtures .cdq-fixtures-header h2 {
+  margin: 0; font-family: var(--cdq-display); font-weight: 800;
+  font-size: clamp(1.8rem, 5vw, 4rem); line-height: 0.9;
+  letter-spacing: 0.04em; text-transform: uppercase; color: var(--cdq-ink);
+  text-shadow: 0 0 50px rgba(31, 227, 160, 0.18);
+}
+.crowdaq-fixtures .cdq-fixture-list {
+  list-style: none; margin: 0; padding: 0;
+  flex: 1 1 auto; display: flex; flex-direction: column;
+  gap: clamp(8px, 1.3vh, 16px); min-height: 0;
+}
+.crowdaq-fixtures .cdq-fixture-card {
+  display: grid; align-items: center;
+  grid-template-columns: auto 1fr auto;
+  gap: clamp(12px, 2vw, 30px);
+  padding: clamp(12px, 1.8vh, 22px) clamp(16px, 2.2vw, 30px);
+  border-radius: 16px;
+  background: linear-gradient(150deg, rgba(255, 255, 255, 0.05), rgba(255, 255, 255, 0.015));
+  border: 1px solid var(--cdq-line);
+  box-shadow: 0 12px 30px -18px rgba(0, 0, 0, 0.8);
+  animation: cdq-rise 500ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+.crowdaq-fixtures .cdq-fixture-card[data-position='1'] { animation-delay: 70ms; }
+.crowdaq-fixtures .cdq-fixture-card[data-position='2'] { animation-delay: 130ms; }
+.crowdaq-fixtures .cdq-fixture-card[data-position='3'] { animation-delay: 190ms; }
+.crowdaq-fixtures .cdq-fixture-card[data-position='4'] { animation-delay: 250ms; }
+.crowdaq-fixtures .cdq-sport-badge {
+  width: clamp(34px, 4vw, 56px); height: clamp(34px, 4vw, 56px);
+  border-radius: 12px; flex: 0 0 auto;
+  background: linear-gradient(150deg, hsl(var(--cdq-card-h) 80% 56%), hsl(var(--cdq-card-h) 72% 40%));
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.18);
+}
+.crowdaq-fixtures .cdq-sport-badge img { width: 100%; height: 100%; object-fit: contain; border-radius: 12px; }
+.crowdaq-fixtures .cdq-teams {
+  display: flex; align-items: baseline; flex-wrap: wrap; gap: 0.2em 0.5em;
+  font-family: var(--cdq-display); font-weight: 800;
+  font-size: clamp(1.3rem, 3.4vw, 2.6rem); line-height: 1.02;
+  text-transform: uppercase; color: var(--cdq-ink);
+  min-width: 0; overflow-wrap: break-word;
+}
+.crowdaq-fixtures .cdq-home,
+.crowdaq-fixtures .cdq-away { min-width: 0; }
+.crowdaq-fixtures .cdq-vs {
+  font-family: var(--cdq-tech); font-weight: 400; font-size: 0.5em;
+  letter-spacing: 0.2em; color: var(--cdq-ink-faint); text-transform: lowercase;
+  padding: 0 0.2em;
+}
+.crowdaq-fixtures .cdq-when {
+  justify-self: end; text-align: right;
+  font-family: var(--cdq-tech); font-weight: 600;
+  font-size: clamp(0.9rem, 1.8vw, 1.5rem); letter-spacing: 0.06em;
+  color: var(--cdq-accent); font-variant-numeric: tabular-nums; white-space: nowrap;
+}
+.crowdaq-fixtures .cdq-status {
+  justify-self: end; margin-left: 0.6em;
+  font-family: var(--cdq-tech); font-weight: 600; font-size: clamp(0.65rem, 1.1vw, 0.9rem);
+  letter-spacing: 0.2em; text-transform: uppercase; color: var(--cdq-accent-warm);
+}
+.crowdaq-fixtures .cdq-status[hidden] { display: none; }
+.crowdaq-fixtures .cdq-fixture-card[data-status='tba'] .cdq-teams { color: var(--cdq-ink-faint); }
+
+/* -----------------------------------------------------------------------------
+   recap — the frozen post-game closing image
+   --------------------------------------------------------------------------- */
+.crowdaq-recap {
+  position: absolute; inset: 0; z-index: 1;
+  display: grid; grid-template-rows: auto 1fr auto;
+  align-items: center; justify-items: center;
+  width: 100%; height: 100%;
+  padding: clamp(20px, 4vh, 56px) clamp(28px, 5vw, 88px);
+  box-sizing: border-box;
+  font-family: var(--cdq-display);
+  --mount-in: cdq-rise 620ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+.crowdaq-recap .cdq-recap-header {
+  display: inline-flex; align-items: center; gap: 0.9em;
+  animation: var(--mount-in); animation-delay: 40ms;
+}
+.crowdaq-recap .cdq-recap-label {
+  font-family: var(--cdq-tech); font-weight: 600;
+  font-size: clamp(0.85rem, 1.7vw, 1.25rem);
+  letter-spacing: 0.5em; text-transform: uppercase; color: var(--cdq-accent);
+  padding: 0.45em 1.3em; border: 1px solid rgba(31, 227, 160, 0.4); border-radius: 999px;
+  background: rgba(31, 227, 160, 0.06);
+}
+.crowdaq-recap .cdq-sport-context {
+  font-family: var(--cdq-tech); font-weight: 600;
+  font-size: clamp(0.78rem, 1.5vw, 1.1rem);
+  letter-spacing: 0.3em; text-transform: uppercase; color: var(--cdq-ink-dim);
+}
+.crowdaq-recap .cdq-sport-context:empty { display: none; }
+.crowdaq-recap .cdq-final-score {
+  grid-row: 2; align-self: center;
+  display: grid; grid-template-columns: 1fr 1fr; gap: clamp(28px, 7vw, 120px);
+  width: 100%; max-width: 1500px;
+}
+.crowdaq-recap .cdq-team {
+  display: grid; justify-items: center; gap: clamp(8px, 1.6vh, 18px);
+  animation: var(--mount-in);
+}
+.crowdaq-recap .cdq-team-home { animation-delay: 120ms; }
+.crowdaq-recap .cdq-team-away { animation-delay: 200ms; }
+.crowdaq-recap .cdq-team-name {
+  font-family: var(--cdq-display); font-weight: 800;
+  font-size: clamp(1.6rem, 4.6vw, 4.4rem); line-height: 0.96;
+  letter-spacing: 0.01em; text-transform: uppercase; color: var(--cdq-ink);
+  text-align: center; max-width: 100%;
+  /* S12 — full name across two lines, never clipped mid-word with an ellipsis */
+  overflow-wrap: break-word; text-wrap: balance;
+  display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden;
+  text-shadow: 0 2px 24px rgba(0, 0, 0, 0.5);
+}
+.crowdaq-recap .cdq-team-score {
+  font-family: var(--cdq-display); font-weight: 800;
+  font-variant-numeric: tabular-nums;
+  font-size: clamp(4rem, 15vw, 13rem); line-height: 0.84; color: var(--cdq-ink);
+  text-shadow: 0 0 48px rgba(31, 227, 160, 0.18), 0 6px 28px rgba(0, 0, 0, 0.55);
+}
+/* dim the loser, brighten the winner (winner read from data-winner on root) */
+.crowdaq-recap[data-winner='home'] .cdq-team-away,
+.crowdaq-recap[data-winner='away'] .cdq-team-home { opacity: 0.55; }
+.crowdaq-recap[data-winner='home'] .cdq-team-home .cdq-team-score,
+.crowdaq-recap[data-winner='away'] .cdq-team-away .cdq-team-score { color: var(--cdq-accent); }
+.crowdaq-recap .cdq-headline-moment {
+  grid-row: 3; align-self: end;
+  font-family: var(--cdq-tech); font-weight: 600;
+  font-size: clamp(0.95rem, 2vw, 1.55rem); letter-spacing: 0.06em;
+  color: var(--cdq-bg-0);
+  padding: 0.55em 1.4em; border-radius: 999px;
+  background: linear-gradient(90deg, var(--cdq-accent), var(--cdq-accent-2));
+  box-shadow: 0 10px 30px -8px var(--cdq-accent-glow);
+  animation: var(--mount-in); animation-delay: 320ms;
+  max-width: 80%; text-align: center;
+}
+
+/* -----------------------------------------------------------------------------
+   *_with_ads composites — the content + a right-rail ad panel
+   --------------------------------------------------------------------------- */
+.crowdaq-with-ads {
+  position: absolute; inset: 0; z-index: 1;
+  display: grid; width: 100%; height: 100%;
+  grid-template-columns: 1fr clamp(220px, 26vw, 460px);
+}
+.crowdaq-with-ads.cdq-with-ads-left { grid-template-columns: clamp(220px, 26vw, 460px) 1fr; }
+.crowdaq-with-ads .cdq-content { position: relative; min-width: 0; min-height: 0; }
+/* the child content (multi-game grid / fixtures) fills the content column */
+.crowdaq-with-ads .cdq-content > .crowdaq-multi-game,
+.crowdaq-with-ads .cdq-content > .crowdaq-fixtures { position: absolute; inset: 0; }
+.crowdaq-with-ads .cdq-ad-panel {
+  position: relative; overflow: hidden;
+  display: flex; align-items: center; justify-content: center;
+  background:
+    linear-gradient(160deg, rgba(255, 255, 255, 0.04), rgba(255, 255, 255, 0.01)),
+    var(--cdq-bg-0);
+  border-left: 1px solid var(--cdq-line);
+  box-shadow: inset 8px 0 32px -24px rgba(0, 0, 0, 0.9);
+}
+.crowdaq-with-ads.cdq-with-ads-left .cdq-ad-panel { border-left: 0; border-right: 1px solid var(--cdq-line); }
+.crowdaq-with-ads .cdq-ad-creative { display: block; width: 100%; height: 100%; object-fit: contain; }
+/* the honest empty state: when no creative is painted, a labelled placeholder */
+.crowdaq-with-ads .cdq-ad-panel:empty::after,
+.crowdaq-with-ads .cdq-ad-creative:not([src])::after,
+.crowdaq-with-ads .cdq-ad-panel::before {
+  content: 'AD'; position: absolute; inset: 0;
+  display: flex; align-items: center; justify-content: center;
+  font-family: var(--cdq-display); font-weight: 800;
+  font-size: clamp(1.4rem, 4vw, 3rem); letter-spacing: 0.3em;
+  color: var(--cdq-ink-faint); opacity: 0.4; z-index: 0;
+}
+.crowdaq-with-ads .cdq-ad-creative[src] { z-index: 1; position: relative; }

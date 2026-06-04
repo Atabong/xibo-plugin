@@ -1,373 +1,278 @@
-# CROWDAQ Xibo Plugin — Architecture
+# CROWDAQ Xibo Plugin — Architecture (widget-v2)
 
-> Status: **current implementation / Phase-1 widget architecture**.
->
-> This document describes the current single-widget, player-side SSE architecture and its present contract assumptions.
->
-> It does **not** describe the future backend-orchestrated dynamic layout platform in `../planned/PRODUCT_REQUIREMENTS.md`.
->
-> See `../index.md` for the documentation map.
+_Status: widget-v2 scaffold. The wire-protocol barrel + the Node toolchain
+are built and CI-gated; the transport, ConfigPush consumer, and render
+templates are spec'd but not yet built (see § Implementation status)._
 
-_Status: data-contract iter. Diagrams are still textual; a rendered version
-will land in the `Author architecture diagram (D2 -> Kroki -> wiki)`
-iteration._
+> **Two widget generations ship side-by-side.** This document describes
+> **widget-v2** (`modules/widget-v2/`), a TypeScript bundle speaking a
+> **WebSocket + JSONL wire protocol**. The legacy **v1** widget
+> (`modules/crowdaq-widget.xml`, **SSE**) is unchanged and still ships; its
+> docs are archived under [`docs/archive/v1/`](archive/v1/README.md). The
+> v1→v2 cutover is operator-driven via the Xibo layout authoring surface.
 
-> **Source of truth for the CROWDAQ → widget wire protocol:**
-> [`docs/current/contract/openapi.yaml`](contract/openapi.yaml) and the
-> per-event JSON Schemas under [`docs/current/contract/events/`](contract/events/).
-> This document describes the surrounding architecture; anywhere it
-> contradicts the formal spec, the formal spec wins.
->
-> - SSE endpoint: `GET /events/{eventId}/stream` — see `openapi.yaml`.
-> - Event schemas:
->   [`score-update.json`](contract/events/score-update.json) (primary
->   snapshot the widget renders),
->   [`moment.json`](contract/events/moment.json),
->   [`status.json`](contract/events/status.json),
->   [`heartbeat.json`](contract/events/heartbeat.json),
->   [`error.json`](contract/events/error.json).
+> **Source of truth for the wire surface:**
+> [`modules/widget-v2/src/wire.ts`](../modules/widget-v2/src/wire.ts), a
+> vendored faithful copy of **SPEC-CRWDQ-017**. The detailed reference is
+> [`docs/WIRE_PROTOCOL.md`](WIRE_PROTOCOL.md); the planned-surface specs are
+> catalogued in [`docs/specs/index.md`](specs/index.md). Anywhere this prose
+> contradicts `wire.ts` or a SPEC-CRWDQ-NNN spec, the code/spec wins.
 
 ---
 
 ## High-level data flow
 
+A single persistent WebSocket per display carries a JSONL stream of typed
+envelopes from the CROWDAQ backend's GameDeliveryService to the widget-v2
+bundle running in the Xibo Player's Chromium runtime.
+
 ```
-+--------------------+      SSE       +--------------------+
-|  CROWDAQ backend   |  (text/event-  |  CROWDAQ widget    |
-|  (in-cluster pod,  |  stream, one-  |  (Twig stencil +   |
-|  founding-crowdaq  |  way, HTTP)    |  inline onRender   |
-|  namespace, Flux-  | -------------> |  JS opening the    |
-|  managed)          |                |  EventSource in    |
-+--------------------+                |  the player's      |
-          ^                           |  Chromium runtime) |
-          |                           +---------+----------+
-          |  Tailscale ACL                      |
-          |  tag:bar-player                     |  served as part of the
-          |  -> tag:crowdaq-api                 |  layout HTML when the
-          |                                     |  Xibo Player pulls it
-          |                                     v
-          |                           +--------------------+
-          +-- display_id --->          |  Xibo CMS (k8s)   |
-                                       |  xibo namespace,  |
-                                       |  xibo-cms pod,    |
-                                       |  4.4.2 image,     |
-                                       |  mounts the       |
-                                       |  plugin under     |
-                                       |  /custom/crowdaq/ |
-                                       +---------+---------+
-                                                 |
-                                                 v
-                                       +--------------------+
-                                       |  Xibo Player on    |
-                                       |  bar PC (Debian,   |
-                                       |  tailnet-joined,   |
-                                       |  polls CMS, opens  |
-                                       |  SSE stream from   |
-                                       |  widget HTML)      |
-                                       +---------+---------+
-                                                 |
-                                                 v
-                                       +--------------------+
-                                       |  Bar TV / display  |
-                                       +--------------------+
++----------------------+   WebSocket    +------------------------+
+|  crowdaq-backend     |   (one per     |  Xibo Player (bar PC)  |
+|  GameDeliveryService |    display,    |  Chromium runtime      |
+|  (Temporal + NATS +  |    JSONL text  |  +------------------+  |
+|   AdminGateway)      |    frames,     |  | widget-v2 bundle |  |
+|                      |    bidirec-    |  | (@crowdaq/       |  |
+|  buildEnvelope() --> |    tional)     |  |  widget-v2)      |  |
+|  serialize() -------)| =============> |  |  parseLine() --> |  |
+|                      | <============= |  |  Dispatcher ---> |  |
+|                      |  Heartbeat /   |  |  render templates|  |
+|                      |  GameStateReq /|  +------------------+  |
+|                      |  DeviceReg /   |  +----------+---------+ |
+|                      |  JournalSync   |             |           |
++----------------------+                +-------------|-----------+
+                                                      v
+                                            +--------------------+
+                                            |  Bar TV / display  |
+                                            +--------------------+
 ```
+
+Direction split (per SPEC-CRWDQ-022): of the 20 message types, four are
+**player→server** (`DeviceRegistration`, `Heartbeat`, `GameStateRequest`,
+`JournalSync`); the player can *receive* the remaining 16. The widget-v2
+bundle is delivered to the player as part of the layout HTML exactly as a
+custom Xibo widget; the CMS itself is not on the WebSocket path.
 
 ---
 
-## Decision references
+## The envelope
 
-All of these are **DECIDED** in Notion (see the "Done" section of
-`CROWDAQ_Xibo_Delivery_Infra.md` in the `xibo` repo):
+Every frame is an `Envelope` ([`wire.ts:90`](../modules/widget-v2/src/wire.ts)):
 
-- **Decide CROWDAQ backend hosting + data contract** —
-  `34a6405c-416e-81b5-ba13-e18e173a1079`.
-- **Decide CROWDAQ plugin phase-1 scope** —
-  `34a6405c-416e-81b2-95a7-d26ce1dab2ba`.
-- **Decide final domain for Xibo CMS** —
-  `34a6405c-416e-81c8-9397-d78587e1a266`.
-- **Decide multi-tenant tag/folder schema for bars** —
-  `34a6405c-416e-8192-b105-d864af5a0a10`.
-
-### Backend hosting
-
-CROWDAQ runs as an in-cluster pod in a new `founding-crowdaq` namespace,
-Flux-managed. It is reachable over the tailnet from:
-
-- the Xibo CMS pod (`xibo` namespace) via the Tailscale operator, and
-- each bar's Xibo Player (joined to the tailnet).
-
-### Wire protocol
-
-**Server-Sent Events** (`text/event-stream`), one-way server -> widget.
-HTTP-native, reconnect-friendly, no WebSocket upgrade required, passes
-through Traefik and the tailnet without special handling.
-
-### Auth / event addressing
-
-Phase-1 widgets are pinned to a specific event via the `eventId`
-property on the widget itself; the backend does not need a `display_id
--> bar slug` resolver. The widget opens
-`GET /events/<eventId>/stream?speed=<N>` directly.
-
-Network access is gated **solely** by the Tailscale ACL:
-`tag:bar-player -> tag:crowdaq-backend:443`. There is no shared secret,
-no JWT, no API key in Phase-1. The endpoint accepts any caller on the
-tailnet whose source tag is permitted by the ACL.
-
-JWT bearer auth remains an optional Phase-2 upgrade and is documented
-in `docs/current/contract/openapi.yaml` for forward compatibility — clients can
-ignore it today.
-
-### Replay vs. live (loop replay)
-
-A single endpoint serves both modes:
-
-- **Recording in flight** — server subscribes to the in-process events
-  bus and pushes events as the ingest activity emits them
-  (`?live=true`).
-- **Match completed** — server reads the JSONL recording from the
-  capture PVC and re-emits events at `?speed=N` real-time multiplier
-  (default `10`). On reaching the end of the recording the server
-  emits `event: status` with `state: "looping"`, seeks back to the
-  start, and continues; replay streams never deliberately close.
-
-### Event schema (per SSE event)
-
-The authoritative CROWDAQ → widget contract is the OpenAPI + JSON
-Schema bundle under [`docs/current/contract/`](contract/). Five SSE event types
-are emitted on the single `/events/{eventId}/stream` endpoint:
-
-| Event name | Schema | Purpose |
-|---|---|---|
-| `score-update` | [`score-update.json`](contract/events/score-update.json) | Full match snapshot; primary tick rendered into the DOM. |
-| `moment` | [`moment.json`](contract/events/moment.json) | Standalone notable-moment announcement (goal, card, VAR). |
-| `status` | [`status.json`](contract/events/status.json) | Event-lifecycle transitions (pre-game → live → final …). |
-| `heartbeat` | [`heartbeat.json`](contract/events/heartbeat.json) | Keepalive ping; flips the status pill between `live` and `stale`. |
-| `error` | [`error.json`](contract/events/error.json) | Stream-level error; client should log + let EventSource retry. |
-
-The `score-update` shape is mirrored in one additional machine-readable
-place in this repo, which MUST stay 1:1 with `score-update.json`:
-
-- `datatypes/crowdaq-event.xml` — documentation-parity mirror of the
-  payload schema. **Not loaded by the CMS** in the current widget
-  configuration: the widget manifest at `modules/crowdaq-widget.xml`
-  intentionally has an empty `<dataType>` element so the widget stays
-  pure-client-side (EventSource opened from the player's Chromium).
-  See "Client-side-only widget" below.
-
-  An earlier iter referenced this datatype from the widget via
-  `<dataType>crowdaq-event</dataType>` and shipped a `<sampleData>`
-  block, but that combination registered the widget as data-driven
-  and made Xibo's XMDS `getData` endpoint try to populate a
-  server-side cache. With no PHP `<class>` provider, `getData` 500s
-  with `Cache not ready`, which collapses the player's `getResource`
-  chain — the bar TV stays black. The fix in `fix/widget-client-side-only`
-  reverted both elements.
-
-```json
-{
-  "match_id": "worldcup-2026-semi-br-ar",
-  "event_id": "worldcup-2026-semi-br-ar",
-  "clock": {"minute": 78, "stoppage": 2, "period": "2H"},
-  "score": {"home": 1, "away": 1},
-  "teams": {
-    "home": {"name": "Brazil",    "abbreviation": "BRA", "logo_url": "https://.../bra.svg"},
-    "away": {"name": "Argentina", "abbreviation": "ARG", "logo_url": "https://.../arg.svg"}
-  },
-  "excitement": {"level": 0.82, "trend": "rising"},
-  "last_moment": {
-    "type": "goal",
-    "team": "home",
-    "minute": 78,
-    "text": "Goal! Brazil equalise in the 78th minute — stadium erupts."
-  },
-  "next_update_hint_ms": 500
+```ts
+interface Envelope<P = unknown> {
+  schema_version: number;    // CURRENT_SCHEMA_VERSION = 1
+  channel: 'control' | 'game_data';
+  message_type: MessageType; // 20-value closed enum
+  ts: string;                // RFC 3339 UTC
+  seq?: number;              // only on GameEvent / GameStateRequest
+  bar_id?: string;
+  game_id?: string;
+  payload: P;                // typed per message_type
 }
 ```
 
-Field-level notes:
-
-| Field | Type | Notes |
-|---|---|---|
-| `match_id` | string | Stable league/tournament-scoped id. |
-| `event_id` | string | CROWDAQ-side id. Equals `match_id` in phase 1. |
-| `clock.minute` | int | 1-indexed match minute. |
-| `clock.stoppage` | int | Added minutes for the current period. |
-| `clock.period` | string | One of `1H`, `HT`, `2H`, `ET1`, `ET2`, `PEN`, `FT`. |
-| `score.home` / `score.away` | int | Current goals. |
-| `teams.{home,away}.name` | string | Full team name. |
-| `teams.{home,away}.abbreviation` | string | 2–4 char code (FIFA / league convention). |
-| `teams.{home,away}.logo_url` | string | Optional crest URL; widget hides logos cleanly when empty. |
-| `excitement.level` | 0.0–1.0 | Widget renders as `level * 10` in the UI. |
-| `excitement.trend` | string | `rising`, `falling`, or `flat`. |
-| `last_moment.type` | string | `goal`, `card`, `var`, `penalty`, `substitution`, `kickoff`, `end`, … |
-| `last_moment.team` | string | `home`, `away`, or `neutral`. |
-| `last_moment.minute` | int | Minute the moment occurred in. |
-| `last_moment.text` | string | Human-readable description; truncated by `maxMomentLength`. |
-| `next_update_hint_ms` | int | Advisory only; widget treats SSE push cadence as truth. |
-
-`last_moment` is the single latest notable event — the stream is
-append-only server-side, but the widget renders the most recent state
-only (phase 1 has no scrollback / history).
+Outbound frames are built with `buildEnvelope` and serialized with
+`serialize` (one JSON object + a single `\n`); inbound frames are parsed with
+`parseLine`. The full field rules, payload interfaces, and API contract are
+in [`docs/WIRE_PROTOCOL.md`](WIRE_PROTOCOL.md).
 
 ---
 
-## Widget render loop
+## The two channels
 
-1. Xibo CMS resolves the plugin manifest from `modules/crowdaq-widget.xml`.
-2. On each player render, the inline `<stencil><twig>` block renders the
-   initial DOM using the widget properties (theme, eventId, flags).
-3. `<onRender>` JS runs against that DOM:
-   - If cached / sample data is available, paint it first so the screen
-     is never blank. Cached / sample data MUST validate against
-     `docs/current/contract/events/score-update.json`.
-   - Open an `EventSource` to
-     `GET <apiBaseUrl>/events/<eventId>/stream` (see
-     `docs/current/contract/openapi.yaml`). `apiBaseUrl` comes from the
-     per-widget property of the same name; if the property is empty,
-     the widget falls back to `window.crowdaqBackendBase` (set by the
-     bar-PC bootstrap). If both are empty, the widget shows a
-     "Configure apiBaseUrl" lifecycle banner and stops.
-   - Route events by their SSE `event:` name to the right handler:
-     - `score-update` → rewrite the score / excitement / last-moment
-       DOM. Flash a green scale on the side whose score went up.
-     - `moment` → replace the last-moment text line with the new
-       `description` (truncated by `maxMomentLength`).
-     - `status` → toggle a lifecycle banner overlay (pre-game,
-       halftime, extra time, penalties, final, cancelled, postponed,
-       looping). The banner hides when `state === 'live'`. On
-       `state === 'looping'` the widget MUST reset its in-memory score
-       / possession / clock state before the next `score-update`
-       arrives, since the recording is about to replay from minute 0.
-     - `heartbeat` → reset the stale timer only.
-     - `error` → display a small red error pill with the code/message
-       and trigger a bounded reconnect.
-4. On next player refresh, step 2 runs again; JS state (reconnect
-   attempt counter, stale timer, score cache) is discarded.
+There is **one physical WebSocket**; the channel is a routing classification
+pinned by the message type, not a separate connection. `canonicalChannel`
+([`wire.ts:83`](../modules/widget-v2/src/wire.ts)) is authoritative:
 
-Reconnect & stale rules:
+| Channel | Message types |
+|---------|---------------|
+| `control` | `DeviceRegistration`, `ConfigPush`, `ScheduleWindow`, `PlannedState`, `ProgramSlot`, `AdSlot`, `OverrideInjection`, `AssetManifest`, `MessagingLane`, `Heartbeat`, `HeartbeatAck`, `SyncRequest`, `JournalSync`, `PlayerConnected`, `PlayerDisconnected` |
+| `game_data` | `GameState`, `GameEvent`, `DisplayEvent`, `GameStateRequest`, `FixtureList` |
 
-- EventSource failures schedule a bounded reconnect using the backoff
-  sequence `1s / 2s / 5s / 15s / 30s` (capped). After **5 failed
-  attempts** the widget stops retrying, flips to `offline`, and fades
-  the full-widget stale overlay.
-- A successful reopen resets the attempt counter to 0 and clears any
-  error pill.
-- Stale indicator: any event (including `heartbeat`) resets a timer
-  of `2 * refreshInterval` seconds. When it fires, the widget adds
-  the `crowdaq-stale` class to the root and shows a faded overlay
-  until the next event arrives.
-- Cleanup: the widget listens for `beforeunload` / `pagehide` and
-  closes the `EventSource` plus clears its timers.
-
-Refresh cadence:
-
-- SSE is the primary (and only) data path in phase 1. `refreshInterval`
-  is only used as the stale-detection interval (`2 * refreshInterval`).
-- A `/snapshot` fallback endpoint remains in the backlog
-  (`docs/current/contract/openapi.yaml` documents only the SSE endpoint today);
-  the MVP widget does not poll.
+A frame whose `channel` disagrees with the canonical pin is rejected at parse
+time (`UnpinnedChannelError`).
 
 ---
 
-## Runtime rendering
+## Message types (20-value closed enum)
 
-The MVP widget keeps the CMS-side work minimal: the inline `<twig>`
-block renders a placeholder DOM populated with **stable
-`data-crowdaq-*` attributes** (not classes), and the `<onRender>` JS
-selects and mutates those elements directly.
+`MESSAGE_TYPES` ([`wire.ts:33`](../modules/widget-v2/src/wire.ts)). Grouped by
+canonical channel:
 
-```
-+---------------------+        CDATA <onRender>  IIFE entry
-|  <twig> DOM          |  -->  (function () { ... })();
-|  data-crowdaq-root   |
-|  data-crowdaq-*      |        Property hydration:
-|   (score, team,      |          apiBaseUrl  ← property → window.crowdaqBackendBase
-|    excitement,       |          eventId     ← property
-|    moment, status,   |          refreshInterval / flags / lengths
-|    error pill, stale |
-|    overlay)          |        Stencil starts at "Waiting for feed…".
-+----------+----------+        Open EventSource(url).
-           |
-           v
-+----------+----------+        addEventListener(name, handler):
-|  EventSource(url)    |          score-update → onScoreUpdate(payload)
-|  url =               |          moment       → onMoment(payload)
-|  apiBaseUrl          |          status       → onStatus(payload)
-|  + /events/          |          heartbeat    → onHeartbeat()
-|  + eventId           |          error        → onStreamError(payload)
-|  + /stream           |
-+----------+----------+        Every event resets resetStaleTimer().
-           |
-           v                   onerror → scheduleReconnect()
-+---------------------+          delays [1,2,5,15,30]s, cap 5 attempts
-|  DOM mutations       |
-|  via data-crowdaq-*  |        beforeunload / pagehide → cleanup()
-+---------------------+          (close EventSource, clear timers)
-```
+### Control (15)
 
-Event → selector mapping (what each handler touches):
+| Type | Purpose |
+|------|---------|
+| `DeviceRegistration` | Player→server handshake on (re)connect; advertises last seq + config hash. |
+| `ConfigPush` | Bar-preferences snapshot + config hash + config object. |
+| `ScheduleWindow` | A scheduled-slot time window (bounds, schedule hash, slot count). |
+| `PlannedState` | Active render state for a slot: business mode, template, theme, dwell, transition, slot refs. |
+| `ProgramSlot` | Game/fixture content for a slot (primary game + id lists). |
+| `AdSlot` | An ad placement: class, creative/URI ref, policy. |
+| `OverrideInjection` | Time-bounded scheduling override with precedence. |
+| `AssetManifest` | Cacheable assets (uri/hash/size/content-type) for a bar. |
+| `MessagingLane` | Overlay text (banner/ticker/toast) with a validity window. |
+| `Heartbeat` | Player→server liveness ping (player ts + config hash). |
+| `HeartbeatAck` | Server ack: server ts, RTT, config-hash-ok flag. |
+| `SyncRequest` | Resync request (reason + optional since-seq). |
+| `JournalSync` | Player→server journal batch for a time range. |
+| `PlayerConnected` | Connection lifecycle notice. |
+| `PlayerDisconnected` | Disconnection lifecycle notice (optional reason). |
 
-| Event         | Source schema                              | DOM element(s) (data-crowdaq-*)                                                                                                                                                                                                            |
-|---------------|--------------------------------------------|----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| `score-update` | `docs/current/contract/events/score-update.json`   | `team-a-logo` / `team-a`, `team-b-logo` / `team-b`, `team-a-score`, `team-b-score` (with `.crowdaq-delta-flash` flash), `excitement-fill`, `excitement-value`, `excitement-trend`, `moment-text` (from `last_moment.text`), `status` pill    |
-| `moment`      | `docs/current/contract/events/moment.json`         | `moment-text` (from `description`, truncated to `maxMomentLength`)                                                                                                                                                                           |
-| `status`      | `docs/current/contract/events/status.json`         | `status-overlay` + `status-overlay-text` (banner shown for every state except `live`, which hides the banner)                                                                                                                                 |
-| `heartbeat`   | `docs/current/contract/events/heartbeat.json`      | None directly — resets the stale timer + keeps `status` on `live`                                                                                                                                                                            |
-| `error`       | `docs/current/contract/events/error.json`          | `error-pill` (shows `code` / `message`, truncated), triggers bounded reconnect                                                                                                                                                               |
+### Game-data (5)
+
+| Type | Purpose |
+|------|---------|
+| `GameState` | Full game snapshot (scores, period, clock, signals, badges, sport context). No `seq` — a recovery point. |
+| `GameEvent` | Seq-bearing delta (goal/card/sub/period/shot/var/penalty) at a clock. |
+| `DisplayEvent` | Bar-scoped display event (class/text/duration). |
+| `GameStateRequest` | Player→server recovery request from a given seq (seq-bearing). |
+| `FixtureList` | Upcoming fixtures within a window. |
 
 ---
 
-## Widget properties
+## Schema version, seq, and channel-pinning rules
 
-See `modules/crowdaq-widget.xml` for the authoritative definitions. The
-manifest currently exposes these operator-visible widget-level properties:
-
-| id | Type | Default | Purpose |
-|---|---|---|---|
-| `apiBaseUrl` | text | _(empty)_ | CROWDAQ backend base URL. Used as `<apiBaseUrl>/events/<eventId>/stream`. Validation pattern `^$|^https://.*`. Falls back to `window.crowdaqBackendBase` when empty; if both are empty the widget shows a "Configure apiBaseUrl" placeholder. |
-| `eventId` | text | _(empty)_ | Pin the widget to a specific CROWDAQ event. Empty ⇒ the widget uses the literal `default` in the URL path and the backend picks the best live event for the display. |
-| `refreshInterval` | number | 30 | Stale-detector interval (seconds). The widget flips to `stale` if no event (including heartbeat) arrives within `2 * refreshInterval`. Min 5. |
-| `theme` | dropdown | `dark` | Palette: `dark` or `light`. |
-| `showTeamLogos` | checkbox | `true` | Whether to render `<img>` crests when the feed includes `logo_url`. Falls back to the team abbreviation on `onerror`. |
-| `showLastMoment` | checkbox | `true` | Whether to render the last-moment text row. |
-| `maxMomentLength` | number | 80 | Character cap for the last-moment text; longer strings end with `…`. Only visible when `showLastMoment` is on. |
-
----
-
-## Responsibilities
-
-| Layer              | Repo / location                    | Owns |
-|--------------------|------------------------------------|------|
-| CROWDAQ backend    | `founding` repo (k8s manifests)    | SSE endpoint, match ingest, excitement scoring |
-| Xibo CMS infra     | `xibo` repo                        | MySQL, XMR, CMS Deployment, k8up backups, Flux binding |
-| Bar PC bootstrap   | `xibo` repo (`infra/bar-pc/`)      | Debian bootstrap, tailnet join, player install |
-| CROWDAQ plugin     | **this repo**                      | XML manifest, inline Twig stencil, CROWDAQ datatype declaration |
+- **`schema_version`** is the integer `1` (`CURRENT_SCHEMA_VERSION`,
+  [`wire.ts:419`](../modules/widget-v2/src/wire.ts)). Any other value is
+  rejected (`UnsupportedSchemaVersionError`).
+- **`channel` is pinned** by `canonicalChannel(message_type)` — the builder
+  sets it and the parser enforces it; callers never free-choose it.
+- **`seq` is present iff** the type is in `SEQ_BEARING`
+  ([`wire.ts:65`](../modules/widget-v2/src/wire.ts)) — exactly `GameEvent`
+  and `GameStateRequest`. Missing on a seq-bearing type → `MissingSeqError`;
+  present on any other type → `UnexpectedSeqError`. For `GameEvent`, the
+  payload `seq` must equal the envelope `seq`.
+- **`payload` is required**; `bar_id` / `game_id` are optional strings.
 
 ---
 
-## Open questions (MVP-widget iter)
+## Error taxonomy
 
-1. **Backend base URL injection.** Resolved in iter16 as the
-   per-widget `apiBaseUrl` property, with a `window.crowdaqBackendBase`
-   fallback for bar-wide defaults. Still open: whether the bar-player
-   bootstrap in the `xibo` repo should also expose `apiBaseUrl` as a
-   CMS-level module setting so a single operator action picks the
-   default for all new widgets. Deferred to a post-MVP polish iter.
-2. **Auth token injection.** Out of scope for the MVP. The stream is
-   currently open on the tailnet; JWT Bearer tokens are a phase-2
-   upgrade documented in `docs/current/contract/openapi.yaml`.
-3. **Multi-event streaming.** A single widget consumes one stream.
-   Targeting multiple bars is a separate iter (multi-bar display tags).
-4. **Player preview / offline cache.** The CMS layout editor preview
-   shows the stencil placeholder ("Waiting for CROWDAQ feed…") since
-   the widget is client-side-only and ships no `<sampleData>`. The
-   Xibo Player itself does not yet cache the last-known payload to
-   disk between reboots.
-5. **Back-channel (widget → CROWDAQ).** Still phase-2. If the widget
-   ever needs to emit viewer-side signals (display taps, analytics),
-   that would reintroduce a PHP data provider under `src/`.
-6. **Packaging.** Does Xibo CMS accept a single zip drop into
-   `custom/`, or does it need to be unpacked into a specific
-   subdirectory? The release iter must confirm against the real CMS
-   Deployment.
+`WireError` ([`wire.ts:341`](../modules/widget-v2/src/wire.ts)) is the
+abstract base; `WireErrorCode` is a closed union of seven parse codes plus
+the outbound `serialize` code:
+
+| Code | Meaning |
+|------|---------|
+| `malformed_frame` | Non-string input, embedded newline, invalid JSON, non-object frame, or a missing/mistyped envelope field. |
+| `unknown_channel` | `channel` not in `CHANNELS`. |
+| `unknown_message_type` | `message_type` not in `MESSAGE_TYPES`. |
+| `unpinned_channel` | `channel` disagrees with the canonical pin. |
+| `unsupported_schema_version` | `schema_version` is an integer but not `1`. |
+| `missing_seq` | Seq-bearing type with no `seq`. |
+| `unexpected_seq` | Non-seq-bearing type carrying a `seq`. |
+| `serialize` | Outbound-only: `buildEnvelope`/`marshal`/`serialize` failure. |
+
+The first seven are the codes the planned transport's deserializer surfaces
+as parse-error reasons; see [`docs/WIRE_PROTOCOL.md`](WIRE_PROTOCOL.md) for
+the per-code classes and carried fields.
+
+---
+
+## Render & config orchestration (planned)
+
+The wire barrel is the only built surface today. The runtime that consumes it
+is specified across the 16 `docs/specs/SPEC-CRWDQ-*` specs but **not yet
+built**. The intended shape:
+
+- **Transport** — [SPEC-CRWDQ-022](specs/SPEC-CRWDQ-022-widget-v2-websocket-client.md)
+  owns the single per-display `WsClient`, the JSONL `Deserializer` (wrapping
+  `parseLine`), the per-`message_type` `Dispatcher` into per-channel handler
+  tables, the 30s outbound `Heartbeat` with ack-timeout liveness, exponential
+  reconnect with the `crowdaq.v1` subprotocol, and the per-`game_id` seq-gap
+  `GameStateRequest` recovery path. It is the **universal blocker** — every
+  render template and the metrics ping consume its dispatcher.
+
+- **ConfigPush consumer** —
+  [SPEC-CRWDQ-014](specs/SPEC-CRWDQ-014-widget-v2-configpush-consumer.md)
+  receives `ConfigPush` frames off the dispatcher, validates the full
+  bar-preferences payload closed-shape, persists it to LocalStorage
+  (`crowdaq.widgetV2.barPreferences`), tracks `config_hash` for drift, and
+  queues a preference apply for the **next dwell boundary** (never a forced
+  re-render).
+
+- **Render orchestration** —
+  [SPEC-CRWDQ-023](specs/SPEC-CRWDQ-023-widget-v2-single-game-template.md)
+  (the `single_game` template) introduces the shared orchestration that every
+  other template reuses: `PlannedStateActivator` (activates a `PlannedState`,
+  resolves slots, runs the transition, mounts the template, arms the dwell
+  timer, and dispatches `reconcile` events), `ProgramSlotResolver`,
+  `GameStateStore` (snapshot upsert + seq-ordered `GameEvent` apply +
+  per-game subscriptions), `DwellTimer`, and `TransitionExecutor` (named
+  transition catalog → AssetManifest cache → default fade). Theme is resolved
+  three-state (`set`/`default`/`unset`), with the per-slot
+  `PlannedStatePayload.theme_id` overriding the bar-wide `ConfigPush` theme.
+
+- **Asset cache** —
+  [SPEC-CRWDQ-064](specs/SPEC-CRWDQ-064-widget-v2-asset-manifest-store.md)
+  (`AssetManifestStore`) backs transition assets and ad creatives.
+
+- **Templates & overlays** — the remaining business-mode templates fan out
+  after 023: multiple_games
+  ([031](specs/SPEC-CRWDQ-031-widget-v2-multiple-games-template.md)), fixtures
+  ([034](specs/SPEC-CRWDQ-034-widget-v2-fixtures-template.md)), ads
+  ([041](specs/SPEC-CRWDQ-041-widget-v2-ad-templates.md)), recap
+  ([046](specs/SPEC-CRWDQ-046-widget-v2-recap-template.md)), the MessagingLane
+  overlay ([049](specs/SPEC-CRWDQ-049-widget-v2-messaging-lane-overlay.md)),
+  safe_info ([052](specs/SPEC-CRWDQ-052-widget-v2-safe-info-template.md)),
+  ambient ([053](specs/SPEC-CRWDQ-053-widget-v2-ambient-template.md)),
+  OverrideInjection handling
+  ([063](specs/SPEC-CRWDQ-063-widget-v2-override-injection-handler.md)), and
+  the composites single_game_with_ads
+  ([065](specs/SPEC-CRWDQ-065-widget-v2-single-game-with-ads-template.md)) and
+  fixtures_with_live_game
+  ([066](specs/SPEC-CRWDQ-066-widget-v2-fixtures-with-live-game-template.md)).
+
+- **Observability** — player-side metrics ping
+  ([061](specs/SPEC-CRWDQ-061-widget-v2-player-metrics-ping.md)) and the e2e
+  smoke test ([027](specs/SPEC-CRWDQ-027-widget-v2-e2e-smoke-test.md), the M2
+  gate).
+
+See [`docs/specs/buildorder.md`](specs/buildorder.md) for the
+dependency-linearized sequence.
+
+---
+
+## Implementation status
+
+| Surface | Status | Where |
+|---------|--------|-------|
+| Wire protocol barrel (envelope, 20-type enum, channel pinning, seq rule, error taxonomy, `buildEnvelope`/`marshal`/`serialize`/`parseLine`/`parseReader`) | **BUILT** | [`modules/widget-v2/src/wire.ts`](../modules/widget-v2/src/wire.ts), re-exported by [`src/index.ts`](../modules/widget-v2/src/index.ts) |
+| Node toolchain (ESLint, tsc, Vitest+jsdom, tsup) + path-scoped CI job | **BUILT** | `modules/widget-v2/` (`package.json`, configs), `.github/workflows/ci.yml` (`widget-v2` job) |
+| WebSocket transport / dispatcher / heartbeat / seq-gap recovery | **PLANNED** | [SPEC-CRWDQ-022](specs/SPEC-CRWDQ-022-widget-v2-websocket-client.md) |
+| ConfigPush consumer + local cache + apply | **PLANNED** | [SPEC-CRWDQ-014](specs/SPEC-CRWDQ-014-widget-v2-configpush-consumer.md) |
+| Render orchestration + `single_game` template | **PLANNED** | [SPEC-CRWDQ-023](specs/SPEC-CRWDQ-023-widget-v2-single-game-template.md) |
+| AssetManifestStore + all other templates/overlays/observability | **PLANNED** | specs 064, 027, 031, 034, 041, 046, 049, 052, 053, 061, 063, 065, 066 |
+
+Today `src/index.ts` re-exports only `./wire.js`; the transport and templates
+will be re-exported here as they arrive.
+
+---
+
+## Build & packaging
+
+`modules/widget-v2/` is a Node 20 TypeScript package (`@crowdaq/widget-v2`,
+v0.1.0) built with **tsup**. The `widget-v2` CI job
+(`.github/workflows/ci.yml`) is path-scoped to `modules/widget-v2/**` and runs
+`npm ci` → ESLint (`--max-warnings=0`) → `tsc --noEmit` → Vitest (jsdom) →
+`tsup` build, so it does not run on PHP-only changes. The v1 PHP/contract/JS
+jobs are unaffected.
+
+---
+
+## Relationship to v1
+
+| Aspect | v1 (archived) | v2 (this doc) |
+|--------|---------------|---------------|
+| Manifest | `modules/crowdaq-widget.xml` | `modules/widget-v2/` (TS bundle) |
+| Transport | SSE (`GET /events/{eventId}/stream`) | WebSocket + JSONL |
+| Frame model | 5 SSE event types | 20-value enveloped `message_type` enum, two channels |
+| Direction | server→widget only | bidirectional |
+| Config | Xibo widget properties baked at publish | runtime `ConfigPush` (planned) |
+| Multi-bar | `display:<field>` from `xiboIC.info()` | `DeviceRegistration` bar/display ids (planned) |
+| Docs | [`docs/archive/v1/`](archive/v1/README.md) | this doc + [`WIRE_PROTOCOL.md`](WIRE_PROTOCOL.md) |
+
+v1 is documented in full under [`docs/archive/v1/`](archive/v1/README.md) and
+still ships side-by-side with v2.

@@ -26,6 +26,16 @@ export interface SportContext {
   venue?: string;
   /** Period / quarter / inning + game clock, pre-formatted for display. */
   period_clock?: string;
+  /**
+   * SPEC-CRWDQ-S13 (D-GRH-78) — the REAL backend-computed excitement scalar
+   * (0–100) the broadcast meter renders. Present on every live GameState +
+   * re-push GameState, and re-stamped on a GameEvent so it SPIKES the instant a
+   * goal lands. When absent (an older backend / a pure twin frame) the template
+   * falls back to its derived proxy.
+   */
+  excitement?: number;
+  /** SPEC-CRWDQ-S13 — signed momentum lean [-100,100], +home / −away. */
+  momentum?: number;
 }
 
 /**
@@ -84,23 +94,28 @@ export interface GameEvent {
  *
  * `game_ids` is the ordered list a multi-card mode renders (D-GRH-14 order
  * preserved). The `single_game` template reads only `primary_game_id`; the
- * `multiple_games` template (SPEC-CRWDQ-031) renders one card per entry. A
- * single-game frame carries no list, normalized to `[]` by the resolver, so
- * the field is always present and never optional at the render layer.
+ * future `multiple_games` template (SPEC-CRWDQ-031) renders one card per entry.
+ * It is OPTIONAL at this layer so the single-game resolver and the
+ * empty/synthetic slot literals (safe_info, ambient) need not restate `[]`.
  */
 export interface ProgramSlotPayload {
   program_slot_id: string;
   primary_game_id: string | null;
-  /** Ordered game ids the slot references (D-GRH-14); `[]` for single_game. */
+  /**
+   * Ordered game ids the slot references (D-GRH-14). The resolver normalizes it
+   * to `[]` for single_game / safe / ambient so a resolved payload always
+   * carries the list; the `multiple_games` template (SPEC-CRWDQ-031) renders
+   * one card per entry.
+   */
   game_ids: readonly string[];
   /**
    * Ordered `eventId`s a `fixtures` slot references (SPEC-CRWDQ-034 / -033),
-   * kickoff ascending and capped at `maxFixturesShown`. The resolver always
-   * populates it (normalized to `[]` for non-fixtures modes, exactly as
-   * `game_ids`), so a resolved payload always carries the list; it is optional
-   * on the type only so the single/multi-game literals that predate the
-   * fixtures mode need not restate an empty list. The members are canonical
-   * `event_id`s (not `game_id`s) — see the SPEC-CRWDQ-034 RESOLVED note.
+   * kickoff ascending and capped at `maxFixturesShown`. The resolver normalizes
+   * it to `[]` for non-fixtures modes, so a resolved payload always carries the
+   * list. The members are canonical `event_id`s (not `game_id`s). Optional on
+   * the type only so the single/multi-game literals that predate the fixtures
+   * mode (and the SPEC-CRWDQ-031/-066 test payloads) need not restate `[]`;
+   * every consumer reads it as `?? []`.
    */
   fixture_ids?: readonly string[];
 }

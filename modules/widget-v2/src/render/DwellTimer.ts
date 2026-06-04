@@ -41,9 +41,8 @@ export class DwellTimer {
    * never fires). `onBoundary` receives the actual elapsed wall-clock at fire.
    *
    * A non-positive `dwellTargetMs` (`<= 0`) means INFINITE dwell (SPEC-CRWDQ-052
-   * synthetic safe state): no boundary is scheduled and the timer reports idle,
-   * so a player-fallback panel stays mounted until the controller supersedes it
-   * on recovery — it never times out. A prior schedule is still cancelled.
+   * synthetic safe state + SPEC-CRWDQ-053 ambient): no boundary is ever armed —
+   * the render stays until the activator supersedes it with a new PlannedState.
    */
   arm(dwellTargetMs: number, onBoundary: (actualDwellMs: number) => void): void {
     this.cancel();

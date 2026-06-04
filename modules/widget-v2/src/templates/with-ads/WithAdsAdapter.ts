@@ -30,6 +30,7 @@
 import type { RenderJournal } from '../../render/RenderJournal';
 import type { TemplateAdapter, TemplateMount } from '../../render/PlannedStateActivator';
 import type { AssetManifestStore } from '../../render/AssetManifestStore';
+import type { CrestResolver } from '../../render/CrestResolver';
 import type { CardTransitions } from '../multi-game/CardSet';
 import type { AdSlotPayload } from '../../render/types';
 import { DwellTimer, type DwellClock, systemDwellClock } from '../../render/DwellTimer';
@@ -79,6 +80,8 @@ export interface MultiGameWithAdsAdapterDeps {
   cardTransitions: CardTransitions;
   assetManifestStore: AssetManifestStore;
   adSlots: AdSlotResolver;
+  /** SPEC-CRWDQ-S11 — real club crests in the with-ads grid. */
+  crestResolver?: CrestResolver;
   /**
    * The shared timer for the `ad_slot_completed` dwell. When it is a
    * {@link SnapshottingDwellTimer} (the same instance the activator was
@@ -103,6 +106,7 @@ export function makeMultiGameWithAdsAdapter(deps: MultiGameWithAdsAdapterDeps): 
         adSlot,
         stateId: args.payload.state_id,
         dwellActualMs: () => deps.dwell?.elapsedAtSupersede() ?? 0,
+        ...(deps.crestResolver ? { crestResolver: deps.crestResolver } : {}),
       });
       if (instance === null) return null;
       // Every rendered game gates per-game revisions through the activator (AC4).

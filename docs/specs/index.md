@@ -40,5 +40,10 @@ Shared protocol terminology lives in `xibo/docs/specs/SPEC-CATALOG.md` "Common v
 ## See also
 
 - [`buildorder.md`](buildorder.md) — dependency-ordered build sequence for this repo.
-- [`xibo-plugin/docs/planned/PRODUCT_REQUIREMENTS.md`](../planned/PRODUCT_REQUIREMENTS.md) — source PRD.
-- [`xibo-plugin/docs/planned/DYNAMIC_LAYOUT_DECISIONS_LOG.md`](../planned/DYNAMIC_LAYOUT_DECISIONS_LOG.md) — D-GRH-01..73 decisions referenced throughout.
+- The source PRD and the D-GRH-01..73 decisions log are **not** local to this
+  repo. They live cross-repo in the `xibo` repo
+  ([`xibo/docs/specs/SPEC-CATALOG.md`](https://github.com/Atabong/xibo),
+  branch `docs/spec-catalog`) and are mirrored on Plane Pages (workspace
+  `nadwell`, project `CROWDAQ`). Each spec references the relevant D-GRH-NN
+  decisions by id rather than re-deriving them — see
+  [Common vocabulary](#common-vocabulary) above.

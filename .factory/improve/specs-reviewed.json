@@ -1,0 +1,20 @@
+{
+  "reviewed": {
+    "SPEC-CRWDQ-014": { "last_reviewed": "2026-05-22T14:30:00-06:00", "confidence": 0.6 },
+    "SPEC-CRWDQ-022": { "last_reviewed": "2026-05-22T15:10:00-06:00", "confidence": 0.4 },
+    "SPEC-CRWDQ-023": { "last_reviewed": "2026-05-22T23:15:00-06:00", "confidence": 0.8 },
+    "SPEC-CRWDQ-027": { "last_reviewed": "2026-05-22T17:25:00-06:00", "confidence": 0.4 },
+    "SPEC-CRWDQ-031": { "last_reviewed": "2026-05-22T23:25:00-06:00", "confidence": 0.8 },
+    "SPEC-CRWDQ-034": { "last_reviewed": "2026-05-22T23:35:00-06:00", "confidence": 0.95 },
+    "SPEC-CRWDQ-041": { "last_reviewed": "2026-05-22T23:45:00-06:00", "confidence": 0.75 },
+    "SPEC-CRWDQ-046": { "last_reviewed": "2026-05-22T20:45:00-06:00", "confidence": 0.75 },
+    "SPEC-CRWDQ-049": { "last_reviewed": "2026-05-22T17:45:00-06:00", "confidence": 0.4 },
+    "SPEC-CRWDQ-052": { "last_reviewed": "2026-05-22T20:15:00-06:00", "confidence": 0.8 },
+    "SPEC-CRWDQ-053": { "last_reviewed": "2026-05-22T16:40:00-06:00", "confidence": 0.6 },
+    "SPEC-CRWDQ-061": { "last_reviewed": "2026-05-22T21:15:00-06:00", "confidence": 0.8 },
+    "SPEC-CRWDQ-063": { "last_reviewed": "2026-05-22T22:25:00-06:00", "confidence": 0.7 },
+    "SPEC-CRWDQ-064": { "last_reviewed": "2026-05-22T18:20:00-06:00", "confidence": 0.6 },
+    "SPEC-CRWDQ-065": { "last_reviewed": "2026-05-22T23:55:00-06:00", "confidence": 0.4 },
+    "SPEC-CRWDQ-066": { "last_reviewed": "2026-05-23T00:05:00-06:00", "confidence": 0.85 }
+  }
+}

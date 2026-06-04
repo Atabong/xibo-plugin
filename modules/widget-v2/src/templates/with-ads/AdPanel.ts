@@ -62,7 +62,75 @@ export class AdPanel {
       void ctx.assetManifestStore.ensure(ctx.adSlot.ad_ref).catch(() => {});
       return null;
     }
+    return this.mountWithCreative(host, ctx, creative.url);
+  }
 
+  /**
+   * SPEC-CRWDQ-S11 — mount the panel even when the creative is NOT yet warm:
+   * append the panel shell immediately (content stays visible, D-GRH-16) and
+   * subscribe to the AssetManifestStore; when the creative's bytes warm (eager
+   * prefetch / on-demand), set the `<img src>` so the real ad swaps in. This
+   * avoids the cache-miss race where the with-ads composite permanently fell
+   * back to the bare grid because the creative hadn't finished prefetching at
+   * mount. Always returns an instance (never declines on a transient miss).
+   */
+  mountDeferred(host: HTMLElement, ctx: AdPanelContext): AdPanelInstance {
+    const warm = ctx.assetManifestStore.get(ctx.adSlot.ad_ref);
+    if (warm) return this.mountWithCreative(host, ctx, warm.url);
+
+    const panel = buildPanel(ctx.adSlot, ctx.positionClass);
+    const img = panel.querySelector<HTMLImageElement>('img.cdq-ad-creative')!;
+    img.addEventListener(
+      'load',
+      () => {
+        ctx.journal.record({
+          type: 'ad_slot_rendered',
+          ad_slot_id: ctx.adSlot.ad_slot_id,
+          ad_ref: ctx.adSlot.ad_ref,
+          state_id: ctx.stateId,
+        });
+      },
+      { once: true },
+    );
+    host.append(panel);
+
+    // Wait for the manifest to warm the creative, then set the src.
+    let unsub = (): void => {};
+    const trySet = (): void => {
+      const c = ctx.assetManifestStore.get(ctx.adSlot.ad_ref);
+      if (c) {
+        img.src = c.url;
+        unsub();
+      }
+    };
+    unsub = ctx.assetManifestStore.subscribeManifest(() => trySet());
+    // Kick the fetch (best-effort) then re-check after it resolves.
+    void ctx.assetManifestStore
+      .ensure(ctx.adSlot.ad_ref)
+      .then(() => trySet())
+      .catch(() => {
+        ctx.journal.record({
+          type: 'ad_asset_cache_miss',
+          ad_slot_id: ctx.adSlot.ad_slot_id,
+          ad_ref: ctx.adSlot.ad_ref,
+          state_id: ctx.stateId,
+        });
+      });
+
+    return {
+      detach(): HTMLElement {
+        unsub();
+        panel.remove();
+        return panel;
+      },
+    };
+  }
+
+  private mountWithCreative(
+    host: HTMLElement,
+    ctx: AdPanelContext,
+    creativeUrl: string,
+  ): AdPanelInstance {
     const panel = buildPanel(ctx.adSlot, ctx.positionClass);
     const img = panel.querySelector<HTMLImageElement>('img.cdq-ad-creative')!;
 
@@ -79,8 +147,8 @@ export class AdPanel {
       },
       { once: true },
     );
-    // Assigning src kicks the load. The bytes are guaranteed present (D-GRH-23).
-    img.src = creative.url;
+    // Assigning src kicks the load. The bytes are present (D-GRH-23).
+    img.src = creativeUrl;
 
     host.append(panel);
     return {
