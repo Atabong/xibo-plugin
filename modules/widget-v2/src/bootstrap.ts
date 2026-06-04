@@ -281,15 +281,38 @@ function isFrame(r: ParseResult): r is ServerFrame {
   return typeof (r as { message_type?: unknown }).message_type === 'string';
 }
 
-/** HTTP `fetch` asset fetcher (D-GRH-74 publicly-readable R2 URLs). */
+/**
+ * HTTP `fetch` asset fetcher (D-GRH-74 publicly-readable URLs).
+ *
+ * CSP / cross-origin note (SPEC-CRWDQ-S11, learned LIVE): the asset bytes live
+ * on a DIFFERENT origin than the widget (the game-delivery tailnet host vs the
+ * player's `http://localhost:9696` web root). The player's Content-Security-
+ * Policy `img-src` refuses a cross-origin remote `<img src>` — but a `blob:`
+ * object URL minted from the already-fetched bytes is same-document and loads
+ * fine (and `connect-src`/CORS governs the fetch, which we satisfy with
+ * `Access-Control-Allow-Origin: *` on the server). So the CachedAsset `url` is
+ * an OBJECT URL over the bytes, NOT the remote URL — every `<img src>` /
+ * `<link href>` consumer then loads from the local blob, CSP-safe.
+ */
 export class HttpAssetFetcher implements AssetFetcher {
   async fetch(entry: AssetEntry): Promise<CachedAsset> {
     const res = await fetch(entry.url);
+    if (!res.ok) {
+      throw new Error(`asset fetch ${entry.asset_id}: HTTP ${res.status}`);
+    }
     const bytes = await res.arrayBuffer();
+    let url = entry.url;
+    try {
+      const type = entry.content_type || res.headers.get('content-type') || 'application/octet-stream';
+      url = URL.createObjectURL(new Blob([bytes], { type }));
+    } catch {
+      // No URL.createObjectURL (non-browser env / test) — fall back to the
+      // remote URL; the hash-verified bytes are still cached either way.
+    }
     return {
       asset_id: entry.asset_id,
       content_hash: entry.content_hash,
-      url: entry.url,
+      url,
       content_type: entry.content_type,
       bytes,
     };
