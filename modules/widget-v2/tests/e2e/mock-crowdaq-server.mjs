@@ -69,6 +69,49 @@ function sendFrame(ws, obj) {
   ws.send(JSON.stringify(obj));
 }
 
+/** Normalise a team display name to the manifest `ref` key — MUST match the
+ *  widget `teamNameKey` (CrestResolver): trim, lowercase, collapse whitespace. */
+function teamNameKey(name) {
+  return name.trim().toLowerCase().replace(/\s+/g, ' ');
+}
+
+/** A self-contained round club-badge SVG (no network) for the S12 crest proof.
+ *  A coloured roundel with the team's 3-letter monogram — stands in for a real
+ *  api-football crest so the headless render shows the badge layout + hash path. */
+function svgCrest(bg, ring, mono) {
+  return (
+    `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">` +
+    `<circle cx="50" cy="50" r="46" fill="${bg}" stroke="${ring}" stroke-width="5"/>` +
+    `<circle cx="50" cy="50" r="30" fill="none" stroke="#ffffff" stroke-opacity="0.35" stroke-width="2"/>` +
+    `<text x="50" y="62" font-family="sans-serif" font-size="30" font-weight="800" ` +
+    `fill="#ffffff" text-anchor="middle">${mono}</text></svg>`
+  );
+}
+
+/**
+ * Build AssetManifest crest entries (kind=crest, ref=team name_key) from a
+ * `[{ team, bg, ring }]` spec. Each entry carries a self-contained `data:` SVG
+ * URL + its REAL sha256 so the store's hash verification + the CrestResolver
+ * (ref→asset_id→bytes) resolve the badge exactly like the live path. Returns
+ * `[]` when no crests are requested (the default colour-block fallback path).
+ */
+function crestAssets(crests) {
+  if (!Array.isArray(crests) || crests.length === 0) return [];
+  return crests.map((c, i) => {
+    const mono = (c.mono ?? c.team.replace(/[^a-z]/gi, '').slice(0, 3)).toUpperCase();
+    const svg = svgCrest(c.bg ?? '#1b6ca8', c.ring ?? '#ffcf3f', mono);
+    return {
+      asset_id: `crest:${i}:${teamNameKey(c.team)}`,
+      kind: 'crest',
+      ref: teamNameKey(c.team),
+      content_hash: svgHash(svg),
+      url: 'data:image/svg+xml;utf8,' + encodeURIComponent(svg),
+      content_type: 'image/svg+xml',
+      bytes: 1,
+    };
+  });
+}
+
 /** A self-contained SVG creative (no network) for the ambient e2e rotation. */
 function svgCreative(bg, label) {
   return (
@@ -176,7 +219,9 @@ export function startMockServer(options = {}) {
               { id: 'mg-3', home: 'LIV', away: 'MCI', hs: 0, as: 0, sport: 'Soccer', league: 'Premier', clock: "23'" },
               { id: 'mg-4', home: 'JUV', away: 'INT', hs: 3, as: 2, sport: 'Soccer', league: 'Serie A', clock: "81'" },
             ];
-            sendFrame(ws, control('AssetManifest', { version: 'v-e2e-mg', assets: [] }));
+            // S12 polish proof: optional crest assets keyed by team name_key so
+            // the headless card redesign shows real badges (live parity).
+            sendFrame(ws, control('AssetManifest', { version: 'v-e2e-mg', assets: crestAssets(options.crests) }));
             games.forEach((g, i) =>
               sendFrame(ws, { schema_version: 1, channel: 'game_data', message_type: 'GameStateSnapshot', ts: now(), bar_id: BAR_ID, game_id: g.id, seq: 100 + i, payload: {
                 home_team: g.home, away_team: g.away, home_score: g.hs, away_score: g.as,
@@ -291,11 +336,18 @@ export function startMockServer(options = {}) {
           }
 
           // default: single_game
-          sendFrame(ws, control('AssetManifest', { version: 'v-e2e-1', assets: [] }));
+          // S12 polish proof: `options.single` overrides team names/scores so the
+          // harness can drive the LIVE long-name case (e.g. "BORUSSIA DORTMUND")
+          // that truncated, and inject crest assets keyed by team name_key.
+          const sg = options.single ?? {
+            home: 'BRA', away: 'ARG', hs: 0, as: 0,
+            sport: 'Football', league: 'World Cup', clock: "12'",
+          };
+          sendFrame(ws, control('AssetManifest', { version: 'v-e2e-1', assets: crestAssets(options.crests) }));
           sendFrame(ws, control('ProgramSlot', { program_slot_id: 'slot-1', primary_game_id: GAME_ID }));
           sendFrame(ws, gameData('GameStateSnapshot', 100, {
-            home_team: 'BRA', away_team: 'ARG', home_score: 0, away_score: 0,
-            sport_context: { sport: 'Football', league: 'World Cup', period_clock: "12'" },
+            home_team: sg.home, away_team: sg.away, home_score: sg.hs, away_score: sg.as,
+            sport_context: { sport: sg.sport, league: sg.league, period_clock: sg.clock },
           }));
           sendFrame(ws, control('PlannedState', {
             state_id: 'st-1', business_mode: 'single_game', program_slot_id: 'slot-1',

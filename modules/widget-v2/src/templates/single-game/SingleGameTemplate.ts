@@ -294,7 +294,17 @@ function paintTeam(
   if (!block) return;
   const n = (name ?? '').trim();
   const nameEl = block.querySelector<HTMLElement>('.cdq-team-name');
-  if (nameEl) nameEl.textContent = n;
+  if (nameEl) {
+    nameEl.textContent = n;
+    // S12 — names must be fully legible, never clipped mid-word with "…".
+    // Render the full name across up to two lines and shrink-to-fit so even a
+    // long club name ("BORUSSIA DORTMUND", "EINTRACHT FRANKFURT") reads cleanly
+    // at the bar. fitTeamName runs after layout (rAF) so it measures real box
+    // widths; the CSS gives a generous floor + wrap so the fallback is legible
+    // even before the fit pass (and on the headless settle frame).
+    nameEl.style.removeProperty('--name-scale');
+    scheduleFit(nameEl);
+  }
   const mono = block.querySelector<HTMLElement>('.cdq-crest-mono');
   const crest = block.querySelector<HTMLElement>('.cdq-crest');
   const shortCode = n.length > 0 && n.length <= 3;
@@ -376,6 +386,52 @@ function fireGoal(root: HTMLElement, side: 'home' | 'away', state: GameState | n
 }
 
 /* ----------------------------- pure helpers ------------------------------ */
+
+/**
+ * S12 — shrink-to-fit a team name so the FULL name reads, never an ellipsis.
+ * The CSS lets the name wrap to two lines (`text-wrap: balance`); this pass
+ * then scales the font down (via a `--name-scale` custom property the CSS
+ * multiplies into the clamp) only when the wrapped text still overflows its
+ * box — so short codes stay big + bold and only genuinely long names shrink.
+ *
+ * Runs on a `requestAnimationFrame` so it measures the real, laid-out box. It
+ * is best-effort + idempotent: in a non-DOM/headless-without-rAF context it
+ * degrades to the CSS wrap (already legible). It NEVER blocks the render path.
+ */
+function scheduleFit(nameEl: HTMLElement): void {
+  const raf =
+    typeof requestAnimationFrame === 'function'
+      ? requestAnimationFrame
+      : (cb: FrameRequestCallback): number => {
+          setTimeout(() => cb(0), 0);
+          return 0;
+        };
+  raf(() => fitTeamName(nameEl));
+}
+
+function fitTeamName(nameEl: HTMLElement): void {
+  // Measure against the available box. The name lives in a 1fr grid cell, so
+  // clientWidth is the room it gets; allow up to two wrapped lines.
+  const maxW = nameEl.clientWidth;
+  if (maxW <= 0) return; // not laid out (headless pre-paint) — CSS wrap covers it
+  let scale = 1;
+  nameEl.style.setProperty('--name-scale', '1');
+  // The 2-line line-box height: read the computed line-height * 2 as the cap.
+  const lineH = parseFloat(getComputedStyle(nameEl).lineHeight) || nameEl.clientHeight;
+  const maxH = lineH * 2 + 2;
+  // Shrink in small steps until both axes fit (or we hit a sane floor).
+  for (let i = 0; i < 14; i += 1) {
+    const fits = nameEl.scrollWidth <= maxW + 1 && nameEl.scrollHeight <= maxH;
+    if (fits) break;
+    scale -= 0.06;
+    if (scale < 0.46) {
+      scale = 0.46;
+      nameEl.style.setProperty('--name-scale', String(scale));
+      break;
+    }
+    nameEl.style.setProperty('--name-scale', String(scale));
+  }
+}
 
 function div(cls: string): HTMLElement {
   const el = document.createElement('div');

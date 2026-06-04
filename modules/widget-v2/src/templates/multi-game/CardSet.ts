@@ -183,7 +183,16 @@ export class CardSet {
   }
 }
 
-/** Build an empty card skeleton for `gameId` at `position`. */
+/**
+ * Build a card skeleton for `gameId` at `position`.
+ *
+ * S12 redesign — a proper, FILLED, balanced broadcast card consistent with the
+ * single_game score bug: a competition strap (header) then a home row and an
+ * away row, each laid out as `[crest] [team name] [score]` together, with a
+ * thin centre divider carrying the live clock between them. The body fills the
+ * card (rows are evenly distributed) instead of pinning teams to the card's
+ * top + bottom edges with a tiny crest floating mid-card.
+ */
 function buildCard(gameId: string, position: number): HTMLElement {
   const card = document.createElement('div');
   card.className = 'cdq-card';
@@ -194,28 +203,57 @@ function buildCard(gameId: string, position: number): HTMLElement {
   header.className = 'cdq-card-sport-context';
   header.dataset['testid'] = CARD_TESTID.sportContext;
 
+  const body = document.createElement('div');
+  body.className = 'cdq-card-body';
+
   const home = buildCardTeam('cdq-card-home', CARD_TESTID.homeTeam);
+
+  // Centre divider with the live clock pill (between the two team rows).
+  const divider = document.createElement('div');
+  divider.className = 'cdq-card-divider';
   const clock = document.createElement('div');
   clock.className = 'cdq-card-clock';
   clock.dataset['testid'] = CARD_TESTID.clock;
+  divider.append(clock);
+
   const away = buildCardTeam('cdq-card-away', CARD_TESTID.awayTeam);
 
-  card.append(header, home, clock, away);
+  body.append(home, divider, away);
+  card.append(header, body);
   return card;
 }
 
-/** A card team block: a crest slot (real badge img, S11) + a text line. The
- *  text line keeps the `data-testid` so the existing "NAME N" assertions hold. */
+/**
+ * A card team ROW: `[crest] [name] [score]`. The crest is a real badge (S11,
+ * falling back to a team-colour monogram block); the name is the legible club
+ * name; the score is the prominent tabular numeral on the trailing edge.
+ *
+ * A hidden `.cdq-card-team-line` ("NAME N") is kept so the existing e2e + non
+ * regression assertions (which read the row's text as "NAME N") still hold.
+ */
 function buildCardTeam(sideClass: string, testid: string): HTMLElement {
   const team = document.createElement('div');
   team.className = `cdq-card-team ${sideClass}`;
   team.dataset['testid'] = testid;
+
   const crest = document.createElement('span');
   crest.className = 'cdq-card-crest';
-  crest.hidden = true;
+  const mono = document.createElement('span');
+  mono.className = 'cdq-card-crest-mono';
+  crest.append(mono);
+
+  const name = document.createElement('span');
+  name.className = 'cdq-card-team-name';
+
+  const scoreEl = document.createElement('span');
+  scoreEl.className = 'cdq-card-team-score';
+
+  // Hidden data line preserving the "NAME N" text contract for assertions.
   const line = document.createElement('span');
   line.className = 'cdq-card-team-line';
-  team.append(crest, line);
+  line.hidden = true;
+
+  team.append(crest, name, scoreEl, line);
   return team;
 }
 
@@ -241,8 +279,12 @@ function renderCard(
   if (clock) clock.textContent = state?.sport_context?.period_clock ?? '';
 }
 
-/** Paint a card team block: the text line ("NAME N") + a real crest badge from
- *  the AssetManifest when published (falls back to no badge — text only). */
+/**
+ * Paint a card team row: the legible name + prominent score, the hidden
+ * "NAME N" data line (assertions), and a real crest badge — falling back to a
+ * team-colour monogram block (consistent with single_game) so a card is never
+ * sparse, even with no published crest.
+ */
 function paintCardTeam(
   team: HTMLElement | null,
   name: string | undefined,
@@ -250,10 +292,26 @@ function paintCardTeam(
   crestResolver?: CrestResolver,
 ): void {
   if (!team) return;
+  const n = (name ?? '').trim();
+
+  const nameEl = team.querySelector<HTMLElement>('.cdq-card-team-name');
+  if (nameEl) nameEl.textContent = n;
+  const scoreEl = team.querySelector<HTMLElement>('.cdq-card-team-score');
+  if (scoreEl) scoreEl.textContent = score === undefined ? '' : String(score);
+  // Hidden data line keeps the "NAME N" text contract for the e2e assertions.
   const line = team.querySelector<HTMLElement>('.cdq-card-team-line');
   if (line) line.textContent = teamLine(name, score);
+
+  // Stable per-team colour (same derivation as single_game) for the monogram.
+  if (n.length > 0) {
+    const { h, ink } = teamColour(n);
+    team.style.setProperty('--team-h', String(h));
+    team.style.setProperty('--team-ink', ink);
+  }
+
   const crest = team.querySelector<HTMLElement>('.cdq-card-crest');
   if (!crest) return;
+  const mono = crest.querySelector<HTMLElement>('.cdq-card-crest-mono');
   const url = crestResolver?.crestUrlForTeam(name) ?? null;
   if (url) {
     let img = crest.querySelector<HTMLImageElement>('img.cdq-card-crest-img');
@@ -265,10 +323,17 @@ function paintCardTeam(
       crest.appendChild(img);
     }
     if (img.getAttribute('src') !== url) img.src = url;
-    crest.hidden = false;
+    img.hidden = false;
+    if (mono) mono.hidden = true;
     team.dataset['hasCrest'] = 'true';
   } else {
-    crest.hidden = true;
+    // No real crest — colour-block monogram fallback (never a sparse card).
+    const img = crest.querySelector<HTMLImageElement>('img.cdq-card-crest-img');
+    if (img) img.hidden = true;
+    if (mono) {
+      mono.hidden = false;
+      mono.textContent = n.slice(0, 3).toUpperCase();
+    }
     delete team.dataset['hasCrest'];
   }
 }
@@ -277,4 +342,16 @@ function teamLine(name: string | undefined, score: number | undefined): string {
   const n = name ?? '';
   const s = score === undefined ? '' : String(score);
   return `${n} ${s}`.trim();
+}
+
+/**
+ * Derive a stable team colour from the team name — the SAME deterministic
+ * golden-angle hash as single_game's `teamColour`, so a club's monogram block
+ * reads with one consistent colour across both modes.
+ */
+function teamColour(code: string): { h: number; ink: string } {
+  let hash = 0;
+  for (let i = 0; i < code.length; i += 1) hash = (hash * 31 + code.charCodeAt(i)) >>> 0;
+  const h = Math.round(((hash % 360) + (code.charCodeAt(0) % 2 ? 0 : 137)) % 360);
+  return { h, ink: '#0b0e16' };
 }
