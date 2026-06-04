@@ -15,6 +15,8 @@ class RecordingJournal implements RenderJournal {
 const slot = (primaryGameId: string | null): ProgramSlotPayload => ({
   program_slot_id: 'slot-1',
   primary_game_id: primaryGameId,
+  game_ids: [],
+  fixture_ids: [],
 });
 
 const baseState = (over: Partial<GameState> = {}): GameState => ({

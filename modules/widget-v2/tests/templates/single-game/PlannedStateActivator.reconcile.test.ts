@@ -196,7 +196,7 @@ describe('PlannedStateActivator.reconcile gate + dispatch (AC4)', () => {
 
   it('drops a reconcile with no active instance, journaling no_active_instance', async () => {
     const h = makeReconcileHarness();
-    await h.activator.reconcile({ kind: 'program_slot', slot: { program_slot_id: 'slot-1', primary_game_id: 'g1' } });
+    await h.activator.reconcile({ kind: 'program_slot', slot: { program_slot_id: 'slot-1', primary_game_id: 'g1', game_ids: [], fixture_ids: [] } });
     const dropped = h.journal.typesOf('template_reconcile_dropped');
     expect(dropped).toHaveLength(1);
     expect(dropped[0]?.['reason']).toBe('no_active_instance');
@@ -207,7 +207,7 @@ describe('PlannedStateActivator.reconcile gate + dispatch (AC4)', () => {
     await activate(h);
     const p = h.activator.reconcile({
       kind: 'program_slot',
-      slot: { program_slot_id: 'slot-1', primary_game_id: 'g1' },
+      slot: { program_slot_id: 'slot-1', primary_game_id: 'g1', game_ids: [], fixture_ids: [] },
     });
     await flush();
     h.template.releaseNext();
@@ -222,7 +222,7 @@ describe('PlannedStateActivator.reconcile gate + dispatch (AC4)', () => {
     await activate(h);
     await h.activator.reconcile({
       kind: 'program_slot',
-      slot: { program_slot_id: 'slot-OTHER', primary_game_id: 'g9' },
+      slot: { program_slot_id: 'slot-OTHER', primary_game_id: 'g9', game_ids: [], fixture_ids: [] },
     });
     expect(h.template.reconciled).toHaveLength(0);
     expect(h.journal.typesOf('template_reconcile_dispatched')).toHaveLength(0);
@@ -293,7 +293,7 @@ describe('PlannedStateActivator.reconcile skip + serialize (AC4/AC5)', () => {
 
     await base.activator.reconcile({
       kind: 'program_slot',
-      slot: { program_slot_id: 'slot-1', primary_game_id: 'g1' },
+      slot: { program_slot_id: 'slot-1', primary_game_id: 'g1', game_ids: [], fixture_ids: [] },
     });
     const skipped = base.journal.typesOf('template_reconcile_skipped');
     expect(skipped).toHaveLength(1);

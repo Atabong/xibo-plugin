@@ -75,6 +75,26 @@ import { AmbientTemplate } from './templates/ambient/AmbientTemplate';
 import { AmbientPlaylist } from './templates/ambient/AmbientPlaylist';
 import { makeAmbientAdapter } from './templates/ambient/AmbientAdapter';
 
+// S9-modes assembly: the remaining D-GRH-26 templates, each registered through
+// the SAME PlannedStateActivator seam (INV-FACTORY-19) — never a forked path.
+import { FixtureListStore } from './render/FixtureListStore';
+import type { FixtureListFrameTyped } from './templates/fixtures/types';
+import { MultiGameTemplate } from './templates/multi-game/MultiGameTemplate';
+import { makeMultiGameAdapter } from './templates/multi-game/MultiGameAdapter';
+import { noopCardTransitions } from './templates/multi-game/CardSet';
+import { FixturesTemplate } from './templates/fixtures/FixturesTemplate';
+import { makeFixturesAdapter } from './templates/fixtures/FixturesAdapter';
+import { RecapTemplate } from './templates/recap/RecapTemplate';
+import { makeRecapAdapter } from './templates/recap/RecapAdapter';
+import { MultiGameWithAdsTemplate } from './templates/with-ads/MultiGameWithAdsTemplate';
+import { FixturesWithAdsTemplate } from './templates/with-ads/FixturesWithAdsTemplate';
+import {
+  makeMultiGameWithAdsAdapter,
+  makeFixturesWithAdsAdapter,
+  type AdSlotResolver,
+} from './templates/with-ads/WithAdsAdapter';
+import type { AdSlotPayload } from './render/types';
+
 import { ConfigPushHandler } from './config/ConfigPushHandler';
 import { LocalStoragePreferenceStore, type PreferenceDerivedCache } from './config/PreferenceStore';
 import { PendingApplySlot } from './config/ApplyPreferenceState';
@@ -411,10 +431,21 @@ export async function boot(
 ): Promise<WidgetRuntime> {
   const doc = deps.document ?? document;
 
-  // 1. mount the host the template family renders into.
+  // 1. mount the host the template family renders into. The host carries the
+  // broadcast backdrop class (`crowdaq-widget-v2-host`: the stadium-dark
+  // gradient base + flex centring) and the shared atmospheric depth layers
+  // (mesh / grain / vignette) once at the host level, so EVERY mode sits on the
+  // same depth backdrop. The S9 single_game/safe_info/ambient templates inject
+  // their own layers inside their z-index:1 root; the new game/fixture/recap/
+  // with-ads modes rely on this host-level backdrop (one source of depth).
   const host = doc.createElement('div');
-  host.className = 'crowdaq-widget-v2';
+  host.className = 'crowdaq-widget-v2 crowdaq-widget-v2-host';
   host.dataset['testid'] = HOST_TESTID;
+  for (const cls of ['cdq-bg-mesh', 'cdq-bg-grain', 'cdq-bg-vignette']) {
+    const layer = doc.createElement('div');
+    layer.className = cls;
+    host.appendChild(layer);
+  }
   target.appendChild(host);
 
   // 2. resolve display identity + the WS URL.
@@ -533,6 +564,109 @@ export async function boot(
     }),
   );
 
+  // 3c. The remaining game/fixture/recap render modes (S9-modes assembly).
+  // Each registers through the SAME activator orchestration as single_game —
+  // buffer/transition/dwell/supersede/reconcile — never a forked path.
+  //
+  // FixtureListStore: the player-side cache of the most recent FixtureList
+  // (D-GRH-18) the fixtures + recap templates read team/kickoff detail from.
+  // NOTE (backend gap): the GameDeliveryService re-push (builder.ts) does NOT
+  // yet emit a FixtureList frame, so on the live backend this store stays empty
+  // and the fixtures template declines to mount (`template_input_invalid`).
+  const fixtureListStore = new FixtureListStore();
+
+  // AdSlotResolver: a last-write-wins cache of delivered AdSlot frames, keyed by
+  // ad_slot_id. The backend re-push emits no AdSlot frame yet (S5 recon:
+  // `ad_slot_payload_unavailable` — verified still open), so on the LIVE backend
+  // this map stays empty, `resolve` returns null, and the with-ads composites
+  // DECLINE the mount (`template_input_invalid` / `missing_ad_slot`) — the panel
+  // is never fabricated. The map is the seam a future backend AdSlot delivery
+  // (SPEC-CRWDQ-080/-081) plugs into with zero further wiring.
+  const adSlotCache = new Map<string, AdSlotPayload>();
+  const adSlots: AdSlotResolver = { resolve: (id) => adSlotCache.get(id) ?? null };
+  // Bar-local IANA timezone for fixtures kickoff formatting (D-GRH-73); falls
+  // back to UTC until a ConfigPush carries a timezone preference.
+  const fixturesTimezone = (): string => lastPrefs?.timezone ?? 'UTC';
+
+  // multiple_games — 2×4 score-bug grid (SPEC-CRWDQ-031).
+  activator.registerTemplate(
+    'multiple_games',
+    makeMultiGameAdapter({
+      template: new MultiGameTemplate(),
+      journal,
+      cardTransitions: noopCardTransitions,
+    }),
+  );
+
+  // fixtures — upcoming-fixture catalog (SPEC-CRWDQ-033/-034).
+  activator.registerTemplate(
+    'fixtures',
+    makeFixturesAdapter({
+      template: new FixturesTemplate(),
+      journal,
+      cardTransitions: noopCardTransitions,
+      fixtureListStore,
+      assetManifestStore: assets,
+      timezone: fixturesTimezone(),
+    }),
+  );
+
+  // fixtures_with_live_game — the dedicated split-layout template (SPEC-CRWDQ-066:
+  // a fixtures catalog beside one live single_game) is NOT YET IMPLEMENTED in any
+  // branch, AND the scheduler's mode-select never authors this mode today. We
+  // register it to the fixtures adapter as a graceful degrade so a future
+  // scheduler emission renders the catalog (its fixture_ids) rather than nothing,
+  // and FLAG the missing SPEC-CRWDQ-066 template + scheduler emission as gaps.
+  activator.registerTemplate(
+    'fixtures_with_live_game',
+    makeFixturesAdapter({
+      template: new FixturesTemplate(),
+      journal,
+      cardTransitions: noopCardTransitions,
+      fixtureListStore,
+      assetManifestStore: assets,
+      timezone: fixturesTimezone(),
+    }),
+  );
+
+  // recap — post-game frozen closing image (SPEC-CRWDQ-046).
+  activator.registerTemplate(
+    'recap',
+    makeRecapAdapter({
+      template: new RecapTemplate(),
+      journal,
+      fixtureListStore,
+      assetManifestStore: assets,
+    }),
+  );
+
+  // multiple_games_with_ads — grid + ad panel (SPEC-CRWDQ-041/-055).
+  activator.registerTemplate(
+    'multiple_games_with_ads',
+    makeMultiGameWithAdsAdapter({
+      template: new MultiGameWithAdsTemplate(new MultiGameTemplate()),
+      journal,
+      cardTransitions: noopCardTransitions,
+      assetManifestStore: assets,
+      adSlots,
+    }),
+  );
+
+  // fixtures_with_ads — catalog + ad panel (SPEC-CRWDQ-041/-055).
+  activator.registerTemplate(
+    'fixtures_with_ads',
+    makeFixturesWithAdsAdapter({
+      template: new FixturesWithAdsTemplate(new FixturesTemplate()),
+      journal,
+      cardTransitions: noopCardTransitions,
+      assetManifestStore: assets,
+      adSlots,
+      fixtureListStore,
+      transitionExecutor: transitions,
+      timezone: fixturesTimezone(),
+    }),
+  );
+
   // 4. dispatcher + every server-frame handler.
   // The active-game gate is the activator's currently-rendered slot: only the
   // primary game of the active ProgramSlot is "active" for seq-gap tracking.
@@ -589,6 +723,34 @@ export async function boot(
     'GameEvent',
     (frame) => gameStateStore.applyEvent(toGameEvent(frame as GameEventFrame)),
     'game_data',
+  );
+
+  // FixtureList (D-GRH-18): the fixtures + recap modes read team/kickoff detail
+  // from this cache. A new list REPLACES the cached set. The store consumes the
+  // camelCase player twin (`eventId`/`homeTeam`/`kickoffUtc`/`feedStatus`); the
+  // live backend `FixtureListPayload` is snake_case (`fixture_id`/`home_team`/
+  // `kickoff_ts`) — so `toFixtureListFrame` maps either shape to the twin. This
+  // is the one place the wire↔twin fixture shape is reconciled (the integration
+  // boundary, mirroring EnvelopeFlatteningDeserializer for game frames).
+  // BACKEND GAP: the re-push builder emits no FixtureList frame today, so this
+  // handler never fires on the live backend (the headless mock drives it).
+  dispatcher.register(
+    'FixtureList',
+    (frame) => fixtureListStore.applyList(toFixtureListFrame(frame as Record<string, unknown>)),
+    'control',
+  );
+
+  // AdSlot (D-GRH-15): cache the delivered slot so the with-ads composites can
+  // resolve it at mount. BACKEND GAP: the re-push builder emits no AdSlot frame
+  // today, so on the live backend this handler never fires (the headless mock
+  // drives it). The creative bytes resolve from the AssetManifest by `ad_ref`.
+  dispatcher.register(
+    'AdSlot',
+    (frame) => {
+      const slot = toAdSlot(frame as Record<string, unknown>);
+      if (slot !== null) adSlotCache.set(slot.ad_slot_id, slot);
+    },
+    'control',
   );
 
   // 5. the WS client: crowdaq.v1 subprotocol, D-GRH-61 handshake, heartbeat.
@@ -726,6 +888,58 @@ function readGameFields(frame: Record<string, unknown>): GameState | GameEvent {
   const sc = frame['sport_context'];
   if (sc != null && typeof sc === 'object') out.sport_context = sc as SportContext;
   return out;
+}
+
+/**
+ * Map a FixtureList wire frame to the camelCase player twin the FixtureListStore
+ * consumes. Accepts BOTH shapes per fixture: the twin (`eventId`, `homeTeam`,
+ * `leagueName`, `kickoffUtc`, `feedStatus`) and the live backend snake_case
+ * (`fixture_id`/`event_id`, `home_team`, `league`, `kickoff_ts`, `status`). The
+ * fixtures array is read from `frame.payload.fixtures` or a top-level
+ * `fixtures` (post-flatten). Junk entries are dropped by the store's own filter.
+ */
+function toFixtureListFrame(frame: Record<string, unknown>): FixtureListFrameTyped {
+  const payload = (frame['payload'] as Record<string, unknown> | undefined) ?? frame;
+  const rawList = Array.isArray(payload['fixtures']) ? (payload['fixtures'] as unknown[]) : [];
+  const fixtures = rawList.map((raw) => {
+    const f = (raw ?? {}) as Record<string, unknown>;
+    const pick = (...keys: string[]): unknown => {
+      for (const k of keys) if (f[k] !== undefined && f[k] !== null) return f[k];
+      return undefined;
+    };
+    return {
+      eventId: String(pick('eventId', 'event_id', 'fixture_id', 'game_id') ?? ''),
+      sport: String(pick('sport') ?? ''),
+      leagueId: Number(pick('leagueId', 'league_id') ?? 0),
+      leagueName: String(pick('leagueName', 'league_name', 'league') ?? ''),
+      homeTeam: String(pick('homeTeam', 'home_team') ?? ''),
+      awayTeam: String(pick('awayTeam', 'away_team') ?? ''),
+      kickoffUtc: String(pick('kickoffUtc', 'kickoff_utc', 'kickoff_ts') ?? ''),
+      feedStatus: (pick('feedStatus', 'feed_status', 'status') ?? 'scheduled') as
+        | 'scheduled'
+        | 'live'
+        | 'final',
+    };
+  });
+  return { ...frame, payload: { fixtures } } as unknown as FixtureListFrameTyped;
+}
+
+/**
+ * Map an AdSlot wire frame to the render `AdSlotPayload`. Reads from the
+ * flattened top level or the nested `payload`; null when the slot has no id.
+ */
+function toAdSlot(frame: Record<string, unknown>): AdSlotPayload | null {
+  const payload = (frame['payload'] as Record<string, unknown> | undefined) ?? {};
+  const pick = (key: string): unknown => frame[key] ?? payload[key];
+  const id = pick('ad_slot_id');
+  if (typeof id !== 'string' || id.length === 0) return null;
+  return {
+    ad_slot_id: id,
+    ad_class: String(pick('ad_class') ?? ''),
+    ad_ref: String(pick('ad_ref') ?? ''),
+    ad_ref_type: 'asset_id',
+    policy: (pick('policy') as Record<string, unknown>) ?? {},
+  };
 }
 
 /** A no-op GameStateRequester for single_game (gap recovery is opportunistic). */

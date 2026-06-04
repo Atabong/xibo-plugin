@@ -41,6 +41,14 @@ export interface GameState {
   away_team?: string;
   home_score?: number;
   away_score?: number;
+  /**
+   * Lifecycle status of the game on the wire (SPEC-CRWDQ-045 / -017
+   * `GameStatePayload`). The recap template (SPEC-CRWDQ-046) reads
+   * `status === "final"` from its in-memory state to confirm the game has
+   * concluded; absent on a still-live game. Optional at the render layer
+   * because not every feed snapshot carries it before the final flip.
+   */
+  status?: string;
   sport_context?: SportContext;
   /** Last notable moment text; the overlay renders only when non-empty. */
   last_moment?: string;
@@ -83,8 +91,20 @@ export interface GameEvent {
 export interface ProgramSlotPayload {
   program_slot_id: string;
   primary_game_id: string | null;
-  /** Ordered game ids the slot references (D-GRH-14); absent for single_game. */
-  game_ids?: readonly string[];
+  /**
+   * Ordered game ids the slot references (D-GRH-14). The resolver normalizes it
+   * to `[]` for single_game / safe / ambient so a resolved payload always
+   * carries the list; the `multiple_games` template (SPEC-CRWDQ-031) renders
+   * one card per entry.
+   */
+  game_ids: readonly string[];
+  /**
+   * Ordered `eventId`s a `fixtures` slot references (SPEC-CRWDQ-034 / -033),
+   * kickoff ascending and capped at `maxFixturesShown`. The resolver normalizes
+   * it to `[]` for non-fixtures modes, so a resolved payload always carries the
+   * list. The members are canonical `event_id`s (not `game_id`s).
+   */
+  fixture_ids: readonly string[];
 }
 
 /**

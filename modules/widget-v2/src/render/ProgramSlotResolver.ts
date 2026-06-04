@@ -31,6 +31,10 @@ export class ProgramSlotResolver {
     this.slots.set(programSlotId, {
       program_slot_id: programSlotId,
       primary_game_id: primaryGameId,
+      // D-GRH-14 ordered lists, normalized to `[]` so a resolved slot always
+      // carries them (the multi-game / fixtures templates read them directly).
+      game_ids: normalizeStringList(frame['game_ids']),
+      fixture_ids: normalizeStringList(frame['fixture_ids']),
     });
   }
 
@@ -43,4 +47,10 @@ export class ProgramSlotResolver {
   has(programSlotId: string): boolean {
     return this.slots.has(programSlotId);
   }
+}
+
+/** Read a wire field as an ordered list of non-empty strings, else `[]`. */
+function normalizeStringList(raw: unknown): readonly string[] {
+  if (!Array.isArray(raw)) return [];
+  return raw.filter((v): v is string => typeof v === 'string' && v.length > 0);
 }

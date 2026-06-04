@@ -216,7 +216,7 @@ export class PlannedStateActivator {
 
     // AC5: a null program_slot_id is an authoring error — never buffered.
     if (payload.program_slot_id === null) {
-      await this.render(payload, { program_slot_id: '', primary_game_id: null }, 'missing_slot');
+      await this.render(payload, { program_slot_id: '', primary_game_id: null, game_ids: [], fixture_ids: [] }, 'missing_slot');
       return;
     }
 
@@ -338,7 +338,7 @@ export class PlannedStateActivator {
       state_id: payload.state_id,
       program_slot_id: payload.program_slot_id,
     });
-    await this.render(payload, { program_slot_id: '', primary_game_id: null }, 'buffer_timeout');
+    await this.render(payload, { program_slot_id: '', primary_game_id: null, game_ids: [], fixture_ids: [] }, 'buffer_timeout');
   }
 
   /**

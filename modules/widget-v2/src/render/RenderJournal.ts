@@ -26,7 +26,23 @@ export type RenderJournalEventType =
   | 'ambient_empty_manifest'
   | 'ambient_video_deferred'
   | 'ambient_playlist_refreshed'
-  | 'ambient_creative_advanced';
+  | 'ambient_creative_advanced'
+  // --- S9-modes assembly: multiple_games (SPEC-CRWDQ-031) ---
+  | 'multi_game_reconciled'
+  // --- fixtures (SPEC-CRWDQ-033/-034) ---
+  | 'fixture_cache_miss'
+  | 'fixtures_reconciled'
+  | 'template_locale_refresh'
+  // --- recap (SPEC-CRWDQ-046) ---
+  | 'recap_no_gamestate'
+  | 'recap_premature'
+  | 'recap_late_event'
+  // --- with-ads composites (SPEC-CRWDQ-041/-055/-065) ---
+  | 'ad_asset_cache_miss'
+  | 'ad_slot_rendered'
+  | 'ad_slot_completed'
+  // --- shared mount-validation guard (multi/fixtures/recap/with-ads) ---
+  | 'template_input_invalid';
 
 export interface RenderJournalEntry {
   type: RenderJournalEventType;

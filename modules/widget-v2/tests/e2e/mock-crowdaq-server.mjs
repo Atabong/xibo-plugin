@@ -26,8 +26,17 @@
  * (score 0-0) then push a GameEvent and assert the AFTER state (1-0).
  */
 import { WebSocketServer } from 'ws';
+import { createHash } from 'node:crypto';
 
 const SUBPROTOCOL = 'crowdaq.v1';
+
+/** sha256 of a UTF-8 string, in the AssetManifestStore's `sha256:<hex>` form.
+ *  The HttpAssetFetcher fetches the data: URL and the store verifies the bytes
+ *  against the manifest content_hash, so a with-ads creative must carry the
+ *  REAL hash of its decoded SVG bytes or it is rejected as a hash mismatch. */
+function svgHash(svg) {
+  return 'sha256:' + createHash('sha256').update(svg, 'utf8').digest('hex');
+}
 const BAR_ID = '11111111-1111-1111-1111-111111111111';
 const GAME_ID = 'game-7';
 
@@ -154,6 +163,117 @@ export function startMockServer(options = {}) {
               ad_slot_id: null, dwell_target_ms: 0,
               transition: { animation_id: 'cut', duration_ms: 0 }, theme_id: null,
             }));
+            return;
+          }
+
+          if (scenario === 'multiple_games') {
+            // ≥2 live games (D-GRH-30: the scheduler authors multiple_games).
+            // Snapshots precede the PlannedState so each card has a score to
+            // render immediately (the D-GRH-49 in-store-before-referencing rule).
+            const games = options.games ?? [
+              { id: 'mg-1', home: 'DOR', away: 'SGE', hs: 2, as: 1, sport: 'Soccer', league: 'Bundesliga', clock: "67'" },
+              { id: 'mg-2', home: 'FCB', away: 'RMA', hs: 1, as: 1, sport: 'Soccer', league: 'La Liga', clock: "54'" },
+              { id: 'mg-3', home: 'LIV', away: 'MCI', hs: 0, as: 0, sport: 'Soccer', league: 'Premier', clock: "23'" },
+              { id: 'mg-4', home: 'JUV', away: 'INT', hs: 3, as: 2, sport: 'Soccer', league: 'Serie A', clock: "81'" },
+            ];
+            sendFrame(ws, control('AssetManifest', { version: 'v-e2e-mg', assets: [] }));
+            games.forEach((g, i) =>
+              sendFrame(ws, { schema_version: 1, channel: 'game_data', message_type: 'GameStateSnapshot', ts: now(), bar_id: BAR_ID, game_id: g.id, seq: 100 + i, payload: {
+                home_team: g.home, away_team: g.away, home_score: g.hs, away_score: g.as,
+                sport_context: { sport: g.sport, league: g.league, period_clock: g.clock },
+              } }));
+            sendFrame(ws, control('ProgramSlot', { program_slot_id: 'mg-slot', primary_game_id: games[0].id, game_ids: games.map((g) => g.id) }));
+            sendFrame(ws, control('PlannedState', {
+              state_id: 'st-mg-1', business_mode: 'multiple_games', program_slot_id: 'mg-slot',
+              ad_slot_id: null, dwell_target_ms: 600000,
+              transition: { animation_id: 'fade_scale_up', duration_ms: 0 }, theme_id: null,
+            }));
+            return;
+          }
+
+          if (scenario === 'fixtures') {
+            // 0 live games + a FixtureList (D-GRH-18) → fixtures catalog. The
+            // FixtureList carries the per-fixture detail; the ProgramSlot's
+            // fixture_ids select + order which cards render.
+            const fixtures = options.fixtures ?? [
+              { eventId: 'fx-1', sport: 'Soccer', leagueId: 1, leagueName: 'Bundesliga', homeTeam: 'DORTMUND', awayTeam: 'LEIPZIG', kickoffUtc: '2026-06-04T18:30:00Z', feedStatus: 'scheduled' },
+              { eventId: 'fx-2', sport: 'Soccer', leagueId: 2, leagueName: 'La Liga', homeTeam: 'BARCELONA', awayTeam: 'SEVILLA', kickoffUtc: '2026-06-04T20:00:00Z', feedStatus: 'scheduled' },
+              { eventId: 'fx-3', sport: 'Soccer', leagueId: 3, leagueName: 'Serie A', homeTeam: 'JUVENTUS', awayTeam: 'NAPOLI', kickoffUtc: '2026-06-04T21:45:00Z', feedStatus: 'scheduled' },
+            ];
+            sendFrame(ws, control('AssetManifest', { version: 'v-e2e-fx', assets: [] }));
+            sendFrame(ws, control('FixtureList', { fixtures }));
+            sendFrame(ws, control('ProgramSlot', { program_slot_id: 'fx-slot', primary_game_id: null, fixture_ids: fixtures.map((f) => f.eventId) }));
+            sendFrame(ws, control('PlannedState', {
+              state_id: 'st-fx-1', business_mode: 'fixtures', program_slot_id: 'fx-slot',
+              ad_slot_id: null, dwell_target_ms: 600000,
+              transition: { animation_id: 'fade_scale_up', duration_ms: 0 }, theme_id: null,
+            }));
+            return;
+          }
+
+          if (scenario === 'recap') {
+            // A concluded game (status:final) → recap frozen closing image. Team
+            // names join from the FixtureList by event_id (GameState has codes only).
+            sendFrame(ws, control('AssetManifest', { version: 'v-e2e-rc', assets: [] }));
+            sendFrame(ws, control('FixtureList', { fixtures: [
+              { eventId: 'rc-1', sport: 'Soccer', leagueId: 1, leagueName: 'Bundesliga', homeTeam: 'DORTMUND', awayTeam: 'SCHALKE', kickoffUtc: '2026-06-04T16:00:00Z', feedStatus: 'final' },
+            ] }));
+            sendFrame(ws, { schema_version: 1, channel: 'game_data', message_type: 'GameStateSnapshot', ts: now(), bar_id: BAR_ID, game_id: 'rc-1', seq: 200, payload: {
+              home_team: 'DORTMUND', away_team: 'SCHALKE', home_score: 3, away_score: 1, status: 'final',
+              sport_context: { sport: 'Soccer', league: 'Bundesliga', period_clock: 'FT' },
+            } });
+            sendFrame(ws, control('ProgramSlot', { program_slot_id: 'rc-slot', primary_game_id: 'rc-1', game_ids: ['rc-1'] }));
+            sendFrame(ws, control('PlannedState', {
+              state_id: 'st-rc-1', business_mode: 'recap', program_slot_id: 'rc-slot',
+              ad_slot_id: null, dwell_target_ms: 600000,
+              transition: { animation_id: 'fade_scale_up', duration_ms: 0 }, theme_id: null,
+            }));
+            return;
+          }
+
+          if (scenario === 'multiple_games_with_ads' || scenario === 'fixtures_with_ads') {
+            // The composites need a resolvable AdSlot. The LIVE backend emits NO
+            // AdSlot frame (the verified gap); this scenario injects one so the
+            // headless proof can show the composite layout. `withAds:false`
+            // proves the live-gap behaviour (no AdSlot → composite declines).
+            const ads = options.withAds !== false;
+            const adSvg = svgCreative('#143d2b', 'YOUR AD HERE');
+            const adCreative = 'data:image/svg+xml;utf8,' + encodeURIComponent(adSvg);
+            sendFrame(ws, control('AssetManifest', { version: 'v-e2e-ads', assets: ads ? [
+              { asset_id: 'ad:promo', content_hash: svgHash(adSvg), url: adCreative, content_type: 'image/svg+xml', bytes: 1 },
+            ] : [] }));
+            if (scenario === 'multiple_games_with_ads') {
+              const games = [
+                { id: 'mga-1', home: 'DOR', away: 'SGE', hs: 2, as: 1, sport: 'Soccer', league: 'Bundesliga', clock: "67'" },
+                { id: 'mga-2', home: 'FCB', away: 'RMA', hs: 1, as: 1, sport: 'Soccer', league: 'La Liga', clock: "54'" },
+              ];
+              games.forEach((g, i) =>
+                sendFrame(ws, { schema_version: 1, channel: 'game_data', message_type: 'GameStateSnapshot', ts: now(), bar_id: BAR_ID, game_id: g.id, seq: 300 + i, payload: {
+                  home_team: g.home, away_team: g.away, home_score: g.hs, away_score: g.as,
+                  sport_context: { sport: g.sport, league: g.league, period_clock: g.clock },
+                } }));
+              sendFrame(ws, control('ProgramSlot', { program_slot_id: 'mga-slot', primary_game_id: games[0].id, game_ids: games.map((g) => g.id) }));
+            } else {
+              sendFrame(ws, control('FixtureList', { fixtures: [
+                { eventId: 'fxa-1', sport: 'Soccer', leagueId: 1, leagueName: 'Bundesliga', homeTeam: 'DORTMUND', awayTeam: 'LEIPZIG', kickoffUtc: '2026-06-04T18:30:00Z', feedStatus: 'scheduled' },
+                { eventId: 'fxa-2', sport: 'Soccer', leagueId: 2, leagueName: 'La Liga', homeTeam: 'BARCELONA', awayTeam: 'SEVILLA', kickoffUtc: '2026-06-04T20:00:00Z', feedStatus: 'scheduled' },
+              ] }));
+              sendFrame(ws, control('ProgramSlot', { program_slot_id: 'fxa-slot', primary_game_id: null, fixture_ids: ['fxa-1', 'fxa-2'] }));
+            }
+            // Defer the AdSlot + PlannedState so the AssetManifest prefetch has
+            // warmed the creative into the hot cache before the AdPanel reads it
+            // synchronously (the live re-push prefetches eagerly, D-GRH-23; here
+            // the data: URL warms in a microtask, so a short delay mirrors that).
+            setTimeout(() => {
+              if (ws.readyState !== ws.OPEN) return;
+            if (ads) sendFrame(ws, control('AdSlot', { ad_slot_id: 'ad-1', ad_class: 'sponsor', ad_ref: 'ad:promo', ad_ref_type: 'asset_id', policy: {} }));
+            sendFrame(ws, control('PlannedState', {
+              state_id: 'st-ads-1', business_mode: scenario,
+              program_slot_id: scenario === 'multiple_games_with_ads' ? 'mga-slot' : 'fxa-slot',
+              ad_slot_id: ads ? 'ad-1' : null, dwell_target_ms: 600000,
+              transition: { animation_id: 'fade_scale_up', duration_ms: 0 }, theme_id: null,
+            }));
+            }, 400);
             return;
           }
 

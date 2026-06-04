@@ -1,0 +1,34 @@
+<!--
+  SPEC-CRWDQ-034 — fixtures template DOM shape (reference markup).
+
+  The live DOM is built imperatively by FixturesTemplate.mount (one card per
+  ProgramSlot.fixture_ids[] eventId, in order). This file is the canonical
+  shape reference for theme authors and review — NOT a runtime template; the
+  template carries no per-team logo (the FixtureList wire payload supplies no
+  team_id, per D-GRH-17 / the Team identity note), so cards render team names.
+-->
+<section class="crowdaq-fixtures" data-theme="__default__" data-card-count="2">
+  <header class="cdq-fixtures-header"><h2>Coming up</h2></header>
+  <ul class="cdq-fixture-list">
+    <li class="cdq-fixture-card" data-event-id="2026-06-02-arsenal-chelsea" data-status="scheduled" data-position="0">
+      <span class="cdq-sport-badge"><img alt="" src="<badge-asset-url>" /></span>
+      <div class="cdq-teams">
+        <span class="cdq-home">Arsenal</span>
+        <span class="cdq-vs">vs</span>
+        <span class="cdq-away">Chelsea</span>
+      </div>
+      <time class="cdq-when" datetime="2026-06-02T00:30:00Z"><!-- Today 7:30 PM --></time>
+      <span class="cdq-status" hidden></span>
+    </li>
+    <li class="cdq-fixture-card" data-event-id="2026-06-02-liverpool-everton" data-status="live" data-position="1">
+      <span class="cdq-sport-badge"><img alt="" src="<badge-asset-url>" /></span>
+      <div class="cdq-teams">
+        <span class="cdq-home">Liverpool</span>
+        <span class="cdq-vs">vs</span>
+        <span class="cdq-away">Everton</span>
+      </div>
+      <time class="cdq-when" datetime="2026-06-02T01:00:00Z"><!-- Today 8:00 PM --></time>
+      <span class="cdq-status">LIVE</span>
+    </li>
+  </ul>
+</section>

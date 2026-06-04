@@ -1,0 +1,53 @@
+/*
+ * SPEC-CRWDQ-065 (#64) — single_game overlay-ad layout.
+ *
+ * Coexistence rule (D-GRH-15/16): the overlay ad NEVER displaces or re-flows
+ * the single_game content. The content keeps the FULL surface (`inset: 0`); the
+ * ad is an absolutely-positioned `overlay`-class layer ABOVE it with
+ * `pointer-events: none`, so it never changes the layout/size of the score
+ * render and never intercepts pointer input (bar screens are passive, D-GRH-62).
+ *
+ * The merged SPEC-CRWDQ-023 part-2 composite renders the shell as
+ * `<section class="crowdaq-single-game-composite">` with `.cdq-content` and
+ * `.cdq-ad-overlay`. The SPEC-CRWDQ-065 prose names the shell
+ * `.crowdaq-single-game-overlay-ad`; both selectors are styled here so the
+ * sheet applies whichever shell class the composite emits (the merged one is
+ * authoritative; the spec name is kept as an alias — DISCLOSED in the PR).
+ *
+ * The overlay anchor (corner / lower band) is the AdPanel's `data-position`
+ * (`top` for the single_game overlay) — theme CSS (D-GRH-51) refines the exact
+ * placement; this sheet only owns the coexistence invariants.
+ */
+
+.crowdaq-single-game-composite,
+.crowdaq-single-game-overlay-ad {
+  position: relative;
+  width: 100%;
+  height: 100%;
+}
+
+.crowdaq-single-game-composite .cdq-content,
+.crowdaq-single-game-overlay-ad .cdq-content {
+  position: absolute;
+  inset: 0;
+}
+
+.crowdaq-single-game-composite .cdq-ad-overlay,
+.crowdaq-single-game-overlay-ad .cdq-ad-overlay {
+  position: absolute;
+  /* overlay-class anchor — top band by default (AdPanel data-position="top");
+     theme CSS (D-GRH-51) refines the exact corner/band placement. */
+  top: 0;
+  left: 0;
+  right: 0;
+  /* The overlay floats above the score render and never intercepts input. */
+  pointer-events: none;
+}
+
+/* The single static creative fits the overlay band without distorting it. */
+.crowdaq-single-game-composite .cdq-ad-overlay .cdq-ad-creative,
+.crowdaq-single-game-overlay-ad .cdq-ad-overlay .cdq-ad-creative {
+  max-width: 100%;
+  max-height: 100%;
+  object-fit: contain;
+}

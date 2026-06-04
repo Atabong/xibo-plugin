@@ -16,6 +16,10 @@ describe('ProgramSlotResolver', () => {
     expect(resolver.resolve('slot-1')).toEqual({
       program_slot_id: 'slot-1',
       primary_game_id: 'game-A',
+      // The resolver now normalizes the D-GRH-14 ordered lists to `[]` so a
+      // resolved slot always carries them (multi-game / fixtures read them).
+      game_ids: [],
+      fixture_ids: [],
     });
   });
 
