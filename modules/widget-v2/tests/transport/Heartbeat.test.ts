@@ -60,9 +60,13 @@ describe('Heartbeat cadence (AC6)', () => {
     loop.start();
     vi.advanceTimersByTime(HB_INTERVAL);
     expect(sink.frames[0]).toMatchObject({
+      schema_version: 1,
+      channel: 'control',
       message_type: 'Heartbeat',
-      player_local_ts: 123_456 + HB_INTERVAL,
-      config_hash: 'cfg-1',
+      payload: {
+        player_local_ts: 123_456 + HB_INTERVAL,
+        config_hash: 'cfg-1',
+      },
     });
     loop.stop();
   });

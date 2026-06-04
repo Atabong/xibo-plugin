@@ -56,13 +56,51 @@ export function parseLine(line: string): ServerFrame {
   return obj as unknown as ServerFrame;
 }
 
+/** Current wire schema version (matches the backend `CURRENT_SCHEMA_VERSION`). */
+export const SCHEMA_VERSION = 1;
+
 /**
- * Build a player-to-server envelope. The envelope IS the frame at this
- * protocol revision (no separate header); kept as a named seam so a future
- * SPEC-CRWDQ-017 header wrap is a single edit here.
+ * Canonical channel for each player-to-server message type. The live
+ * game-delivery server (`src/wire/parse.ts` → `canonicalChannel`) rejects a
+ * frame whose `channel` does not match the message type's canonical channel
+ * (`UnpinnedChannelError`). Every player-originated frame is control-plane.
+ */
+const PLAYER_FRAME_CHANNEL: Record<string, 'control'> = {
+  DeviceRegistration: 'control',
+  Heartbeat: 'control',
+  GameStateRequest: 'control',
+  JournalSync: 'control',
+};
+
+/**
+ * Build a player-to-server envelope from a flat frame.
+ *
+ * The widget's `PlayerToServerFrame` types are FLAT (`message_type` + payload
+ * fields at the top level — the SPEC-CRWDQ-017 twin shape). The live
+ * game-delivery server, however, requires a wrapped envelope:
+ *   `{ schema_version, channel, message_type, ts, payload: {…fields} }`
+ * and rejects anything else with `malformed_frame` (missing `schema_version` /
+ * `ts` / `payload`, or `channel` not pinned to the message type) — closing the
+ * socket with code 4000. This function performs that wrap: it lifts
+ * `message_type` out, nests the remaining fields under `payload`, stamps
+ * `schema_version`, the canonical `channel`, and an RFC-3339 `ts`.
+ *
+ * Returned as `unknown`-cast to `F` so existing call sites (which type the
+ * result as the flat frame) keep compiling; the value sent on the wire is the
+ * wrapped envelope the server validates.
  */
 export function buildEnvelope<F extends PlayerToServerFrame>(frame: F): F {
-  return frame;
+  const { message_type, ...payload } = frame as unknown as Record<string, unknown> & {
+    message_type: string;
+  };
+  const channel = PLAYER_FRAME_CHANNEL[message_type] ?? 'control';
+  return {
+    schema_version: SCHEMA_VERSION,
+    channel,
+    message_type,
+    ts: new Date().toISOString(),
+    payload,
+  } as unknown as F;
 }
 
 /** Encode a frame as a single newline-terminated JSON line. */

@@ -51,10 +51,15 @@ describe('seq-gap recovery from wire fixture (AC1, AC2, AC5)', () => {
     // seq 1,2,3 contiguous; gap at 7 -> request since 3. seq 9 still
     // outstanding -> coalesced. Snapshot @20 re-baselines + clears the gate.
     // seq 25 after baseline 20 -> a second request since 20.
-    expect(sent).toEqual([
-      { message_type: 'GameStateRequest', game_id: 'game-001', since_seq: 3 },
-      { message_type: 'GameStateRequest', game_id: 'game-001', since_seq: 20 },
-    ]);
+    expect(sent).toHaveLength(2);
+    expect(sent[0]).toMatchObject({
+      message_type: 'GameStateRequest',
+      payload: { game_id: 'game-001', since_seq: 3 },
+    });
+    expect(sent[1]).toMatchObject({
+      message_type: 'GameStateRequest',
+      payload: { game_id: 'game-001', since_seq: 20 },
+    });
   });
 
   it('issues no request for a game absent from the active ProgramSlot', () => {

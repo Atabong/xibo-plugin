@@ -171,8 +171,12 @@ describe('boot()', () => {
     expect(captured!.protocol).toBe('crowdaq.v1');
     const reg = JSON.parse(captured!.sent[0] ?? '{}') as Record<string, unknown>;
     expect(reg['message_type']).toBe('DeviceRegistration');
-    expect(reg['bar_id']).toBe('hw-bar-demo');
-    expect(reg['display_id']).toBe('bar-demo');
+    expect(reg['schema_version']).toBe(1);
+    expect(reg['channel']).toBe('control');
+    expect(typeof reg['ts']).toBe('string');
+    const regPayload = reg['payload'] as Record<string, unknown>;
+    expect(regPayload['bar_id']).toBe('hw-bar-demo');
+    expect(regPayload['display_id']).toBe('bar-demo');
     expect(rt.host.dataset['testid']).toBe(HOST_TESTID);
     await rt.destroy();
   });

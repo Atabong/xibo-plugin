@@ -358,6 +358,16 @@ export interface BootDeps {
 export interface BootProperties {
   /** `crowdaq.v1` WS base URL, an http(s)/ws(s) base, or `display:<field>`. */
   wsBaseUrl?: string;
+  /**
+   * Explicit bar identifier override. When set, this is the `bar_id` used in the
+   * DeviceRegistration handshake, taking precedence over the player-reported
+   * `xiboIC.info().hardwareKey`. Required on players whose `xiboIC.info()` is
+   * unavailable (the Xibo 4.0.x Linux player 404s `/info`); on players that do
+   * report a hardwareKey, leave blank to bind by hardwareKey.
+   */
+  barId?: string;
+  /** Explicit display identifier override (parallels {@link barId}). */
+  displayId?: string;
   /** Optional player software version surfaced in the registration handshake. */
   playerVersion?: string;
   /** Heartbeat cadence (default 30 000 ms per D-GRH-59). */
@@ -404,8 +414,14 @@ export async function boot(
   // 2. resolve display identity + the WS URL.
   const info = deps.displayInfo !== undefined ? deps.displayInfo : await resolveXiboInfo();
   const wsUrl = resolveWsUrl(properties.wsBaseUrl ?? '', info);
-  const barId = readField(info, 'hardwareKey') ?? 'unknown-bar';
-  const displayId = readField(info, 'displayName') ?? readField(info, 'displayId') ?? 'unknown-display';
+  // bar_id binding: an explicit `barId` property wins (required where
+  // xiboIC.info() is unavailable), else the player-reported hardwareKey.
+  const barIdProp = typeof properties.barId === 'string' ? properties.barId.trim() : '';
+  const displayIdProp = typeof properties.displayId === 'string' ? properties.displayId.trim() : '';
+  const barId = (barIdProp.length > 0 ? barIdProp : readField(info, 'hardwareKey')) ?? 'unknown-bar';
+  const displayId = (displayIdProp.length > 0
+    ? displayIdProp
+    : readField(info, 'displayName') ?? readField(info, 'displayId')) ?? 'unknown-display';
 
   const journal = new ConsoleJournalSink(deps.journalSink);
 

@@ -15,9 +15,13 @@ describe('GameStateRequestSender', () => {
     const sink = new RecordingSend();
     const sender = new GameStateRequestSender(sink.send);
     sender.requestForGap('G', 3);
-    expect(sink.sent).toEqual([
-      { message_type: 'GameStateRequest', game_id: 'G', since_seq: 3 },
-    ]);
+    expect(sink.sent).toHaveLength(1);
+    expect(sink.sent[0]).toMatchObject({
+      schema_version: 1,
+      channel: 'control',
+      message_type: 'GameStateRequest',
+      payload: { game_id: 'G', since_seq: 3 },
+    });
   });
 
   it('coalesces a second request for the same game while one is outstanding', () => {
@@ -34,10 +38,15 @@ describe('GameStateRequestSender', () => {
     sender.requestForGap('G', 3);
     sender.resolve('G');
     sender.requestForGap('G', 9);
-    expect(sink.sent).toEqual([
-      { message_type: 'GameStateRequest', game_id: 'G', since_seq: 3 },
-      { message_type: 'GameStateRequest', game_id: 'G', since_seq: 9 },
-    ]);
+    expect(sink.sent).toHaveLength(2);
+    expect(sink.sent[0]).toMatchObject({
+      message_type: 'GameStateRequest',
+      payload: { game_id: 'G', since_seq: 3 },
+    });
+    expect(sink.sent[1]).toMatchObject({
+      message_type: 'GameStateRequest',
+      payload: { game_id: 'G', since_seq: 9 },
+    });
   });
 
   it('tracks outstanding requests per game independently', () => {

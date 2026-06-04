@@ -110,14 +110,22 @@ describe('WsClient.connect (AC1, AC2)', () => {
     sockets[0]!.simulateMessage(configPush);
     await p;
     const first = JSON.parse(sockets[0]!.sent[0]!);
+    // buildEnvelope wraps the flat frame into the server's validated envelope:
+    // {schema_version, channel:'control', message_type, ts, payload:{…fields}}.
     expect(first).toMatchObject({
+      schema_version: 1,
+      channel: 'control',
       message_type: 'DeviceRegistration',
-      bar_id: 'bar-7',
-      display_id: 'disp-42',
-      player_sw_version: '2.0.0',
+      payload: {
+        bar_id: 'bar-7',
+        display_id: 'disp-42',
+        player_sw_version: '2.0.0',
+      },
     });
-    expect('last_seq' in first).toBe(true);
-    expect('last_config_hash' in first).toBe(true);
+    expect(typeof first.ts).toBe('string');
+    expect(first.ts.length).toBeGreaterThan(0);
+    expect('last_seq' in first.payload).toBe(true);
+    expect('last_config_hash' in first.payload).toBe(true);
     // Only one registration frame across all outbound.
     const regs = sockets[0]!.sent.filter((s) => JSON.parse(s).message_type === 'DeviceRegistration');
     expect(regs).toHaveLength(1);

@@ -139,9 +139,14 @@ describe('Dispatcher + GameStateRequestSender integration (AC5)', () => {
     d.dispatch(snapshot('G', 20)); // recovery response: re-baseline + clear gate
     d.dispatch(ge('G', 25)); // new gap after baseline 20 -> request since 20
 
-    expect(sent).toEqual([
-      { message_type: 'GameStateRequest', game_id: 'G', since_seq: 1 },
-      { message_type: 'GameStateRequest', game_id: 'G', since_seq: 20 },
-    ]);
+    expect(sent).toHaveLength(2);
+    expect(sent[0]).toMatchObject({
+      message_type: 'GameStateRequest',
+      payload: { game_id: 'G', since_seq: 1 },
+    });
+    expect(sent[1]).toMatchObject({
+      message_type: 'GameStateRequest',
+      payload: { game_id: 'G', since_seq: 20 },
+    });
   });
 });

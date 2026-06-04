@@ -75,6 +75,16 @@
                 </test>
             </rule>
         </property>
+        <property id="barId" type="text">
+            <title>Bar ID override</title>
+            <helpText>Explicit CROWDAQ bar_id (UUID) for the DeviceRegistration handshake. Takes precedence over the player-reported hardwareKey. REQUIRED on the Xibo 4.0.x Linux player, whose xiboIC.info() endpoint 404s so the widget cannot self-discover the hardwareKey. Leave blank only on players that serve xiboIC.info().</helpText>
+            <default></default>
+        </property>
+        <property id="displayId" type="text">
+            <title>Display ID override</title>
+            <helpText>Optional explicit display identifier surfaced in the DeviceRegistration handshake. Takes precedence over xiboIC.info().displayName. Defaults to the player-reported display name, else "unknown-display".</helpText>
+            <default></default>
+        </property>
         <property id="playerVersion" type="text">
             <title>Player software version</title>
             <helpText>Optional version string surfaced in the DeviceRegistration handshake. Defaults to "widget-v2".</helpText>
@@ -100,6 +110,8 @@
     class="crowdaq-widget-v2-host"
     data-crowdaq-v2-root="1"
     data-crowdaq-ws-base-url="{{ wsBaseUrl }}"
+    data-crowdaq-bar-id="{{ barId }}"
+    data-crowdaq-display-id="{{ displayId }}"
     data-crowdaq-player-version="{{ playerVersion }}"
     data-crowdaq-heartbeat-interval-ms="{{ heartbeatIntervalMs }}">
     <!-- boot() mounts the single_game template (a <section class="crowdaq-single-game">)
@@ -174,16 +186,48 @@ html, body { margin: 0; padding: 0; height: 100%; background: #0b0e14; }
     }
 
     // Resolve the host the stencil rendered + the widget properties.
-    var root = (typeof target !== 'undefined' && target) ? target : document;
-    var host = root.querySelector('[data-crowdaq-v2-root]') || root;
+    //
+    // `target` is player-runtime-dependent: the Xibo 4.x Linux player passes a
+    // jQuery-wrapped element (no `.querySelector`), the headless twin passes a
+    // raw DOM Element, and a selector string is possible too. Normalise all of
+    // these to a DOM root before querying for the mount host. Falling back to
+    // `document` keeps the layout rendering rather than throwing.
+    var SEL = '[data-crowdaq-v2-root]';
+    var rootEl = null;
+    if (typeof target !== 'undefined' && target) {
+        if (typeof target === 'string') {
+            rootEl = document.querySelector(target);
+        } else if (typeof target.querySelector === 'function') {
+            rootEl = target; // raw DOM Element / Document
+        } else if (typeof target.find === 'function' && typeof target.get === 'function') {
+            rootEl = target.get(0) || null; // jQuery object
+        } else if (typeof target.length === 'number' && target[0]) {
+            rootEl = target[0]; // array-like (jQuery without .get, NodeList)
+        }
+    }
+    if (!rootEl || typeof rootEl.querySelector !== 'function') {
+        rootEl = document;
+    }
+    // The mount host is the stencil's host div; if the resolved root IS the
+    // host (target was the host element itself), use it directly.
+    var host = rootEl.querySelector(SEL)
+        || ((rootEl.matches && rootEl.matches(SEL)) ? rootEl : null)
+        || document.querySelector(SEL)
+        || rootEl;
     var props = (typeof properties !== 'undefined' && properties) ? properties : {};
 
     // Properties may arrive as strings (data-attributes); coerce the number.
     var heartbeat = parseInt(props.heartbeatIntervalMs, 10);
 
+    // data-attribute fallbacks (the player may pass properties only via the
+    // stencil's data-* attributes rather than the `properties` object).
+    var attr = function (name) { return (host.getAttribute && host.getAttribute(name)) || ''; };
+
     CrowdaqWidgetV2.boot(host, {
-        wsBaseUrl: typeof props.wsBaseUrl === 'string' ? props.wsBaseUrl : (host.getAttribute && host.getAttribute('data-crowdaq-ws-base-url')) || '',
-        playerVersion: typeof props.playerVersion === 'string' ? props.playerVersion : 'widget-v2',
+        wsBaseUrl: typeof props.wsBaseUrl === 'string' && props.wsBaseUrl ? props.wsBaseUrl : attr('data-crowdaq-ws-base-url'),
+        barId: typeof props.barId === 'string' && props.barId ? props.barId : attr('data-crowdaq-bar-id'),
+        displayId: typeof props.displayId === 'string' && props.displayId ? props.displayId : attr('data-crowdaq-display-id'),
+        playerVersion: typeof props.playerVersion === 'string' && props.playerVersion ? props.playerVersion : (attr('data-crowdaq-player-version') || 'widget-v2'),
         heartbeatIntervalMs: isNaN(heartbeat) ? 30000 : heartbeat
     }).then(function (rt) {
         // Expose the runtime for a headless probe / DevTools inspection.
