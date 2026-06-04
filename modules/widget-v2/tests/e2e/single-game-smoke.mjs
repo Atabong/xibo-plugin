@@ -81,38 +81,53 @@ async function main() {
     await page.evaluate((wsUrl) => window.__bootWidget(wsUrl), server.url);
 
     // Wait for the single_game template to mount + render the snapshot score.
+    // S9 broadcast DOM: team name in .cdq-team-name, score in .cdq-score-{home,away}.
     await page.waitForSelector('section.crowdaq-single-game', { timeout: 10_000 });
     await page.waitForFunction(
-      () => document.querySelector('[data-testid="single-game-home"]')?.textContent?.includes('BRA'),
+      () => document.querySelector('.cdq-home .cdq-team-name')?.textContent?.includes('BRA'),
       { timeout: 10_000 },
     );
 
-    const homeBefore = await page.textContent('[data-testid="single-game-home"]');
-    const awayBefore = await page.textContent('[data-testid="single-game-away"]');
-    assert(homeBefore.trim() === 'BRA 0', `home before == "BRA 0" (got "${homeBefore}")`);
-    assert(awayBefore.trim() === 'ARG 0', `away before == "ARG 0" (got "${awayBefore}")`);
-    result.steps.push(`BEFORE: ${homeBefore.trim()} / ${awayBefore.trim()}`);
+    const homeName = (await page.textContent('.cdq-home .cdq-team-name'))?.trim();
+    const awayName = (await page.textContent('.cdq-away .cdq-team-name'))?.trim();
+    const homeBefore = (await page.textContent('.cdq-score-home'))?.trim();
+    const awayBefore = (await page.textContent('.cdq-score-away'))?.trim();
+    assert(homeName === 'BRA', `home team == "BRA" (got "${homeName}")`);
+    assert(awayName === 'ARG', `away team == "ARG" (got "${awayName}")`);
+    assert(homeBefore === '0', `home score before == "0" (got "${homeBefore}")`);
+    assert(awayBefore === '0', `away score before == "0" (got "${awayBefore}")`);
+    result.steps.push(`BEFORE: ${homeName} ${homeBefore} / ${awayName} ${awayBefore}`);
 
     const beforePath = resolve(EVIDENCE_DIR, 'e2e-before-goal.png');
     await page.screenshot({ path: beforePath });
     console.log(`[e2e] screenshot BEFORE: ${beforePath}`);
 
     // Drive the GameEvent (goal). The store applies the delta; the template's
-    // GameStateStore subscription mutates the score IN PLACE (no transition).
+    // GameStateStore subscription mutates the score IN PLACE (no transition)
+    // and fires the broadcast GOAL moment (punch + flash + banner).
     server.emitGoal();
 
     await page.waitForFunction(
-      () => document.querySelector('[data-testid="single-game-home"]')?.textContent?.trim() === 'BRA 1',
+      () => document.querySelector('.cdq-score-home')?.textContent?.trim() === '1',
       { timeout: 10_000 },
     );
+    // Capture WHILE the GOAL banner is on (it auto-clears after ~4.2s).
+    await page.waitForFunction(
+      () => document.querySelector('.cdq-goal-banner')?.classList.contains('is-on') === true,
+      { timeout: 5_000 },
+    );
 
-    const homeAfter = await page.textContent('[data-testid="single-game-home"]');
-    const awayAfter = await page.textContent('[data-testid="single-game-away"]');
+    const homeAfter = (await page.textContent('.cdq-score-home'))?.trim();
+    const awayAfter = (await page.textContent('.cdq-score-away'))?.trim();
     const overlayAfter = await page.textContent('[data-testid="single-game-overlay"]');
-    assert(homeAfter.trim() === 'BRA 1', `home after == "BRA 1" (got "${homeAfter}")`);
-    assert(awayAfter.trim() === 'ARG 0', `away unchanged "ARG 0" (got "${awayAfter}")`);
+    const goalSide = await page.getAttribute('section.crowdaq-single-game', 'data-goal');
+    const bannerWord = (await page.textContent('.cdq-goal-word'))?.trim();
+    assert(homeAfter === '1', `home score after == "1" (got "${homeAfter}")`);
+    assert(awayAfter === '0', `away score unchanged "0" (got "${awayAfter}")`);
     assert(overlayAfter.includes('GOAL'), `overlay shows the goal moment (got "${overlayAfter}")`);
-    result.steps.push(`AFTER:  ${homeAfter.trim()} / ${awayAfter.trim()} | overlay: "${overlayAfter.trim()}"`);
+    assert(goalSide === 'home', `goal fired on the home side (got data-goal="${goalSide}")`);
+    assert(bannerWord === 'GOAL', `GOAL banner is on (got "${bannerWord}")`);
+    result.steps.push(`AFTER:  ${homeAfter} / ${awayAfter} | banner=${bannerWord} side=${goalSide} | overlay: "${overlayAfter.trim()}"`);
 
     const afterPath = resolve(EVIDENCE_DIR, 'e2e-after-goal.png');
     await page.screenshot({ path: afterPath });

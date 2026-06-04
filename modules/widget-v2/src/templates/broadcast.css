@@ -1,0 +1,486 @@
+/* =============================================================================
+   CROWDAQ Widget v2 — broadcast-grade render styles (S9 redesign).
+
+   Identity: on-air live-sports broadcast graphics for a bar TV — score-bug /
+   lower-third energy, bold + kinetic + high-contrast, legible from 10ft.
+
+   Source of truth for the visual design. Assembled (with the inlined @font-face
+   block from fonts.css.gen) into BOTH the module XML <style> (the live player
+   path) and tests/e2e/harness.html (the headless-proof path) by
+   tools/assemble-styles.mjs. CSS-only motion; smooth on the snap Chromium
+   (Chrome 134 / ES2019). No external CDN at render time.
+
+   Type:    Saira Condensed (display: scores, headlines, wordmark) + Saira
+            (technical companion: labels, clock, metadata).
+   Colour:  deep stadium-dark base with gradient-mesh depth + grain + vignette,
+            one vivid signature accent (electric cyan-green), and DYNAMIC team
+            colours derived per team in single_game (--team-accent / --team-h).
+   ========================================================================== */
+
+:root {
+  /* base palette ----------------------------------------------------------- */
+  --cdq-bg-0: #05070d;
+  --cdq-bg-1: #0a0f1c;
+  --cdq-bg-2: #111a30;
+  --cdq-ink: #f4f7ff;
+  --cdq-ink-dim: #9aa6c2;
+  --cdq-ink-faint: #586079;
+  --cdq-line: rgba(255, 255, 255, 0.08);
+
+  /* signature accent — electric cyan-green ("excitement") ------------------ */
+  --cdq-accent: #1fe3a0;
+  --cdq-accent-2: #19c2ff;
+  --cdq-accent-warm: #ffcf3f;
+  --cdq-accent-glow: rgba(31, 227, 160, 0.55);
+
+  /* type ------------------------------------------------------------------- */
+  --cdq-display: 'Saira Condensed', 'Saira', 'Arial Narrow', sans-serif;
+  --cdq-tech: 'Saira', system-ui, -apple-system, 'Segoe UI', sans-serif;
+}
+
+html, body { margin: 0; padding: 0; height: 100%; background: var(--cdq-bg-0); }
+
+.crowdaq-widget-v2-host {
+  position: absolute; inset: 0;
+  display: flex; align-items: center; justify-content: center;
+  font-family: var(--cdq-tech);
+  color: var(--cdq-ink);
+  background:
+    radial-gradient(120% 120% at 50% -10%, var(--cdq-bg-2) 0%, var(--cdq-bg-1) 38%, var(--cdq-bg-0) 100%);
+  overflow: hidden;
+}
+.crowdaq-configure-placeholder {
+  font-family: var(--cdq-tech);
+  font-size: 1.4rem; opacity: 0.6; letter-spacing: 0.04em;
+}
+
+/* shared atmospheric depth layers ----------------------------------------- */
+.cdq-bg-mesh, .cdq-bg-grain, .cdq-bg-vignette {
+  position: absolute; inset: 0; pointer-events: none; z-index: 0;
+}
+.cdq-bg-mesh {
+  background:
+    radial-gradient(40% 60% at 18% 20%, rgba(25, 194, 255, 0.18), transparent 60%),
+    radial-gradient(46% 64% at 84% 26%, rgba(31, 227, 160, 0.16), transparent 62%),
+    radial-gradient(60% 80% at 50% 116%, rgba(98, 70, 234, 0.20), transparent 60%);
+  filter: saturate(118%);
+}
+.cdq-bg-grain {
+  opacity: 0.05; mix-blend-mode: overlay;
+  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='120' height='120'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2'/></filter><rect width='120' height='120' filter='url(%23n)'/></svg>");
+  background-size: 240px 240px;
+}
+.cdq-bg-vignette {
+  background: radial-gradient(120% 100% at 50% 42%, transparent 52%, rgba(0, 0, 0, 0.55) 100%);
+}
+
+/* shared live dot --------------------------------------------------------- */
+.cdq-live-dot {
+  width: 0.62em; height: 0.62em; border-radius: 999px; flex: 0 0 auto;
+  background: var(--cdq-accent);
+  box-shadow: 0 0 0.7em var(--cdq-accent-glow);
+  animation: cdq-pulse 1.8s ease-in-out infinite;
+}
+@keyframes cdq-pulse {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.45; transform: scale(0.78); }
+}
+
+/* =============================================================================
+   single_game — the on-air scoreboard / score bug
+   ========================================================================== */
+.crowdaq-single-game {
+  position: absolute; inset: 0; z-index: 1;
+  display: grid;
+  grid-template-rows: auto 1fr auto;
+  align-items: center; justify-items: center;
+  width: 100%; height: 100%;
+  padding: clamp(20px, 4vh, 56px) clamp(28px, 5vw, 88px);
+  box-sizing: border-box;
+  font-family: var(--cdq-display);
+  --mount-in: cdq-rise 620ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+/* league / competition strap */
+.crowdaq-single-game .cdq-sport-context {
+  display: inline-flex; align-items: center; gap: 0.7em;
+  font-family: var(--cdq-tech);
+  font-weight: 600;
+  font-size: clamp(0.85rem, 1.7vw, 1.25rem);
+  text-transform: uppercase; letter-spacing: 0.34em;
+  color: var(--cdq-ink-dim);
+  padding: 0.5em 1.2em;
+  border: 1px solid var(--cdq-line);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.03);
+  backdrop-filter: blur(6px);
+  animation: var(--mount-in); animation-delay: 40ms;
+}
+.crowdaq-single-game .cdq-context-text { padding-left: 0.1em; }
+
+/* the score plate */
+.crowdaq-single-game .cdq-score {
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
+  align-items: center;
+  gap: clamp(18px, 4vw, 64px);
+  width: 100%;
+  max-width: 1500px;
+}
+
+.crowdaq-single-game .cdq-team {
+  display: grid; align-items: center; gap: clamp(8px, 1.4vw, 18px);
+  min-width: 0;
+  --team-accent: #2b6cff; --team-ink: #0b0e16; --team-h: 220;
+}
+.crowdaq-single-game .cdq-home { grid-template-columns: auto 1fr; text-align: left; animation: var(--mount-in); animation-delay: 120ms; }
+.crowdaq-single-game .cdq-away { grid-template-columns: 1fr auto; text-align: right; animation: var(--mount-in); animation-delay: 200ms; }
+.crowdaq-single-game .cdq-away .cdq-crest { order: 2; }
+.crowdaq-single-game .cdq-away .cdq-team-name { order: 1; }
+
+/* team crest = a strong colour block with a monogram (no logo data on wire) */
+.crowdaq-single-game .cdq-crest {
+  position: relative;
+  width: clamp(64px, 8vw, 132px); height: clamp(64px, 8vw, 132px);
+  display: flex; align-items: center; justify-content: center;
+  border-radius: 22px;
+  background:
+    linear-gradient(150deg,
+      hsl(var(--team-h) 80% 58%) 0%,
+      hsl(var(--team-h) 72% 42%) 100%);
+  box-shadow:
+    0 14px 38px -10px hsl(var(--team-h) 80% 45% / 0.7),
+    inset 0 0 0 1px rgba(255, 255, 255, 0.18),
+    inset 0 2px 14px rgba(255, 255, 255, 0.22);
+  overflow: hidden;
+}
+.crowdaq-single-game .cdq-crest::after {
+  content: ''; position: absolute; inset: 0;
+  background: radial-gradient(80% 60% at 30% 18%, rgba(255, 255, 255, 0.34), transparent 60%);
+}
+.crowdaq-single-game .cdq-crest-mono {
+  position: relative; z-index: 1;
+  font-family: var(--cdq-display); font-weight: 800;
+  font-size: clamp(1.5rem, 3.4vw, 3rem);
+  letter-spacing: 0.01em;
+  color: var(--team-ink);
+  text-shadow: 0 1px 0 rgba(255, 255, 255, 0.25);
+}
+
+.crowdaq-single-game .cdq-team-name {
+  font-family: var(--cdq-display); font-weight: 800;
+  font-size: clamp(1.8rem, 5.6vw, 5.4rem);
+  line-height: 0.92; letter-spacing: 0.005em;
+  text-transform: uppercase;
+  color: var(--cdq-ink);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  text-shadow: 0 2px 24px rgba(0, 0, 0, 0.5);
+}
+.crowdaq-single-game .cdq-team-full { display: none; }
+
+/* centre score column */
+.crowdaq-single-game .cdq-score-center {
+  display: grid; justify-items: center; gap: clamp(8px, 1.6vh, 20px);
+  animation: var(--mount-in); animation-delay: 80ms;
+}
+.crowdaq-single-game .cdq-score-nums {
+  display: inline-flex; align-items: baseline; gap: clamp(8px, 1.4vw, 22px);
+  font-family: var(--cdq-display); font-weight: 800;
+  font-variant-numeric: tabular-nums; font-feature-settings: 'tnum' 1;
+  line-height: 0.84;
+}
+.crowdaq-single-game .cdq-score-home,
+.crowdaq-single-game .cdq-score-away {
+  font-size: clamp(4.2rem, 16vw, 14rem);
+  color: var(--cdq-ink);
+  text-shadow: 0 0 48px rgba(31, 227, 160, 0.18), 0 6px 28px rgba(0, 0, 0, 0.55);
+  transition: color 220ms ease;
+  display: inline-block;
+}
+.crowdaq-single-game .cdq-score-sep {
+  font-size: clamp(2.6rem, 9vw, 7rem);
+  color: var(--cdq-ink-faint);
+  transform: translateY(-0.06em);
+}
+.crowdaq-single-game .cdq-score-sep::before { content: '–'; }
+
+/* clock + period pill */
+.crowdaq-single-game .cdq-clock {
+  display: inline-flex; align-items: center; gap: 0.55em;
+  font-family: var(--cdq-tech); font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  font-size: clamp(0.95rem, 2vw, 1.55rem);
+  letter-spacing: 0.08em;
+  padding: 0.34em 1em;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid var(--cdq-line);
+  color: var(--cdq-ink);
+}
+.crowdaq-single-game .cdq-period {
+  color: var(--cdq-accent); font-weight: 600;
+  text-transform: uppercase; letter-spacing: 0.14em;
+}
+.crowdaq-single-game .cdq-period:empty { display: none; }
+.crowdaq-single-game .cdq-clock-time:empty { display: none; }
+.crowdaq-single-game .cdq-clock.cdq-tick { animation: cdq-tickflash 600ms ease-out; }
+@keyframes cdq-tickflash {
+  0% { border-color: var(--cdq-accent); box-shadow: 0 0 0.7em var(--cdq-accent-glow); }
+  100% { border-color: var(--cdq-line); box-shadow: none; }
+}
+
+/* excitement / momentum meter */
+.crowdaq-single-game .cdq-excitement {
+  display: grid; grid-template-columns: auto 1fr; align-items: center; gap: 1em;
+  width: 100%; max-width: 1500px;
+  font-family: var(--cdq-tech);
+  animation: var(--mount-in); animation-delay: 280ms;
+}
+.crowdaq-single-game .cdq-excitement-label {
+  font-weight: 600; font-size: clamp(0.7rem, 1.3vw, 1rem);
+  letter-spacing: 0.34em; text-transform: uppercase; color: var(--cdq-ink-dim);
+}
+.crowdaq-single-game .cdq-excitement-track {
+  position: relative; height: clamp(7px, 0.9vh, 11px); border-radius: 999px;
+  background: rgba(255, 255, 255, 0.08);
+  overflow: hidden;
+  box-shadow: inset 0 0 0 1px var(--cdq-line);
+}
+.crowdaq-single-game .cdq-excitement-fill {
+  position: absolute; inset: 0 auto 0 0; width: 30%;
+  border-radius: 999px;
+  background: linear-gradient(90deg, var(--cdq-accent-2), var(--cdq-accent) 60%, var(--cdq-accent-warm));
+  box-shadow: 0 0 14px var(--cdq-accent-glow);
+  transition: width 900ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+.crowdaq-single-game .cdq-excitement-fill::after {
+  content: ''; position: absolute; inset: 0;
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.45), transparent);
+  animation: cdq-meter-sheen 2.6s linear infinite;
+}
+@keyframes cdq-meter-sheen { 0% { transform: translateX(-100%); } 100% { transform: translateX(100%); } }
+
+/* last-moment ticker overlay */
+.crowdaq-single-game .cdq-overlay {
+  position: absolute; left: 50%; bottom: clamp(10px, 2.4vh, 28px);
+  transform: translateX(-50%);
+  font-family: var(--cdq-tech); font-weight: 600;
+  font-size: clamp(0.85rem, 1.7vw, 1.25rem);
+  letter-spacing: 0.04em;
+  color: var(--cdq-bg-0);
+  padding: 0.5em 1.3em; border-radius: 999px;
+  background: linear-gradient(90deg, var(--cdq-accent), var(--cdq-accent-2));
+  box-shadow: 0 10px 30px -8px var(--cdq-accent-glow);
+  max-width: 80%; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  animation: cdq-rise 500ms cubic-bezier(0.22, 1, 0.36, 1) both;
+  z-index: 3;
+}
+.crowdaq-single-game .cdq-overlay[hidden] { display: none; }
+
+/* placeholder (no live game) */
+.crowdaq-single-game .cdq-no-live-game {
+  grid-row: 2; align-self: center;
+  font-family: var(--cdq-display); font-weight: 800;
+  font-size: clamp(2rem, 7vw, 5rem); letter-spacing: 0.22em;
+  color: var(--cdq-ink-dim); text-transform: uppercase;
+}
+
+/* ---- GOAL moment: punch + flash + banner -------------------------------- */
+.crowdaq-single-game[data-goal] .cdq-score-center { z-index: 2; }
+.crowdaq-single-game .cdq-score-home.cdq-punch,
+.crowdaq-single-game .cdq-score-away.cdq-punch {
+  animation: cdq-punch 760ms cubic-bezier(0.18, 1.4, 0.36, 1) both;
+  color: var(--cdq-accent);
+}
+@keyframes cdq-punch {
+  0% { transform: scale(1); }
+  18% { transform: scale(1.42) rotate(-1.5deg); text-shadow: 0 0 60px var(--cdq-accent-glow); }
+  40% { transform: scale(0.94); }
+  62% { transform: scale(1.12); }
+  100% { transform: scale(1); }
+}
+.crowdaq-single-game.cdq-flash::before {
+  content: ''; position: absolute; inset: 0; z-index: 4; pointer-events: none;
+  background: radial-gradient(60% 60% at 50% 50%, rgba(31, 227, 160, 0.5), transparent 70%);
+  animation: cdq-flash 720ms ease-out both;
+}
+@keyframes cdq-flash {
+  0% { opacity: 0; }
+  12% { opacity: 1; }
+  100% { opacity: 0; }
+}
+
+.crowdaq-single-game .cdq-goal-banner {
+  position: absolute; inset: 0; z-index: 5; pointer-events: none;
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  gap: 0.1em;
+  opacity: 0; visibility: hidden;
+}
+.crowdaq-single-game .cdq-goal-banner.is-on {
+  visibility: visible;
+  animation: cdq-goal-in 360ms cubic-bezier(0.22, 1, 0.36, 1) forwards,
+             cdq-goal-out 520ms ease-in 3.7s forwards;
+}
+.crowdaq-single-game .cdq-goal-banner::before {
+  content: ''; position: absolute; inset: 0;
+  background: linear-gradient(180deg, rgba(5, 7, 13, 0.72), rgba(5, 7, 13, 0.42));
+  backdrop-filter: blur(3px);
+}
+.crowdaq-single-game .cdq-goal-word {
+  position: relative;
+  font-family: var(--cdq-display); font-weight: 800;
+  font-size: clamp(5rem, 22vw, 19rem); line-height: 0.82;
+  letter-spacing: 0.02em; text-transform: uppercase;
+  color: var(--cdq-ink);
+  background: linear-gradient(90deg, var(--cdq-accent-2), var(--cdq-accent) 55%, var(--cdq-accent-warm));
+  -webkit-background-clip: text; background-clip: text;
+  -webkit-text-fill-color: transparent;
+  text-shadow: 0 0 80px var(--cdq-accent-glow);
+  animation: cdq-goal-punch 760ms cubic-bezier(0.18, 1.5, 0.34, 1) both;
+}
+.crowdaq-single-game .cdq-goal-sub {
+  position: relative;
+  font-family: var(--cdq-tech); font-weight: 600;
+  font-size: clamp(1.1rem, 3vw, 2.4rem); letter-spacing: 0.4em;
+  text-transform: uppercase; color: var(--cdq-ink);
+  padding-left: 0.4em;
+}
+@keyframes cdq-goal-in { from { opacity: 0; } to { opacity: 1; } }
+@keyframes cdq-goal-out { from { opacity: 1; } to { opacity: 0; } }
+@keyframes cdq-goal-punch {
+  0% { transform: scale(0.4) rotate(-3deg); }
+  55% { transform: scale(1.12) rotate(1deg); }
+  100% { transform: scale(1) rotate(0); }
+}
+
+/* staggered mount reveal */
+@keyframes cdq-rise {
+  from { opacity: 0; transform: translateY(18px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+/* overlay-ad composite (SPEC-CRWDQ-065 shell) — keep the score-bug full-bleed */
+.crowdaq-single-game-composite { position: absolute; inset: 0; }
+.crowdaq-single-game-composite .cdq-content { position: absolute; inset: 0; }
+.crowdaq-single-game-composite .cdq-ad-overlay {
+  position: absolute; right: clamp(16px, 3vw, 40px); bottom: clamp(16px, 3vh, 40px);
+  z-index: 6; pointer-events: none;
+}
+
+/* =============================================================================
+   safe_info — the designed standby / brand panel
+   ========================================================================== */
+.crowdaq-safe-info {
+  position: absolute; inset: 0; z-index: 1;
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  gap: clamp(14px, 3vh, 34px);
+  width: 100%; height: 100%;
+  padding: 4% 6%; box-sizing: border-box; text-align: center;
+  font-family: var(--cdq-display);
+}
+/* slow ambient aura (decorative chrome only — body stays still, AC6) */
+.crowdaq-safe-info .cdq-safe-aura {
+  position: absolute; inset: -20%; z-index: 0; pointer-events: none;
+  background:
+    radial-gradient(38% 38% at 32% 40%, var(--cdq-accent-glow), transparent 60%),
+    radial-gradient(40% 40% at 70% 58%, rgba(25, 194, 255, 0.4), transparent 62%);
+  filter: blur(40px); opacity: 0.5;
+  animation: cdq-aura-drift 22s ease-in-out infinite alternate;
+}
+@keyframes cdq-aura-drift {
+  from { transform: translate3d(-3%, -2%, 0) scale(1); }
+  to { transform: translate3d(4%, 3%, 0) scale(1.12); }
+}
+.crowdaq-safe-info .cdq-safe-header,
+.crowdaq-safe-info .cdq-safe-body,
+.crowdaq-safe-info .cdq-safe-footer { position: relative; z-index: 1; }
+
+.crowdaq-safe-info .cdq-safe-header { flex: 0 0 auto; }
+.crowdaq-safe-info .cdq-venue-name {
+  font-family: var(--cdq-tech); font-weight: 600;
+  letter-spacing: 0.4em; text-transform: uppercase;
+  font-size: clamp(0.85rem, 1.6vw, 1.2rem);
+  color: var(--cdq-ink-dim);
+}
+.crowdaq-safe-info .cdq-venue-brand-img { display: block; max-width: 260px; max-height: 110px; object-fit: contain; }
+
+.crowdaq-safe-info .cdq-safe-body {
+  flex: 1 1 auto; display: flex; flex-direction: column;
+  align-items: center; justify-content: center; gap: clamp(10px, 1.6vh, 18px);
+}
+.crowdaq-safe-info .cdq-safe-kicker {
+  display: inline-flex; align-items: center;
+  font-family: var(--cdq-tech); font-weight: 600;
+  font-size: clamp(0.78rem, 1.5vw, 1.1rem);
+  letter-spacing: 0.5em; text-transform: uppercase;
+  color: var(--cdq-accent);
+  padding: 0.45em 1.3em 0.45em 1.4em;
+  border: 1px solid rgba(31, 227, 160, 0.4); border-radius: 999px;
+  background: rgba(31, 227, 160, 0.06);
+}
+.crowdaq-safe-info .cdq-safe-lockup {
+  display: flex; flex-direction: column; align-items: center; gap: clamp(10px, 1.4vh, 18px);
+}
+.crowdaq-safe-info .cdq-safe-title {
+  margin: 0; font-family: var(--cdq-display); font-weight: 800;
+  letter-spacing: 0.12em;
+  font-size: clamp(2.8rem, 13vw, 8.5rem); line-height: 0.9;
+  color: var(--cdq-ink);
+  text-shadow: 0 0 70px rgba(31, 227, 160, 0.22), 0 8px 40px rgba(0, 0, 0, 0.5);
+}
+.crowdaq-safe-info .cdq-safe-rule {
+  width: clamp(120px, 22vw, 320px); height: 4px; border-radius: 999px;
+  background: linear-gradient(90deg, transparent, var(--cdq-accent) 30%, var(--cdq-accent-2) 70%, transparent);
+  box-shadow: 0 0 18px var(--cdq-accent-glow);
+}
+.crowdaq-safe-info .cdq-safe-tagline {
+  margin: 0; font-family: var(--cdq-tech); font-weight: 400;
+  font-size: clamp(1rem, 2.2vw, 1.7rem); letter-spacing: 0.28em;
+  text-transform: uppercase; color: var(--cdq-ink-dim);
+}
+.crowdaq-safe-info .cdq-safe-footer { flex: 0 0 auto; }
+.crowdaq-safe-info .cdq-safe-status {
+  font-family: var(--cdq-tech); font-size: 0.95rem; letter-spacing: 0.18em;
+  text-transform: uppercase; color: var(--cdq-ink-faint);
+}
+.crowdaq-safe-info .cdq-safe-status:empty { display: none; }
+
+/* =============================================================================
+   ambient — branded AssetManifest gap-filler
+   ========================================================================== */
+.crowdaq-ambient {
+  position: absolute; inset: 0; z-index: 1;
+  display: block; width: 100%; height: 100%; overflow: hidden;
+  background: var(--cdq-bg-0);
+}
+.crowdaq-ambient .cdq-ambient-stage { position: absolute; inset: 0; z-index: 1; }
+.crowdaq-ambient .cdq-ambient-creative {
+  display: block; width: 100%; height: 100%; object-fit: cover;
+  opacity: 1; transition: opacity 600ms ease;
+}
+.crowdaq-ambient .cdq-ambient-creative.is-swapping { opacity: 0; }
+.crowdaq-ambient .cdq-bg-vignette { z-index: 2; }
+
+/* branded corner bug */
+.crowdaq-ambient .cdq-ambient-bug {
+  position: absolute; left: clamp(18px, 3vw, 44px); bottom: clamp(18px, 3vh, 44px);
+  z-index: 3; display: inline-flex; align-items: center; gap: 0.6em;
+  font-family: var(--cdq-display); font-weight: 800;
+  font-size: clamp(0.9rem, 1.8vw, 1.4rem); letter-spacing: 0.22em;
+  text-transform: uppercase; color: var(--cdq-ink);
+  padding: 0.5em 1em; border-radius: 999px;
+  background: rgba(5, 7, 13, 0.55);
+  border: 1px solid var(--cdq-line);
+  backdrop-filter: blur(8px);
+  box-shadow: 0 8px 28px -10px rgba(0, 0, 0, 0.8);
+}
+.crowdaq-ambient .cdq-ambient-progress {
+  position: absolute; left: 0; bottom: 0; height: 4px; z-index: 3; width: 0;
+  background: linear-gradient(90deg, var(--cdq-accent-2), var(--cdq-accent));
+  box-shadow: 0 0 14px var(--cdq-accent-glow);
+}
+.crowdaq-ambient .cdq-ambient-progress.is-running {
+  animation: cdq-ambient-sweep var(--dwell-ms, 8000ms) linear forwards;
+}
+@keyframes cdq-ambient-sweep { from { width: 0; } to { width: 100%; } }
+.crowdaq-ambient link { display: none; }

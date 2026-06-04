@@ -40,6 +40,10 @@ class MemoryStorage implements Storage {
 const text = (host: HTMLElement, id: string): string =>
   host.querySelector(`[data-testid="${id}"]`)?.textContent ?? '';
 
+/** Trimmed textContent of a CSS-class element under the host (S9 score-bug DOM). */
+const cls = (host: HTMLElement, selector: string): string =>
+  host.querySelector(selector)?.textContent?.trim() ?? '';
+
 const configPush = (): string =>
   JSON.stringify({
     message_type: 'ConfigPush',
@@ -236,12 +240,16 @@ describe('boot()', () => {
       expect(host.querySelectorAll('section.crowdaq-single-game').length).toBe(1);
     });
 
-    // Score rendered from the snapshot (0 - 0).
-    expect(text(host, TESTID.homeTeam)).toBe('BRA 0');
-    expect(text(host, TESTID.awayTeam)).toBe('ARG 0');
+    // S9 broadcast score-bug DOM: team names + big score numerals are separate
+    // sub-regions of the team block / centre column. Snapshot is 0 - 0.
+    expect(cls(host, '.cdq-home .cdq-team-name')).toBe('BRA');
+    expect(cls(host, '.cdq-away .cdq-team-name')).toBe('ARG');
+    expect(cls(host, '.cdq-score-home')).toBe('0');
+    expect(cls(host, '.cdq-score-away')).toBe('0');
 
     // GameEvent: BRA scores. The store applies the delta; the template's
-    // subscription mutates the score IN PLACE (no transition).
+    // subscription mutates the score IN PLACE (no transition) and fires the
+    // GOAL moment (banner activates on the scoring side).
     captured!.simulateMessage(
       JSON.stringify({
         message_type: 'GameEvent',
@@ -253,10 +261,13 @@ describe('boot()', () => {
     );
 
     await vi.waitFor(() => {
-      expect(text(host, TESTID.homeTeam)).toBe('BRA 1');
+      expect(cls(host, '.cdq-score-home')).toBe('1');
     });
-    expect(text(host, TESTID.awayTeam)).toBe('ARG 0');
+    expect(cls(host, '.cdq-score-away')).toBe('0');
     expect(text(host, TESTID.overlay)).toBe('GOAL! BRA');
+    // The score-change fired the broadcast GOAL banner on the home side.
+    expect(host.querySelector('.cdq-goal-banner')?.classList.contains('is-on')).toBe(true);
+    expect(host.querySelector('section.crowdaq-single-game')?.getAttribute('data-goal')).toBe('home');
 
     await rt.destroy();
     expect(captured!.closedWith?.code).toBe(1000);

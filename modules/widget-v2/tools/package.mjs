@@ -31,6 +31,12 @@ const XML_TEMPLATE = resolve(repoRoot, 'modules', 'crowdaq-widget-v2.xml');
 const BUILD_DIR = resolve(repoRoot, 'build');
 const MARKER = '/* __CROWDAQ_WIDGET_V2_BUNDLE__ */';
 
+// Always re-assemble the <style> blocks from the CSS sources first, so the
+// packaged XML carries the current broadcast design (fonts + broadcast.css)
+// and never a stale hand-edited block (S9).
+console.log('[package] assembling styles…');
+execSync('node tools/assemble-styles.mjs', { cwd: widgetRoot, stdio: 'inherit' });
+
 if (process.argv.includes('--build') || !existsSync(BUNDLE)) {
   console.log('[package] building bundle…');
   execSync('npm run build', { cwd: widgetRoot, stdio: 'inherit' });

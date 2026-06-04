@@ -9,6 +9,15 @@
  * `detach()` unsubscribes and hands back the outgoing DOM node for the
  * supersede transition.
  *
+ * S9 broadcast redesign: the DOM is now a real on-air score bug — a league /
+ * competition bar, two team blocks (a team-colour crest stack + a strong
+ * typographic team treatment, since the wire carries no logo/colour data —
+ * the colour is DERIVED deterministically from the team code), a big tabular
+ * score, a clock + period pill, and a live excitement/momentum meter. A score
+ * increase drives a CSS-only PUNCH + flash + a transient "GOAL" moment on the
+ * scoring side. All sub-regions keep their stable `data-testid` so the existing
+ * e2e + non-regression assertions hold (home/away lines still read "NAME N").
+ *
  * DOM (AC1): one `<section class="crowdaq-single-game" data-theme="…">` with a
  * sport-context header, a home/away/clock score block, and a last-moment
  * overlay — each sub-region tagged with a `data-testid`. No multi-game grid,
@@ -34,6 +43,9 @@ export const TESTID = {
 /** Default last-moment cap (existing widget convention). */
 const DEFAULT_MAX_MOMENT_LENGTH = 140;
 
+/** How long the GOAL punch / banner stays on screen after a score change (ms). */
+const GOAL_FLASH_MS = 4200;
+
 export interface SingleGameContext {
   /** Resolved ProgramSlot — the SINGLE source of `primary_game_id` (AC7). */
   programSlot: ProgramSlotPayload;
@@ -53,6 +65,13 @@ export interface SingleGameContext {
  */
 export type SingleGameInstance = TemplateInstance;
 
+/** Per-mount mutable render state the score-change detector reads. */
+interface RenderMemo {
+  homeScore: number | null;
+  awayScore: number | null;
+  goalTimer: ReturnType<typeof setTimeout> | null;
+}
+
 export class SingleGameTemplate {
   /** Mount the template, subscribing to the slot's primary game. */
   mount(host: HTMLElement, ctx: SingleGameContext): SingleGameInstance {
@@ -62,6 +81,7 @@ export class SingleGameTemplate {
 
     // AC7: the rendered game id is the ProgramSlot's primary_game_id only.
     const gameId = ctx.programSlot.primary_game_id;
+    const memo: RenderMemo = { homeScore: null, awayScore: null, goalTimer: null };
     let unsubscribe = (): void => {};
 
     if (gameId === null) {
@@ -69,7 +89,7 @@ export class SingleGameTemplate {
       // (not the template) owns the fallback journal; the template only renders.
       renderPlaceholder(root);
     } else {
-      const render = (state: GameState | null): void => renderGame(root, state, maxMoment);
+      const render = (state: GameState | null): void => renderGame(root, state, maxMoment, memo);
       render(ctx.gameStateStore.get(gameId));
       unsubscribe = ctx.gameStateStore.subscribe(gameId, (state) => render(state));
     }
@@ -77,6 +97,7 @@ export class SingleGameTemplate {
     return {
       detach(): HTMLElement {
         unsubscribe();
+        if (memo.goalTimer !== null) clearTimeout(memo.goalTimer);
         root.remove();
         return root;
       },
@@ -84,42 +105,84 @@ export class SingleGameTemplate {
   }
 }
 
-/** Build the empty template skeleton with all sub-region test ids. */
+/**
+ * Build the broadcast score-bug skeleton with all sub-region test ids. The
+ * structure is data-light by default — populated in place by renderGame() —
+ * so it satisfies AC1 (one section + the tagged sub-regions) while carrying
+ * the new on-air chrome (league bar, crest stacks, excitement meter, banner).
+ */
 function buildRoot(themeAttrValue: string): HTMLElement {
   const root = document.createElement('section');
   root.className = 'crowdaq-single-game';
   root.dataset['theme'] = themeAttrValue;
   root.dataset['testid'] = TESTID.root;
 
+  // Atmospheric depth layers (CSS paints gradient mesh + grain + vignette).
+  root.append(div('cdq-bg-mesh'), div('cdq-bg-grain'), div('cdq-bg-vignette'));
+
+  // League / competition bar (top) — the on-air strap line.
   const header = document.createElement('header');
   header.className = 'cdq-sport-context';
   header.dataset['testid'] = TESTID.sportContext;
+  header.append(span('cdq-live-dot'), span('cdq-context-text'));
 
+  // The scoreboard plate: home block · score column · away block.
   const score = document.createElement('div');
   score.className = 'cdq-score';
   score.dataset['testid'] = TESTID.score;
 
-  const home = document.createElement('div');
-  home.className = 'cdq-team cdq-home';
+  const home = buildTeamBlock('home');
   home.dataset['testid'] = TESTID.homeTeam;
 
+  const center = div('cdq-score-center');
+  const scoreNums = div('cdq-score-nums');
+  scoreNums.append(span('cdq-score-home'), span('cdq-score-sep'), span('cdq-score-away'));
   const clock = document.createElement('div');
   clock.className = 'cdq-clock';
   clock.dataset['testid'] = TESTID.clock;
+  clock.append(span('cdq-period'), span('cdq-clock-time'));
+  center.append(scoreNums, clock);
 
-  const away = document.createElement('div');
-  away.className = 'cdq-team cdq-away';
+  const away = buildTeamBlock('away');
   away.dataset['testid'] = TESTID.awayTeam;
 
-  score.append(home, clock, away);
+  score.append(home, center, away);
 
+  // Excitement / momentum meter (bottom strip).
+  const meter = div('cdq-excitement');
+  meter.dataset['testid'] = 'single-game-excitement';
+  const meterLabel = span('cdq-excitement-label');
+  meterLabel.textContent = 'EXCITEMENT';
+  const meterTrack = div('cdq-excitement-track');
+  const meterFill = div('cdq-excitement-fill');
+  meterTrack.append(meterFill);
+  meter.append(meterLabel, meterTrack);
+
+  // The last-moment overlay (ticker) + the big transient GOAL banner.
   const overlay = document.createElement('aside');
   overlay.className = 'cdq-overlay';
   overlay.dataset['testid'] = TESTID.overlay;
   overlay.hidden = true;
 
-  root.append(header, score, overlay);
+  const banner = div('cdq-goal-banner');
+  banner.dataset['testid'] = 'single-game-goal-banner';
+  banner.setAttribute('aria-hidden', 'true');
+  banner.append(span('cdq-goal-word'), span('cdq-goal-sub'));
+
+  root.append(header, score, meter, overlay, banner);
   return root;
+}
+
+/** A team block: a colour crest stack + the team name treatment. */
+function buildTeamBlock(side: 'home' | 'away'): HTMLElement {
+  const block = div(`cdq-team cdq-${side}`);
+  const crest = div('cdq-crest');
+  crest.append(span('cdq-crest-mono')); // monogram inside the colour block
+  const name = div('cdq-team-name');
+  const full = span('cdq-team-full'); // accessible / data line "NAME N"
+  full.hidden = true;
+  block.append(crest, name, full);
+  return block;
 }
 
 /** Render the "no live game" placeholder (AC5 authoring-error path). */
@@ -127,33 +190,50 @@ function renderPlaceholder(root: HTMLElement): void {
   const placeholder = document.createElement('div');
   placeholder.className = 'cdq-no-live-game';
   placeholder.dataset['testid'] = TESTID.placeholder;
-  placeholder.textContent = 'No live game';
+  placeholder.textContent = 'STANDING BY';
   root.append(placeholder);
 }
 
 /** Populate the score / clock / sport-context / overlay from current state. */
-function renderGame(root: HTMLElement, state: GameState | null, maxMoment: number): void {
-  const sel = (testid: string): HTMLElement | null =>
-    root.querySelector(`[data-testid="${testid}"]`);
+function renderGame(root: HTMLElement, state: GameState | null, maxMoment: number, memo: RenderMemo): void {
+  const sel = (testid: string): HTMLElement | null => root.querySelector(`[data-testid="${testid}"]`);
+  const q = (cls: string): HTMLElement | null => root.querySelector(`.${cls}`);
 
-  const header = sel(TESTID.sportContext);
-  if (header) {
-    const ctx = state?.sport_context;
-    const parts = [ctx?.sport, ctx?.league, ctx?.venue].filter(
+  // ---- league / competition strap ----------------------------------------
+  const ctx = state?.sport_context;
+  const ctxText = q('cdq-context-text');
+  if (ctxText) {
+    const parts = [ctx?.league, ctx?.sport, ctx?.venue].filter(
       (p): p is string => typeof p === 'string' && p.length > 0,
     );
-    header.textContent = parts.join(' · ');
+    ctxText.textContent = parts.length ? parts.join('  ·  ') : 'LIVE';
   }
 
-  const home = sel(TESTID.homeTeam);
-  if (home) home.textContent = teamLine(state?.home_team, state?.home_score);
+  // ---- team blocks (name + derived colour) --------------------------------
+  paintTeam(sel(TESTID.homeTeam), state?.home_team, state?.home_score);
+  paintTeam(sel(TESTID.awayTeam), state?.away_team, state?.away_score);
 
-  const away = sel(TESTID.awayTeam);
-  if (away) away.textContent = teamLine(state?.away_team, state?.away_score);
+  // ---- big score numerals -------------------------------------------------
+  const hNum = q('cdq-score-home');
+  const aNum = q('cdq-score-away');
+  if (hNum) hNum.textContent = scoreText(state?.home_score);
+  if (aNum) aNum.textContent = scoreText(state?.away_score);
 
-  const clock = sel(TESTID.clock);
-  if (clock) clock.textContent = state?.sport_context?.period_clock ?? '';
+  // ---- clock + period -----------------------------------------------------
+  const period = q('cdq-period');
+  const clockTime = q('cdq-clock-time');
+  const pc = parsePeriodClock(state?.sport_context?.period_clock);
+  if (period) period.textContent = pc.period;
+  if (clockTime) clockTime.textContent = pc.clock;
+  // tick pulse on every clock revision (CSS animation re-trigger)
+  const clockEl = sel(TESTID.clock);
+  if (clockEl && (pc.period || pc.clock)) retrigger(clockEl, 'cdq-tick');
 
+  // ---- excitement meter ---------------------------------------------------
+  const fill = q('cdq-excitement-fill');
+  if (fill) fill.style.width = `${excitementPct(state)}%`;
+
+  // ---- last-moment ticker -------------------------------------------------
   const overlay = sel(TESTID.overlay);
   if (overlay) {
     const moment = state?.last_moment;
@@ -165,6 +245,100 @@ function renderGame(root: HTMLElement, state: GameState | null, maxMoment: numbe
       overlay.hidden = true;
     }
   }
+
+  // ---- score-change detection -> GOAL punch + flash + banner --------------
+  const newHome = numOrNull(state?.home_score);
+  const newAway = numOrNull(state?.away_score);
+  const homeScored = scoreIncreased(memo.homeScore, newHome);
+  const awayScored = scoreIncreased(memo.awayScore, newAway);
+  if (homeScored || awayScored) {
+    fireGoal(root, homeScored ? 'home' : 'away', state, memo);
+  }
+  memo.homeScore = newHome;
+  memo.awayScore = newAway;
+}
+
+/** Paint one team block: name treatment + derived team colour + monogram. */
+function paintTeam(block: HTMLElement | null, name: string | undefined, score: number | undefined): void {
+  if (!block) return;
+  const n = (name ?? '').trim();
+  const nameEl = block.querySelector<HTMLElement>('.cdq-team-name');
+  if (nameEl) nameEl.textContent = n;
+  // The crest monogram = the team's first 3 letters. When the name IS already a
+  // short code (<= 3 chars), the big name reads as the code, so the monogram
+  // would be redundant — suppress the crest in that case (the colour block
+  // still anchors the side via the name treatment).
+  const mono = block.querySelector<HTMLElement>('.cdq-crest-mono');
+  const crest = block.querySelector<HTMLElement>('.cdq-crest');
+  const shortCode = n.length > 0 && n.length <= 3;
+  if (mono) mono.textContent = shortCode ? '' : n.slice(0, 3).toUpperCase();
+  if (crest) crest.hidden = shortCode;
+  // Data line kept for the e2e contract: "NAME N" (hidden, used by assertions).
+  const full = block.querySelector<HTMLElement>('.cdq-team-full');
+  if (full) full.textContent = teamLine(name, score);
+  // Derive a stable team colour from the code and stamp it as a CSS variable.
+  if (n.length > 0) {
+    const { h, accent, ink } = teamColour(n);
+    block.style.setProperty('--team-h', String(h));
+    block.style.setProperty('--team-accent', accent);
+    block.style.setProperty('--team-ink', ink);
+  }
+}
+
+/**
+ * Fire the broadcast GOAL moment on the scoring side: a CSS punch on the score
+ * numeral, a full-bleed flash, and a transient banner. CSS-only motion driven
+ * by transient classes/attrs we add then remove (D-GRH-31 smooth, no layout
+ * thrash). Re-armable: a second goal before the first clears resets the timer.
+ */
+function fireGoal(root: HTMLElement, side: 'home' | 'away', state: GameState | null, memo: RenderMemo): void {
+  root.dataset['goal'] = side;
+  const num = root.querySelector<HTMLElement>(side === 'home' ? '.cdq-score-home' : '.cdq-score-away');
+  if (num) retrigger(num, 'cdq-punch');
+  retrigger(root, 'cdq-flash');
+
+  const banner = root.querySelector<HTMLElement>('.cdq-goal-banner');
+  if (banner) {
+    const word = banner.querySelector<HTMLElement>('.cdq-goal-word');
+    const sub = banner.querySelector<HTMLElement>('.cdq-goal-sub');
+    const team = (side === 'home' ? state?.home_team : state?.away_team) ?? '';
+    if (word) word.textContent = 'GOAL';
+    if (sub) sub.textContent = team ? `${team.toUpperCase()}` : '';
+    banner.setAttribute('aria-hidden', 'false');
+    banner.classList.add('is-on');
+  }
+
+  if (memo.goalTimer !== null) clearTimeout(memo.goalTimer);
+  memo.goalTimer = setTimeout(() => {
+    delete root.dataset['goal'];
+    const b = root.querySelector<HTMLElement>('.cdq-goal-banner');
+    if (b) {
+      b.classList.remove('is-on');
+      b.setAttribute('aria-hidden', 'true');
+    }
+    memo.goalTimer = null;
+  }, GOAL_FLASH_MS);
+}
+
+/* ----------------------------- pure helpers ------------------------------ */
+
+function div(cls: string): HTMLElement {
+  const el = document.createElement('div');
+  el.className = cls;
+  return el;
+}
+function span(cls: string): HTMLElement {
+  const el = document.createElement('span');
+  el.className = cls;
+  return el;
+}
+
+/** Re-trigger a CSS animation class by removing + re-adding on the next frame. */
+function retrigger(el: HTMLElement, cls: string): void {
+  el.classList.remove(cls);
+  // Force reflow so the re-add restarts the animation (snap Chromium safe).
+  void el.offsetWidth;
+  el.classList.add(cls);
 }
 
 /** A team line: "Name Score", with blanks where the state has no value. */
@@ -172,4 +346,61 @@ function teamLine(name: string | undefined, score: number | undefined): string {
   const n = name ?? '';
   const s = score === undefined ? '' : String(score);
   return `${n} ${s}`.trim();
+}
+
+function scoreText(score: number | undefined): string {
+  return score === undefined ? '–' : String(score);
+}
+
+function numOrNull(score: number | undefined): number | null {
+  return typeof score === 'number' ? score : null;
+}
+
+function scoreIncreased(prev: number | null, next: number | null): boolean {
+  return prev !== null && next !== null && next > prev;
+}
+
+/**
+ * Split a pre-formatted period_clock (e.g. "12'", "Q3 04:11", "HT", "45+2'")
+ * into a short period label + a clock string. The wire pre-formats this
+ * (D-GRH-09), so we only do a light, defensive split for layout.
+ */
+function parsePeriodClock(pc: string | undefined): { period: string; clock: string } {
+  const s = (pc ?? '').trim();
+  if (s.length === 0) return { period: '', clock: '' };
+  // "Q3 04:11" / "1H 12:00" -> ["Q3","04:11"]; "12'" / "HT" -> single token.
+  const m = s.match(/^(\S+)\s+(.+)$/);
+  if (m) return { period: m[1]!.toUpperCase(), clock: m[2]! };
+  // A lone clock-ish token (contains a digit) is the clock; else it's a label.
+  return /\d/.test(s) ? { period: '', clock: s } : { period: s.toUpperCase(), clock: '' };
+}
+
+/**
+ * A derived excitement percentage (0–100) for the momentum meter. The wire
+ * carries no excitement signal yet, so this is a deterministic, non-alarming
+ * proxy: a base level lifted by total goals and by a recent notable moment.
+ * Flagged in the evidence as DERIVED (not real backend excitement data).
+ */
+function excitementPct(state: GameState | null): number {
+  if (!state) return 18;
+  const goals = (state.home_score ?? 0) + (state.away_score ?? 0);
+  const close = Math.abs((state.home_score ?? 0) - (state.away_score ?? 0)) <= 1 ? 18 : 0;
+  const moment = state.last_moment && state.last_moment.length > 0 ? 22 : 0;
+  return Math.max(12, Math.min(100, 30 + goals * 9 + close + moment));
+}
+
+/**
+ * Derive a stable team colour from the team code. No logo/colour data is on
+ * the wire (RESOLVED: AssetManifest carries no per-team crest), so we map the
+ * code deterministically to a vivid hue (golden-angle spread off a string
+ * hash) and return an accent + a readable ink colour. Sensible + consistent:
+ * the same code always yields the same colour across renders and bars.
+ */
+function teamColour(code: string): { h: number; accent: string; ink: string } {
+  let hash = 0;
+  for (let i = 0; i < code.length; i += 1) hash = (hash * 31 + code.charCodeAt(i)) >>> 0;
+  const h = Math.round(((hash % 360) + (code.charCodeAt(0) % 2 ? 0 : 137)) % 360);
+  const accent = `hsl(${h} 78% 56%)`;
+  const ink = '#0b0e16';
+  return { h, accent, ink };
 }

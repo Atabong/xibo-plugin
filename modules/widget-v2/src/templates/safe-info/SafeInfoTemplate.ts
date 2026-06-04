@@ -134,6 +134,15 @@ function buildRoot(ctx: SafeInfoContext): HTMLElement {
   root.dataset['source'] = ctx.source.kind;
   root.dataset['reason'] = ctx.source.reason;
 
+  // Atmospheric depth chrome (CSS-painted gradient mesh + grain + vignette +
+  // a slow ambient aura). This is decorative background, not body motion — the
+  // wordmark/tagline body stays still per D-SAFE-01 / AC6.
+  for (const cls of ['cdq-bg-mesh', 'cdq-bg-grain', 'cdq-bg-vignette', 'cdq-safe-aura']) {
+    const layer = document.createElement('div');
+    layer.className = cls;
+    root.append(layer);
+  }
+
   root.append(buildHeader(ctx), buildBody(), buildFooter(ctx.source));
   return root;
 }
@@ -180,23 +189,40 @@ function renderVenueBrand(venue: HTMLElement, ctx: SafeInfoContext): void {
   }
 }
 
-/** Body: the static CROWDAQ wordmark + tagline. No motion (AC6). */
+/**
+ * Body: a designed standby lock-up — a kicker strap, the CROWDAQ wordmark with
+ * an accent underscore, and the tagline. The wordmark/tagline carry their exact
+ * testids + text so the AC + e2e contract holds (title === "CROWDAQ"). No body
+ * motion (AC6 / D-SAFE-01): the only movement is the decorative root aura.
+ */
 function buildBody(): HTMLElement {
   const body = document.createElement('div');
   body.className = 'cdq-safe-body';
   body.dataset['testid'] = SAFE_INFO_TESTID.body;
+
+  const kicker = document.createElement('span');
+  kicker.className = 'cdq-safe-kicker';
+  kicker.textContent = 'LIVE SPORTS NETWORK';
+
+  const lockup = document.createElement('div');
+  lockup.className = 'cdq-safe-lockup';
 
   const title = document.createElement('h1');
   title.className = 'cdq-safe-title';
   title.dataset['testid'] = SAFE_INFO_TESTID.title;
   title.textContent = WORDMARK;
 
+  const rule = document.createElement('span');
+  rule.className = 'cdq-safe-rule';
+
+  lockup.append(title, rule);
+
   const tagline = document.createElement('p');
   tagline.className = 'cdq-safe-tagline';
   tagline.dataset['testid'] = SAFE_INFO_TESTID.tagline;
   tagline.textContent = TAGLINE;
 
-  body.append(title, tagline);
+  body.append(kicker, lockup, tagline);
   return body;
 }
 
