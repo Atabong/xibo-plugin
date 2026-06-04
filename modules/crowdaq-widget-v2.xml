@@ -114,8 +114,12 @@
     data-crowdaq-display-id="{{ displayId }}"
     data-crowdaq-player-version="{{ playerVersion }}"
     data-crowdaq-heartbeat-interval-ms="{{ heartbeatIntervalMs }}">
-    <!-- boot() mounts the single_game template (a <section class="crowdaq-single-game">)
-         into this host. Until the WS handshake completes the host is empty. -->
+    <!-- boot() mounts the active business_mode template into this host: a
+         <section class="crowdaq-single-game"> for a live game, a
+         <section class="crowdaq-safe-info"> for the default no-games standing
+         state (safe_info), or a <section class="crowdaq-ambient"> for
+         AssetManifest-driven branded gap-fill. Until the WS handshake completes
+         the host is empty. -->
 </div>
         ]]></twig>
         <style><![CDATA[
@@ -153,6 +157,32 @@ html, body { margin: 0; padding: 0; height: 100%; background: #0b0e14; }
 }
 .crowdaq-single-game .cdq-overlay[hidden] { display: none; }
 .crowdaq-single-game .cdq-no-live-game { font-size: 1.4rem; opacity: 0.5; }
+
+/* ---- safe_info standing screen (SPEC-CRWDQ-052) -------------------------- */
+/* The default 24/7 "stay tuned" panel for a no-games window. Calm, motionless
+   (D-SAFE-01 + D-GRH-31): no animations on the body. */
+.crowdaq-safe-info {
+    display: flex; flex-direction: column; width: 100%; height: 100%;
+    align-items: center; justify-content: center; gap: 24px; padding: 4% 6%;
+    box-sizing: border-box; text-align: center;
+}
+.crowdaq-safe-info .cdq-safe-header { flex: 0 0 auto; }
+.crowdaq-safe-info .cdq-venue-name { font-variant: small-caps; letter-spacing: 0.06em; font-size: 1.2rem; color: #aeb6c6; }
+.crowdaq-safe-info .cdq-venue-brand-img { display: block; max-width: 240px; max-height: 96px; object-fit: contain; }
+.crowdaq-safe-info .cdq-safe-body { flex: 1 1 auto; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px; }
+.crowdaq-safe-info .cdq-safe-title { margin: 0; font-weight: 800; letter-spacing: 0.14em; font-size: clamp(2.4rem, 11vw, 6rem); color: #f4f6fb; }
+.crowdaq-safe-info .cdq-safe-tagline { margin: 0; opacity: 0.7; font-size: 1.3rem; letter-spacing: 0.08em; color: #aeb6c6; }
+.crowdaq-safe-info .cdq-safe-footer { flex: 0 0 auto; }
+.crowdaq-safe-info .cdq-safe-status { font-variant: small-caps; font-size: 0.9rem; opacity: 0.5; color: #aeb6c6; }
+.crowdaq-safe-info .cdq-safe-status:empty { display: none; }
+
+/* ---- ambient standing screen (SPEC-CRWDQ-053) ---------------------------- */
+/* Full-bleed AssetManifest-driven sponsor/branding rotation; one creative at a
+   time. Degrades to the safe_info panel when no ambient assets are configured. */
+.crowdaq-ambient { display: block; width: 100%; height: 100%; overflow: hidden; }
+.crowdaq-ambient .cdq-ambient-stage { position: relative; width: 100%; height: 100%; }
+.crowdaq-ambient .cdq-ambient-creative { display: block; width: 100%; height: 100%; object-fit: cover; }
+.crowdaq-ambient link { display: none; }
         ]]></style>
     </stencil>
 

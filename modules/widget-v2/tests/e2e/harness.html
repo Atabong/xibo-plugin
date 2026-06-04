@@ -30,6 +30,20 @@
     .crowdaq-single-game .cdq-clock { font-size: 1.4rem; opacity: 0.8; min-width: 3ch; text-align: center; color: #aeb6c6; }
     .crowdaq-single-game .cdq-overlay { font-size: 1.3rem; font-weight: 600; color: #ffd166; padding: 0.3em 0.8em; border-radius: 999px; background: rgba(255,209,102,0.12); }
     .crowdaq-single-game .cdq-overlay[hidden] { display: none; }
+    /* safe_info standing screen (SPEC-CRWDQ-052) */
+    .crowdaq-safe-info { display: flex; flex-direction: column; width: 100%; height: 100%; align-items: center; justify-content: center; gap: 24px; padding: 4% 6%; box-sizing: border-box; text-align: center; }
+    .crowdaq-safe-info .cdq-venue-name { font-variant: small-caps; letter-spacing: 0.06em; font-size: 1.2rem; color: #aeb6c6; }
+    .crowdaq-safe-info .cdq-venue-brand-img { display: block; max-width: 240px; max-height: 96px; object-fit: contain; }
+    .crowdaq-safe-info .cdq-safe-body { flex: 1 1 auto; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px; }
+    .crowdaq-safe-info .cdq-safe-title { margin: 0; font-weight: 800; letter-spacing: 0.14em; font-size: clamp(2.4rem, 11vw, 6rem); color: #f4f6fb; }
+    .crowdaq-safe-info .cdq-safe-tagline { margin: 0; opacity: 0.7; font-size: 1.3rem; letter-spacing: 0.08em; color: #aeb6c6; }
+    .crowdaq-safe-info .cdq-safe-status { font-variant: small-caps; font-size: 0.9rem; opacity: 0.5; color: #aeb6c6; }
+    .crowdaq-safe-info .cdq-safe-status:empty { display: none; }
+    /* ambient standing screen (SPEC-CRWDQ-053) */
+    .crowdaq-ambient { display: block; width: 100%; height: 100%; overflow: hidden; }
+    .crowdaq-ambient .cdq-ambient-stage { position: relative; width: 100%; height: 100%; }
+    .crowdaq-ambient .cdq-ambient-creative { display: block; width: 100%; height: 100%; object-fit: cover; }
+    .crowdaq-ambient link { display: none; }
   </style>
 </head>
 <body>

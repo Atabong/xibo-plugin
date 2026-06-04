@@ -68,6 +68,12 @@ import {
   PlannedStateActivator,
   type PendingThemeApply,
 } from './render/PlannedStateActivator';
+import { SafeStateController } from './render/SafeStateController';
+import { SafeInfoTemplate, type SafeBarPreferences } from './templates/safe-info/SafeInfoTemplate';
+import { makeSafeAdapter } from './templates/safe-info/SafeAdapter';
+import { AmbientTemplate } from './templates/ambient/AmbientTemplate';
+import { AmbientPlaylist } from './templates/ambient/AmbientPlaylist';
+import { makeAmbientAdapter } from './templates/ambient/AmbientAdapter';
 
 import { ConfigPushHandler } from './config/ConfigPushHandler';
 import { LocalStoragePreferenceStore, type PreferenceDerivedCache } from './config/PreferenceStore';
@@ -454,6 +460,9 @@ export async function boot(
   });
 
   const barTheme = new AppliedBarTheme();
+  // Latest applied bar preferences (D-GRH-73) for the safe/ambient venue brand.
+  // Captured whenever a ConfigPush carries preferences; null on a cold boot.
+  let lastPrefs: SafeBarPreferences | null = null;
   const pendingApply = new PendingApplySlot();
   const preferenceStore = new LocalStoragePreferenceStore(
     deps.storage ?? window.localStorage,
@@ -473,7 +482,56 @@ export async function boot(
     barTheme,
     pendingApply: pendingApply as PendingThemeApply,
     clock: deps.dwellClock ?? systemDwellClock,
+    // Late-bound: forwards each activation to the SafeStateController (built
+    // just below) so its no_recent_state / data_stale probes track the mode.
+    onActivated: (mode) => safeController.notePlannedState(mode),
   });
+
+  // 3b. Register the non-game-data standing-display modes so the bar shows
+  // something 24/7 (SPEC-CRWDQ-052 safe_info + SPEC-CRWDQ-053 ambient). Both
+  // activate through the SAME PlannedStateActivator orchestration as single_game
+  // (buffer/transition/dwell/supersede) — never a forked render path.
+  const clock = deps.dwellClock ?? systemDwellClock;
+  let lastThemeId: string | null = null;
+
+  // Deferred WS-lifecycle binder: the SafeStateController subscribes to
+  // open/close/reconnect at construction, but the CrowdaqWsClient is built at
+  // step 5. This buffers subscriptions and replays them onto the client once it
+  // exists (INV-FACTORY-19 narrow seam — only the three connectivity events).
+  const wsLifecycle = new DeferredWsLifecycle();
+
+  // safe_info (default standing state). The controller also synthesizes safe_info
+  // on the D-SAFE-01 player-side thresholds (control-channel loss / stale data /
+  // no-state), routing through the normal activator.
+  const safeController = new SafeStateController({
+    activator,
+    gameStateStore,
+    ws: wsLifecycle,
+    clock,
+    slots,
+    barPreferences: () => lastPrefs,
+    assetManifestStore: assets,
+    lastThemeId: () => lastThemeId,
+  });
+  activator.registerTemplate(
+    'safe_info',
+    makeSafeAdapter({ template: new SafeInfoTemplate(), controller: safeController }),
+  );
+
+  // ambient (gap-filling branded content from the AssetManifest, D-GRH-26/27).
+  // Degrades to the safe_info panel when the manifest carries no ambient assets.
+  activator.registerTemplate(
+    'ambient',
+    makeAmbientAdapter({
+      template: new AmbientTemplate(),
+      safeInfoTemplate: new SafeInfoTemplate(),
+      assetManifestStore: assets,
+      journal,
+      makePlaylist: () => new AmbientPlaylist({ assetManifestStore: assets, journal }),
+      makeDwell: () => new DwellTimer(clock),
+      barPreferences: () => lastPrefs,
+    }),
+  );
 
   // 4. dispatcher + every server-frame handler.
   // The active-game gate is the activator's currently-rendered slot: only the
@@ -501,7 +559,13 @@ export async function boot(
         .then((outcome) => {
           if (outcome.kind === 'first_push' || outcome.kind === 'replaced') {
             const prefs = outcome.kind === 'first_push' ? outcome.preferences : null;
-            if (prefs) barTheme.set(prefs.theme);
+            if (prefs) {
+              barTheme.set(prefs.theme);
+              // Capture the applied preferences (+ bar_id) for the safe/ambient
+              // venue-brand chain, and the resolved theme id for synthetic safe.
+              lastPrefs = { ...prefs, bar_id: barId } as SafeBarPreferences;
+              lastThemeId = prefs.theme.state === 'set' ? prefs.theme.id : null;
+            }
           }
         });
     },
@@ -548,6 +612,13 @@ export async function boot(
 
   journal.record({ event: 'widget_boot', wsUrl, barId, displayId });
 
+  // Bind the deferred WS-lifecycle seam to the real client and start the
+  // D-SAFE-01 player-fallback controller (now that the WS exists). The
+  // controller arms its connectivity/staleness probes; on a threshold it
+  // synthesizes a safe_info PlannedState through the normal activator.
+  wsLifecycle.bind(client);
+  safeController.start();
+
   // 6. connect. The first server frame (ConfigPush) resolves connect().
   await client.connect();
 
@@ -556,10 +627,35 @@ export async function boot(
     wsUrl,
     client,
     destroy: async () => {
+      safeController.stop();
       await client.close();
       host.remove();
     },
   };
+}
+
+/**
+ * A deferred WS-lifecycle binder (the {@link SafeStateController}'s `ws` seam).
+ * The controller subscribes to open/close/reconnect at construction, before the
+ * CrowdaqWsClient is built; this buffers those subscriptions and replays them
+ * onto the client the moment {@link bind} is called. A narrow seam — it forwards
+ * only the three connectivity events.
+ */
+class DeferredWsLifecycle {
+  private readonly pending: Array<{ event: 'open' | 'close' | 'reconnect'; listener: () => void }> = [];
+  private client: CrowdaqWsClient | null = null;
+  on(event: 'open' | 'close' | 'reconnect', listener: () => void): void {
+    if (this.client !== null) {
+      this.client.on(event, listener);
+      return;
+    }
+    this.pending.push({ event, listener });
+  }
+  bind(client: CrowdaqWsClient): void {
+    this.client = client;
+    for (const { event, listener } of this.pending) client.on(event, listener);
+    this.pending.length = 0;
+  }
 }
 
 // --- internal wiring helpers -------------------------------------------------

@@ -39,9 +39,16 @@ export class DwellTimer {
   /**
    * Arm a one-shot boundary. Replaces any prior schedule (the prior boundary
    * never fires). `onBoundary` receives the actual elapsed wall-clock at fire.
+   *
+   * A non-positive `dwellTargetMs` (`<= 0`) means INFINITE dwell (SPEC-CRWDQ-052
+   * synthetic safe state + SPEC-CRWDQ-053 ambient): no boundary is ever armed —
+   * the render stays until the activator supersedes it with a new PlannedState.
    */
   arm(dwellTargetMs: number, onBoundary: (actualDwellMs: number) => void): void {
     this.cancel();
+    if (dwellTargetMs <= 0) {
+      return;
+    }
     const armedAt = this.clock.now();
     const handle = this.clock.setTimer(() => {
       // The schedule has fired; clear armed BEFORE the callback so a re-arm

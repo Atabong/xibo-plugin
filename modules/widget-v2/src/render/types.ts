@@ -73,10 +73,18 @@ export interface GameEvent {
  * The ProgramSlot payload (D-GRH-21). `primary_game_id` is the SINGLE source
  * of the rendered game id — the `PlannedState` carries no `game_id` field
  * post-D-GRH-21 (AC7). `null` means the slot references no live game.
+ *
+ * `game_ids` is the ordered list a multi-card mode renders (D-GRH-14 order
+ * preserved). The `single_game` template reads only `primary_game_id`; the
+ * future `multiple_games` template (SPEC-CRWDQ-031) renders one card per entry.
+ * It is OPTIONAL at this layer so the single-game resolver and the
+ * empty/synthetic slot literals (safe_info, ambient) need not restate `[]`.
  */
 export interface ProgramSlotPayload {
   program_slot_id: string;
   primary_game_id: string | null;
+  /** Ordered game ids the slot references (D-GRH-14); absent for single_game. */
+  game_ids?: readonly string[];
 }
 
 /**

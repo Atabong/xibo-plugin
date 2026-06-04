@@ -60,12 +60,35 @@ function sendFrame(ws, obj) {
   ws.send(JSON.stringify(obj));
 }
 
+/** A self-contained SVG creative (no network) for the ambient e2e rotation. */
+function svgCreative(bg, label) {
+  return (
+    `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1280 720">` +
+    `<rect width="1280" height="720" fill="${bg}"/>` +
+    `<text x="640" y="380" font-family="sans-serif" font-size="96" font-weight="800" ` +
+    `fill="#ffffff" text-anchor="middle">${label}</text></svg>`
+  );
+}
+
 /**
  * Start the mock server. Returns { url, port, close, onGoal } where `onGoal` is
  * a function the driver calls to push a GameEvent (goal) to the connected
  * player. Resolves once it is listening.
  */
-export function startMockServer() {
+export function startMockServer(options = {}) {
+  // scenario: 'single_game' (default), 'safe_info', or 'ambient'. Drives which
+  // re-push the server emits after DeviceRegistration so the SPEC-CRWDQ-027
+  // harness can prove every standing-display mode mounts against the REAL bundle.
+  const scenario = options.scenario ?? 'single_game';
+  // ambientAssets: AssetManifest assets array for the 'ambient' scenario (the
+  // template rotates every `ambient:`-prefixed image). Default: two creatives.
+  const ambientAssets =
+    options.ambientAssets ??
+    [
+      { asset_id: 'ambient:promo-1', content_hash: 'h1', url: 'data:image/svg+xml;utf8,' + encodeURIComponent(svgCreative('#1b6ca8', 'SPONSOR ONE')), content_type: 'image/svg+xml', bytes: 1 },
+      { asset_id: 'ambient:promo-2', content_hash: 'h2', url: 'data:image/svg+xml;utf8,' + encodeURIComponent(svgCreative('#a8421b', 'SPONSOR TWO')), content_type: 'image/svg+xml', bytes: 1 },
+    ];
+
   return new Promise((resolve) => {
     const wss = new WebSocketServer({ port: 0, handleProtocols: (protocols) => (protocols.has(SUBPROTOCOL) ? SUBPROTOCOL : false) });
     let activeSocket = null;
@@ -103,7 +126,8 @@ export function startMockServer() {
         events.push({ kind: 'recv', message_type: frame.message_type });
 
         if (frame.message_type === 'DeviceRegistration') {
-          // Spec-ordered re-push (D-GRH-61 / D-GRH-49).
+          // Spec-ordered re-push (D-GRH-61 / D-GRH-49). The ConfigPush carries
+          // city/state so the safe_info venue header renders a venue line.
           sendFrame(ws, control('ConfigPush', {
             config_hash: 'cfg-e2e-1',
             schema_version: 1,
@@ -112,13 +136,41 @@ export function startMockServer() {
             display_id: 'bar-demo',
             preferences: {
               theme: { state: 'default' },
-              sports: [], leagues: [], region: null, state: null, city: null,
+              sports: [], leagues: [], region: null, state: 'CA', city: 'Oakland',
               timezone: 'UTC', business_hours: [], local_team_list: [], fallback_mode_order: [],
             },
             cache_ceiling_bytes: 1000,
             intervals: { journal_sync_ms: 1000, heartbeat_ms: 30000, manifest_recheck_ms: 60000 },
           }));
           sendFrame(ws, control('ScheduleWindow', { windows: [] }));
+
+          if (scenario === 'safe_info') {
+            // A no-games window: backend authors PlannedState(safe_info) over a
+            // real (empty) ProgramSlot — exactly what the live S7 re-push emits.
+            sendFrame(ws, control('AssetManifest', { version: 'v-e2e-1', assets: [] }));
+            sendFrame(ws, control('ProgramSlot', { program_slot_id: 'safe-slot', primary_game_id: null }));
+            sendFrame(ws, control('PlannedState', {
+              state_id: 'st-safe-1', business_mode: 'safe_info', program_slot_id: 'safe-slot',
+              ad_slot_id: null, dwell_target_ms: 0,
+              transition: { animation_id: 'cut', duration_ms: 0 }, theme_id: null,
+            }));
+            return;
+          }
+
+          if (scenario === 'ambient') {
+            // AssetManifest-driven branded gap-fill (D-GRH-26/27): ambient:* assets
+            // drive the rotation; the PlannedState carries a real (empty) slot.
+            sendFrame(ws, control('AssetManifest', { version: 'v-e2e-amb-1', assets: ambientAssets }));
+            sendFrame(ws, control('ProgramSlot', { program_slot_id: 'ambient-slot', primary_game_id: null }));
+            sendFrame(ws, control('PlannedState', {
+              state_id: 'st-amb-1', business_mode: 'ambient', program_slot_id: 'ambient-slot',
+              ad_slot_id: null, dwell_target_ms: 2000,
+              transition: { animation_id: 'fade_scale_up', duration_ms: 0 }, theme_id: null,
+            }));
+            return;
+          }
+
+          // default: single_game
           sendFrame(ws, control('AssetManifest', { version: 'v-e2e-1', assets: [] }));
           sendFrame(ws, control('ProgramSlot', { program_slot_id: 'slot-1', primary_game_id: GAME_ID }));
           sendFrame(ws, gameData('GameStateSnapshot', 100, {

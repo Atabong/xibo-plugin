@@ -30,6 +30,8 @@ interface GameRecord {
 
 export class GameStateStore {
   private readonly games = new Map<string, GameRecord>();
+  /** Cross-game liveness listeners (SPEC-CRWDQ-052 data_stale probe). */
+  private readonly allListeners = new Set<(state: GameState) => void>();
 
   constructor(private readonly journal: RenderJournal) {}
 
@@ -83,6 +85,17 @@ export class GameStateStore {
     return () => record.listeners.delete(listener);
   }
 
+  /**
+   * Subscribe to applied mutations across ALL games — every snapshot or
+   * accepted event fires it. The SPEC-CRWDQ-052 SafeStateController uses this
+   * as its data_stale liveness signal (any game progress resets the probe),
+   * without binding to a specific game id. Returns an unsubscribe fn.
+   */
+  subscribeAll(listener: (state: GameState) => void): () => void {
+    this.allListeners.add(listener);
+    return () => this.allListeners.delete(listener);
+  }
+
   private ensure(gameId: string): GameRecord {
     let record = this.games.get(gameId);
     if (!record) {
@@ -117,6 +130,9 @@ export class GameStateStore {
 
   private notify(record: GameRecord): void {
     for (const listener of record.listeners) {
+      listener(record.state);
+    }
+    for (const listener of this.allListeners) {
       listener(record.state);
     }
   }

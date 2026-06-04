@@ -21,7 +21,12 @@ export type RenderJournalEventType =
   | 'template_reconcile_skipped'
   | 'template_reconcile_dispatched'
   // --- part 2: overlay-ad branch (AC7) ---
-  | 'ad_slot_payload_unavailable';
+  | 'ad_slot_payload_unavailable'
+  // --- SPEC-CRWDQ-053 ambient template (D-GRH-26/27) ---
+  | 'ambient_empty_manifest'
+  | 'ambient_video_deferred'
+  | 'ambient_playlist_refreshed'
+  | 'ambient_creative_advanced';
 
 export interface RenderJournalEntry {
   type: RenderJournalEventType;
