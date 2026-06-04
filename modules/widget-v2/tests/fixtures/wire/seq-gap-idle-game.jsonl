@@ -1,0 +1,2 @@
+{"message_type":"GameEvent","game_id":"game-bench","seq":1,"kind":"tipoff"}
+{"message_type":"GameEvent","game_id":"game-bench","seq":8,"kind":"score","points":2,"team":"home"}
