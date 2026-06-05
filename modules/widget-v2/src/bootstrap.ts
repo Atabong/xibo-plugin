@@ -32,6 +32,7 @@
  * a mock crowdaq.v1 server.
  */
 import { CrowdaqWsClient, type WebSocketFactory, type WebSocketLike } from './transport/WsClient';
+import { createSessionLock, type SessionLock, type SessionLockHandle } from './transport/SessionLock';
 import { WireDeserializer, type Deserializer } from './transport/Deserializer';
 import type { ParseResult, ServerFrame } from './transport/types';
 import { FrameDispatcher, type ActiveGames } from './transport/Dispatcher';
@@ -412,6 +413,14 @@ export interface BootDeps {
   assetCache?: AssetCache & PreferenceDerivedCache;
   /** Asset fetcher seam. Defaults to an HTTP `fetch` fetcher. */
   assetFetcher?: AssetFetcher;
+  /**
+   * Cross-iframe single-session lock (S22). Defaults to a Web Locks API lock
+   * (or the leader-election fallback) keyed by bar so exactly ONE of Xibo's
+   * double-buffer iframes holds the WS at a time. Inject an
+   * {@link ImmediateSessionLock} in a single-instance test/harness, or a fake to
+   * drive the two-iframe takeover scenario deterministically.
+   */
+  sessionLock?: SessionLock;
 }
 
 /** Widget properties the CMS injects (the `<onRender>` `properties` object). */
@@ -815,8 +824,6 @@ export async function boot(
     random: deps.random ?? (() => Math.random()),
   });
 
-  journal.record({ event: 'widget_boot', wsUrl, barId, displayId });
-
   // Bind the deferred WS-lifecycle seam to the real client and start the
   // D-SAFE-01 player-fallback controller (now that the WS exists). The
   // controller arms its connectivity/staleness probes; on a threshold it
@@ -824,16 +831,65 @@ export async function boot(
   wsLifecycle.bind(client);
   safeController.start();
 
-  // 6. connect. The first server frame (ConfigPush) resolves connect().
-  await client.connect();
+  // 6. SINGLE-SESSION GATE (S22). Xibo runs TWO same-origin double-buffer
+  // iframes of this widget; both boot and both would `connect()` a WS with the
+  // same display_id, so the backend's correct one-session-per-display policy
+  // (SPEC-CRWDQ-020) evicts the older with `4006 replaced_by_newer` and the two
+  // iframes thrash — neither holds long enough to keep its PlannedState, so the
+  // bar decays to the player_fallback "Loading…" panel. The fix: only the holder
+  // of a per-bar cross-iframe lock connects. The non-holder waits and connects
+  // only if/when the holder releases (page hidden/unloaded/crashed). The backend
+  // policy is unchanged — this just guarantees a single session at the source.
+  const sessionLock =
+    deps.sessionLock ??
+    createSessionLock(`crowdaq-ws-bar-${barId}`, {
+      storage: deps.storage ?? null,
+    });
+
+  let lockHandle: SessionLockHandle | null = null;
+  let destroyed = false;
+  // Acquire the lock, THEN connect. boot() resolves without blocking on the
+  // acquire (a waiting iframe must still return a runtime handle); the connect
+  // happens in the background once this iframe wins the lock. The holder's own
+  // drops still recover via the WsClient's reconnect (it keeps the lock).
+  const connectWhenLeader = sessionLock
+    .acquire()
+    .then((handle) => {
+      if (destroyed) {
+        handle.release();
+        return;
+      }
+      lockHandle = handle;
+      journal.record({ event: 'widget_ws_session_acquired', barId, displayId });
+      return client.connect();
+    })
+    .catch((err) => {
+      journal.record({
+        event: 'widget_ws_session_lock_error',
+        barId,
+        error: err instanceof Error ? err.message : String(err),
+      });
+    });
+
+  journal.record({ event: 'widget_boot', wsUrl, barId, displayId });
 
   return {
     host,
     wsUrl,
     client,
     destroy: async () => {
+      destroyed = true;
       safeController.stop();
       await client.close();
+      // Release the lock so the OTHER iframe (or a fresh boot) can take over the
+      // single session immediately, not after the lease times out. Do NOT await
+      // `connectWhenLeader`: if this iframe never won the lock its acquire is
+      // still pending, and if it did, `client.connect()` resolves only on the
+      // first server frame — neither is a teardown precondition. Swallow any
+      // late rejection so an unhandled-rejection never escapes.
+      connectWhenLeader.catch(() => {});
+      lockHandle?.release();
+      lockHandle = null;
       host.remove();
     },
   };
