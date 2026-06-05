@@ -459,6 +459,14 @@ export interface WidgetRuntime {
 /** Stable test id for the mounted host (parallels the template TESTID set). */
 export const HOST_TESTID = 'crowdaq-widget-v2';
 
+/**
+ * SPEC-CRWDQ-S58 — deployed build marker. Stamped on the `widget_boot` journal
+ * line so the operator can confirm (via the player console / `kubectl logs`)
+ * that a given player picked up THIS build (the never-blank fix) and not a stale
+ * cached bundle. Bump on each deployed widget build.
+ */
+export const BUILD_MARKER = 'build:s58-never-blank';
+
 /** Default heartbeat cadence (D-GRH-59 / SPEC-CRWDQ-022). */
 const DEFAULT_HEARTBEAT_MS = 30_000;
 const DEFAULT_ACK_TIMEOUT_MS = 10_000;
@@ -910,7 +918,7 @@ export async function boot(
       });
     });
 
-  journal.record({ event: 'widget_boot', wsUrl, barId, displayId });
+  journal.record({ event: 'widget_boot', build: BUILD_MARKER, wsUrl, barId, displayId });
 
   return {
     host,
