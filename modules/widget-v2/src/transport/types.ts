@@ -117,6 +117,25 @@ export interface WsClientConfig {
   heartbeatIntervalMs: number;
   ackTimeoutMs: number;
   reconnect: ReconnectPolicy;
+  /**
+   * SPEC-CRWDQ-S41 inbound-frame liveness watchdog (ms). If NO server frame of
+   * any kind (ConfigPush, game data, or even a HeartbeatAck) arrives within this
+   * window, the socket is treated as silently dead — the half-open case a
+   * proxy/pod roll leaves behind, where the browser delivers neither `error`
+   * nor `close` — and the client force-closes + reconnects. This is the
+   * fast-path complement to the (slower) heartbeat-ack liveness loss: it bounds
+   * worst-case detection of a dead-but-open socket to roughly this window rather
+   * than `heartbeatIntervalMs + ackTimeoutMs`. Optional; when absent the
+   * watchdog is disabled and only the heartbeat-ack path detects liveness loss.
+   */
+  livenessTimeoutMs?: number;
+  /**
+   * Optional URL re-resolver (SPEC-CRWDQ-S41). Called before EVERY (re)connect so
+   * an `established-then-dropped` reconnect re-resolves the WS endpoint (e.g. the
+   * `ts-game-delivery-tailnet` proxy may have moved) instead of pinning the URL
+   * captured at construction. Returns null to fall back to the static `url`.
+   */
+  resolveUrl?: () => string | null;
 }
 
 export interface WsClient {

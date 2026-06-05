@@ -462,6 +462,16 @@ export const HOST_TESTID = 'crowdaq-widget-v2';
 /** Default heartbeat cadence (D-GRH-59 / SPEC-CRWDQ-022). */
 const DEFAULT_HEARTBEAT_MS = 30_000;
 const DEFAULT_ACK_TIMEOUT_MS = 10_000;
+/**
+ * SPEC-CRWDQ-S41 inbound-frame liveness watchdog (ms). A healthy link delivers
+ * at least a HeartbeatAck every heartbeat interval (30 s); silence well past one
+ * interval means the socket is dead-but-open (the half-open proxy/pod-roll case
+ * that left the bar stuck on stale safe_info with no manual recovery). Set to
+ * ~2.3× the heartbeat interval so a single missed ack window does not flap the
+ * connection, while a genuinely dead socket is detected and reconnected in ~70 s
+ * — far faster than waiting for the OS TCP timeout that may never arrive.
+ */
+const DEFAULT_LIVENESS_TIMEOUT_MS = 70_000;
 
 /**
  * Boot the Widget v2 single_game runtime into `target`. Resolves once the host
@@ -813,7 +823,16 @@ export async function boot(
     playerVersion: properties.playerVersion ?? 'widget-v2',
     heartbeatIntervalMs: properties.heartbeatIntervalMs ?? DEFAULT_HEARTBEAT_MS,
     ackTimeoutMs: DEFAULT_ACK_TIMEOUT_MS,
-    reconnect: { initialDelayMs: 1000, maxDelayMs: 30_000, jitter: 'full' },
+    // SPEC-CRWDQ-S41: cap reconnect backoff at 15 s (was 30 s) so a bar self-
+    // heals promptly after the backend returns; retry is INDEFINITE (the
+    // WsClient never stops scheduling reconnects until a clean close()).
+    reconnect: { initialDelayMs: 1000, maxDelayMs: 15_000, jitter: 'full' },
+    // SPEC-CRWDQ-S41: detect a silently dead (half-open) socket — the proxy/pod-
+    // roll case — and force a reconnect even when the browser delivers no
+    // error/close. Re-resolve the WS URL on every (re)connect so a reconnect
+    // rejoins the current endpoint after the tailnet proxy moves.
+    livenessTimeoutMs: DEFAULT_LIVENESS_TIMEOUT_MS,
+    resolveUrl: () => resolveWsUrl(properties.wsBaseUrl ?? '', info),
   };
   const client = new CrowdaqWsClient(config, {
     webSocketFactory: deps.webSocketFactory ?? browserWebSocketFactory,

@@ -377,6 +377,23 @@ export function startMockServer(options = {}) {
           if (!activeSocket) throw new Error('no active player socket');
           sendFrame(activeSocket, gameData('GameEvent', 101, { home_score: 1, last_moment: 'GOAL! Brazil takes the lead' }));
         },
+        /**
+         * SPEC-CRWDQ-S41: simulate a proxy/pod roll by abruptly dropping the
+         * active player socket. The player must re-establish on its OWN (no
+         * manual reconnect) — the server then receives a fresh DeviceRegistration
+         * and re-pushes the full state. terminate() destroys the TCP socket with
+         * no clean close handshake, the closest analogue to a yanked connection.
+         */
+        dropActive() {
+          if (!activeSocket) throw new Error('no active player socket to drop');
+          const sock = activeSocket;
+          activeSocket = null;
+          sock.terminate();
+        },
+        /** Count of DeviceRegistration frames received (one per (re)connect). */
+        registrationCount() {
+          return events.filter((e) => e.kind === 'recv' && e.message_type === 'DeviceRegistration').length;
+        },
         close() {
           return new Promise((r) => wss.close(r));
         },

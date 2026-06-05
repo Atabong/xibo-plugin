@@ -327,6 +327,150 @@ describe('WsClient reconnect (AC7)', () => {
   });
 });
 
+describe('WsClient S41 indefinite + reliable recovery (SPEC-CRWDQ-S41)', () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+    vi.setSystemTime(0);
+  });
+  afterEach(() => { vi.useRealTimers(); });
+
+  async function connect(ctx: ReturnType<typeof build>, idx = 0) {
+    const p = ctx.client.connect();
+    ctx.sockets[idx]!.simulateOpen();
+    ctx.sockets[idx]!.simulateMessage(configPush);
+    await p;
+  }
+
+  const regCount = (sock: FakeWebSocket): number =>
+    sock.sent.filter((s) => JSON.parse(s).message_type === 'DeviceRegistration').length;
+
+  it('re-establishes after an established-then-dropped transport close (proxy/pod roll, 1006)', async () => {
+    // The live bug: an OPEN socket drops on a proxy/pod roll (1006) and must
+    // re-establish on its own — no manual proxy restart, no F5.
+    const ctx = build();
+    await connect(ctx);
+    expect(ctx.sockets).toHaveLength(1);
+
+    ctx.sockets[0]!.simulateClose(1006); // the roll drops the established conn
+    const recon = ctx.lifecycle.filter((e) => e.event === 'reconnect').pop()!;
+    expect(recon).toBeDefined();
+
+    vi.advanceTimersByTime(recon.info.delayMs!);
+    expect(ctx.sockets).toHaveLength(2); // self-healed: a new socket was minted
+
+    // The reconnected socket re-runs the full handshake (re-subscribe to
+    // crowdaq.v1 + re-request current state via the seq-bearing registration).
+    ctx.sockets[1]!.simulateOpen();
+    expect(regCount(ctx.sockets[1]!)).toBe(1);
+
+    // And a real PlannedState arriving on the new socket resets the attempt
+    // counter (link proven healthy again).
+    ctx.sockets[1]!.simulateMessage(configPush);
+    await ctx.client.close();
+  });
+
+  it('recovers from REPEATED drops, re-subscribing each time', async () => {
+    const ctx = build(makeConfig(), () => 1); // top of jitter window => deterministic
+    await connect(ctx);
+
+    for (let i = 0; i < 5; i++) {
+      const live = ctx.sockets[ctx.sockets.length - 1]!;
+      live.simulateClose(1006);
+      const recon = ctx.lifecycle.filter((e) => e.event === 'reconnect').pop()!;
+      vi.advanceTimersByTime(recon.info.delayMs!);
+      const fresh = ctx.sockets[ctx.sockets.length - 1]!;
+      fresh.simulateOpen();
+      fresh.simulateMessage(configPush); // healthy frame resets backoff each time
+      expect(regCount(fresh)).toBe(1); // re-subscribed on every reconnect
+    }
+    // 1 original + 5 reconnects.
+    expect(ctx.sockets).toHaveLength(6);
+    await ctx.client.close();
+  });
+
+  it('retries FOREVER (never gives up) across many consecutive failed reconnects', async () => {
+    // Every reconnect attempt itself fails (pre-open error, no open). The client
+    // must keep scheduling — a bar recovers whenever the backend returns.
+    const ctx = build(makeConfig({ reconnect: { initialDelayMs: 1_000, maxDelayMs: 4_000, jitter: 'none' } }));
+    await connect(ctx);
+
+    ctx.sockets[0]!.simulateClose(1006);
+    for (let i = 0; i < 50; i++) {
+      const recon = ctx.lifecycle.filter((e) => e.event === 'reconnect').pop()!;
+      expect(recon.info.attempt).toBe(i + 1); // monotonic, never resets without a live frame
+      vi.advanceTimersByTime(recon.info.delayMs!);
+      // the freshly-minted socket also fails to open (pre-open error, no close)
+      ctx.sockets[ctx.sockets.length - 1]!.simulateError('still down');
+    }
+    // 50 reconnect attempts scheduled — proof it does not give up.
+    expect(ctx.lifecycle.filter((e) => e.event === 'reconnect').length).toBeGreaterThanOrEqual(50);
+    await ctx.client.close();
+  });
+
+  it('liveness watchdog: a silently-dead (half-open) socket forces a reconnect with no error/close', async () => {
+    // The proxy/pod-roll half-open case: the socket stays OPEN, no error and no
+    // close ever arrive, frames just stop. The S41 inbound-frame watchdog must
+    // detect the silence and reconnect on its own.
+    const ctx = build(makeConfig({ livenessTimeoutMs: 70_000 }));
+    await connect(ctx); // configPush armed the watchdog
+
+    // No further frames. Advance just past the watchdog window.
+    vi.advanceTimersByTime(70_000);
+
+    // The watchdog fired: it force-closed and scheduled a reconnect.
+    expect(ctx.sockets[0]!.closedWith?.reason).toBe('ws_liveness_lost');
+    const recon = ctx.lifecycle.filter((e) => e.event === 'reconnect').pop();
+    expect(recon).toBeDefined();
+    vi.advanceTimersByTime(recon!.info.delayMs!);
+    expect(ctx.sockets).toHaveLength(2); // self-healed
+    await ctx.client.close();
+  });
+
+  it('liveness watchdog is RESET by inbound frames (a healthy link never flaps)', async () => {
+    const ctx = build(makeConfig({ livenessTimeoutMs: 70_000 }));
+    await connect(ctx);
+
+    // A frame every 60s keeps resetting the 70s watchdog — it must never fire.
+    for (let i = 0; i < 5; i++) {
+      vi.advanceTimersByTime(60_000);
+      ctx.sockets[0]!.simulateMessage(JSON.stringify({ message_type: 'HeartbeatAck', seq: i + 1 }));
+    }
+    expect(ctx.sockets).toHaveLength(1); // never reconnected
+    expect(ctx.lifecycle.filter((e) => e.event === 'reconnect')).toHaveLength(0);
+    await ctx.client.close();
+  });
+
+  it('re-resolves the WS URL on every reconnect (endpoint may move during a roll)', async () => {
+    const urls = ['wss://proxy-a.tailnet/ws', 'wss://proxy-b.tailnet/ws'];
+    let i = 0;
+    const ctx = build(makeConfig({ url: urls[0]!, resolveUrl: () => urls[Math.min(i, urls.length - 1)] ?? null }));
+    await connect(ctx);
+    expect(ctx.sockets[0]!.url).toBe('wss://proxy-a.tailnet/ws');
+
+    i = 1; // the proxy moved
+    ctx.sockets[0]!.simulateClose(1006);
+    const recon = ctx.lifecycle.filter((e) => e.event === 'reconnect').pop()!;
+    vi.advanceTimersByTime(recon.info.delayMs!);
+    expect(ctx.sockets[1]!.url).toBe('wss://proxy-b.tailnet/ws'); // rejoined the new endpoint
+    await ctx.client.close();
+  });
+
+  it('a clean close() after recovery still suppresses any further reconnect', async () => {
+    const ctx = build(makeConfig({ livenessTimeoutMs: 70_000 }));
+    await connect(ctx);
+    ctx.sockets[0]!.simulateClose(1006);
+    const recon = ctx.lifecycle.filter((e) => e.event === 'reconnect').pop()!;
+    vi.advanceTimersByTime(recon.info.delayMs!);
+    ctx.sockets[1]!.simulateOpen();
+    ctx.sockets[1]!.simulateMessage(configPush);
+
+    await ctx.client.close(); // intentional
+    const socketsAfter = ctx.sockets.length;
+    vi.advanceTimersByTime(300_000); // no watchdog, no reconnect after a clean close
+    expect(ctx.sockets).toHaveLength(socketsAfter);
+  });
+});
+
 describe('WsClient heartbeat liveness close (AC6 integration)', () => {
   beforeEach(() => {
     vi.useFakeTimers();

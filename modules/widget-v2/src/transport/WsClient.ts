@@ -119,6 +119,14 @@ export class CrowdaqWsClient implements WsClient {
   private connectResolve: (() => void) | null = null;
   /** Listeners bound to the current socket, retained for teardown. */
   private boundListeners: Array<[string, (ev: unknown) => void]> = [];
+  /**
+   * SPEC-CRWDQ-S41 inbound-frame liveness watchdog. Reset on EVERY inbound
+   * frame (any server frame, including a HeartbeatAck). If it fires, the socket
+   * has gone silent past `livenessTimeoutMs` — the half-open proxy/pod-roll
+   * case where neither `error` nor `close` is delivered — and we force a
+   * reconnect. Null when disabled or no socket is live.
+   */
+  private livenessTimer: ReturnType<typeof setTimeout> | null = null;
 
   constructor(
     private readonly config: WsClientConfig,
@@ -166,6 +174,7 @@ export class CrowdaqWsClient implements WsClient {
   close(): Promise<void> {
     this.intentionalClose = true;
     this.cancelReconnect();
+    this.cancelLivenessWatchdog();
     this.heartbeat.stop();
     this.socket?.close(CLEAN_CLOSE, 'ws_close_clean');
     this.emit('close', { code: CLEAN_CLOSE, reason: 'ws_close_clean' });
@@ -182,7 +191,13 @@ export class CrowdaqWsClient implements WsClient {
     this.teardownSocket();
     this.opened = false;
     this.failureHandled = false;
-    const ws = this.deps.webSocketFactory(this.config.url, SUBPROTOCOL);
+    // SPEC-CRWDQ-S41: re-resolve the WS URL on EVERY (re)connect so an
+    // established-then-dropped reconnect rejoins the CURRENT endpoint (the
+    // tailnet proxy may have moved during a roll) rather than a stale captured
+    // URL. Falls back to the static config URL when no resolver is configured
+    // or it yields nothing.
+    const url = this.config.resolveUrl?.() ?? this.config.url;
+    const ws = this.deps.webSocketFactory(url, SUBPROTOCOL);
     this.socket = ws;
 
     this.bind(ws, 'open', () => this.onOpen());
@@ -194,10 +209,18 @@ export class CrowdaqWsClient implements WsClient {
   private onOpen(): void {
     this.opened = true;
     // D-GRH-61: a single DeviceRegistration is the first outbound frame on
-    // every open. ConfigPush arrival (the first server frame) implicitly
-    // acks it, which is what resolves connect().
+    // every open (first connect AND every reconnect). It carries lastSeq +
+    // lastConfigHash, so the backend's conn-registry replays the CURRENT
+    // PlannedState/ConfigPush on (re)registration — i.e. registration IS the
+    // re-subscribe + state-resync after a drop (SPEC-CRWDQ-S41). The first
+    // resulting server frame both implicitly acks the registration (resolving
+    // connect()) and supersedes any local safe_info fallback.
     this.sendRegistration();
     this.heartbeat.start();
+    // SPEC-CRWDQ-S41: arm the inbound-frame liveness watchdog for this socket.
+    // A healthy link delivers at least a HeartbeatAck every heartbeat interval;
+    // silence past livenessTimeoutMs means the socket is dead-but-open.
+    this.armLivenessWatchdog();
     this.emit('open', {});
   }
 
@@ -255,6 +278,7 @@ export class CrowdaqWsClient implements WsClient {
     }
 
     this.reconnectAttempt = 0; // a live frame proves the link is healthy.
+    this.armLivenessWatchdog(); // SPEC-CRWDQ-S41: any inbound frame is liveness.
     this.trackResyncState(frame);
 
     if (frame.message_type === 'HeartbeatAck') {
@@ -309,6 +333,7 @@ export class CrowdaqWsClient implements WsClient {
     this.failureHandled = true;
 
     this.heartbeat.stop();
+    this.cancelLivenessWatchdog();
     this.emit('close', code !== undefined ? { code } : {});
 
     if (this.intentionalClose) {
@@ -322,11 +347,24 @@ export class CrowdaqWsClient implements WsClient {
     }
   }
 
-  /** Heartbeat liveness loss: close clean, then reconnect (AC6). */
+  /**
+   * Liveness loss — either the heartbeat-ack path (AC6) OR the SPEC-CRWDQ-S41
+   * inbound-frame watchdog. The socket is (or has gone) dead; force a clean
+   * close and reconnect. Routes through {@link handleConnectionFailure} with a
+   * synthetic 1006 so a single recovery runs (the `failureHandled` guard
+   * dedupes against the browser's own close that may follow our `close()`), the
+   * `close` lifecycle event fires (arming the SafeStateController fallback), and
+   * a reconnect is unconditionally scheduled. This is the established-then-
+   * dropped self-heal: it MUST recover regardless of any close code.
+   */
   private onLivenessLost(): void {
     this.heartbeat.stop();
-    this.socket?.close(CLEAN_CLOSE, 'ws_close_clean');
-    this.scheduleReconnect();
+    this.cancelLivenessWatchdog();
+    // Close the (possibly half-open) socket so the browser releases it; the
+    // synthetic-1006 failure path below owns the reconnect, not the resulting
+    // close event (which is deduped).
+    this.socket?.close(CLEAN_CLOSE, 'ws_liveness_lost');
+    this.handleConnectionFailure(1006);
   }
 
   // --- reconnect (AC7) -------------------------------------------------------
@@ -360,6 +398,34 @@ export class CrowdaqWsClient implements WsClient {
     if (this.reconnectTimer !== null) {
       clearTimeout(this.reconnectTimer);
       this.reconnectTimer = null;
+    }
+  }
+
+  // --- inbound-frame liveness watchdog (SPEC-CRWDQ-S41) ----------------------
+
+  /**
+   * (Re)arm the inbound-frame watchdog. A no-op when `livenessTimeoutMs` is not
+   * configured (watchdog disabled) or the connection is intentionally closing.
+   * Each inbound frame resets the deadline; expiry means the socket has gone
+   * silent and is treated as dead via {@link onLivenessLost}.
+   */
+  private armLivenessWatchdog(): void {
+    const timeoutMs = this.config.livenessTimeoutMs;
+    if (timeoutMs === undefined || timeoutMs <= 0 || this.intentionalClose) return;
+    this.cancelLivenessWatchdog();
+    this.livenessTimer = setTimeout(() => {
+      this.livenessTimer = null;
+      // Guard: a teardown or already-handled failure between arm and fire must
+      // not double-recover.
+      if (this.intentionalClose || this.failureHandled) return;
+      this.onLivenessLost();
+    }, timeoutMs);
+  }
+
+  private cancelLivenessWatchdog(): void {
+    if (this.livenessTimer !== null) {
+      clearTimeout(this.livenessTimer);
+      this.livenessTimer = null;
     }
   }
 
