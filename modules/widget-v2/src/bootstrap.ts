@@ -462,6 +462,16 @@ export const HOST_TESTID = 'crowdaq-widget-v2';
 /** Default heartbeat cadence (D-GRH-59 / SPEC-CRWDQ-022). */
 const DEFAULT_HEARTBEAT_MS = 30_000;
 const DEFAULT_ACK_TIMEOUT_MS = 10_000;
+/**
+ * SPEC-CRWDQ-S41 inbound-frame liveness watchdog (ms). A healthy link delivers
+ * at least a HeartbeatAck every heartbeat interval (30 s); silence well past one
+ * interval means the socket is dead-but-open (the half-open proxy/pod-roll case
+ * that left the bar stuck on stale safe_info with no manual recovery). Set to
+ * ~2.3× the heartbeat interval so a single missed ack window does not flap the
+ * connection, while a genuinely dead socket is detected and reconnected in ~70 s
+ * — far faster than waiting for the OS TCP timeout that may never arrive.
+ */
+const DEFAULT_LIVENESS_TIMEOUT_MS = 70_000;
 
 /**
  * Boot the Widget v2 single_game runtime into `target`. Resolves once the host
@@ -581,6 +591,14 @@ export async function boot(
   // exists (INV-FACTORY-19 narrow seam — only the three connectivity events).
   const wsLifecycle = new DeferredWsLifecycle();
 
+  // SPEC-CRWDQ-S49 — late-bound resync seam. The SafeStateController is built
+  // before the CrowdaqWsClient (step 5), so the controller's active-resync
+  // trigger is a closure over a mutable client ref filled in once the client
+  // exists. While the controller is held in a player-side fallback it calls this
+  // to recycle the WS (the proven self-heal: reconnect→re-register→re-push), so
+  // the bar recovers on its own instead of waiting for a spontaneous re-push.
+  let wsClientRef: CrowdaqWsClient | null = null;
+
   // safe_info (default standing state). The controller also synthesizes safe_info
   // on the D-SAFE-01 player-side thresholds (control-channel loss / stale data /
   // no-state), routing through the normal activator.
@@ -593,6 +611,8 @@ export async function boot(
     barPreferences: () => lastPrefs,
     assetManifestStore: assets,
     lastThemeId: () => lastThemeId,
+    // SPEC-CRWDQ-S49 — drive an active resync while stuck in a player fallback.
+    requestResync: () => wsClientRef?.forceResync(),
   });
   activator.registerTemplate(
     'safe_info',
@@ -813,7 +833,16 @@ export async function boot(
     playerVersion: properties.playerVersion ?? 'widget-v2',
     heartbeatIntervalMs: properties.heartbeatIntervalMs ?? DEFAULT_HEARTBEAT_MS,
     ackTimeoutMs: DEFAULT_ACK_TIMEOUT_MS,
-    reconnect: { initialDelayMs: 1000, maxDelayMs: 30_000, jitter: 'full' },
+    // SPEC-CRWDQ-S41: cap reconnect backoff at 15 s (was 30 s) so a bar self-
+    // heals promptly after the backend returns; retry is INDEFINITE (the
+    // WsClient never stops scheduling reconnects until a clean close()).
+    reconnect: { initialDelayMs: 1000, maxDelayMs: 15_000, jitter: 'full' },
+    // SPEC-CRWDQ-S41: detect a silently dead (half-open) socket — the proxy/pod-
+    // roll case — and force a reconnect even when the browser delivers no
+    // error/close. Re-resolve the WS URL on every (re)connect so a reconnect
+    // rejoins the current endpoint after the tailnet proxy moves.
+    livenessTimeoutMs: DEFAULT_LIVENESS_TIMEOUT_MS,
+    resolveUrl: () => resolveWsUrl(properties.wsBaseUrl ?? '', info),
   };
   const client = new CrowdaqWsClient(config, {
     webSocketFactory: deps.webSocketFactory ?? browserWebSocketFactory,
@@ -823,6 +852,10 @@ export async function boot(
     now: deps.now ?? (() => Date.now()),
     random: deps.random ?? (() => Math.random()),
   });
+
+  // SPEC-CRWDQ-S49 — fill the late-bound client ref so the controller's
+  // active-resync seam can recycle the WS once the client exists.
+  wsClientRef = client;
 
   // Bind the deferred WS-lifecycle seam to the real client and start the
   // D-SAFE-01 player-fallback controller (now that the WS exists). The

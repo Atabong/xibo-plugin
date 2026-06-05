@@ -132,14 +132,32 @@ describe('SafeInfoTemplate render (SPEC-CRWDQ-052 part 1)', () => {
 
   describe('footer status text matches the source/reason map exactly (AC7)', () => {
     const cases: Array<[SafeSource, string]> = [
-      [{ kind: 'backend_planned', reason: 'scheduled' }, ''],
-      [{ kind: 'backend_planned', reason: 'no_content' }, ''],
-      [{ kind: 'backend_planned', reason: 'maintenance' }, 'Brief pause'],
-      [{ kind: 'player_fallback', reason: 'control_channel_lost' }, 'Reconnecting…'],
-      [{ kind: 'player_fallback', reason: 'data_stale' }, 'Refreshing…'],
-      [{ kind: 'player_fallback', reason: 'no_recent_state' }, 'Loading…'],
-      [{ kind: 'template_escalation', reason: 'template_input_invalid' }, 'Loading…'],
-      [{ kind: 'template_escalation', reason: 'template_buffer_timeout' }, 'Loading…'],
+      [
+        { kind: 'backend_planned', reason: 'scheduled' },
+        'Connected to CROWDAQ · waiting for next game',
+      ],
+      [
+        { kind: 'backend_planned', reason: 'no_content' },
+        'Connected to CROWDAQ · nothing scheduled',
+      ],
+      [
+        { kind: 'backend_planned', reason: 'maintenance' },
+        'Connected to CROWDAQ · scheduled maintenance',
+      ],
+      [
+        { kind: 'player_fallback', reason: 'control_channel_lost' },
+        'Reconnecting to CROWDAQ backend…',
+      ],
+      [{ kind: 'player_fallback', reason: 'data_stale' }, 'Reconnecting · showing last update'],
+      [{ kind: 'player_fallback', reason: 'no_recent_state' }, 'Connecting to CROWDAQ backend…'],
+      [
+        { kind: 'template_escalation', reason: 'template_input_invalid' },
+        'Recovering display · data issue',
+      ],
+      [
+        { kind: 'template_escalation', reason: 'template_buffer_timeout' },
+        'Recovering display · timed out',
+      ],
     ];
 
     it.each(cases)('%o -> %j', (source, expected) => {
