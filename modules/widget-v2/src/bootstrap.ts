@@ -574,6 +574,12 @@ export async function boot(
     // Late-bound: forwards each activation to the SafeStateController (built
     // just below) so its no_recent_state / data_stale probes track the mode.
     onActivated: (mode) => safeController.notePlannedState(mode),
+    // SPEC-CRWDQ-S58 NEVER-BLANK (D-SAFE-01): an unsatisfiable/invalid content
+    // PlannedState (e.g. multiple_games_with_ads with a missing ad_slot) or a
+    // template that throws while mounting escalates to the calm safe_info panel
+    // instead of leaving the bar blank. Late-bound onto the SafeStateController
+    // built just below; routes through the SAME activator (Path C).
+    escalateToSafe: (reason) => safeController.escalateFromTemplate(reason),
     // SPEC-CRWDQ-S11 — real club crests for the built-in single_game score-bug.
     crestResolver,
   });

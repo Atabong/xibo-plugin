@@ -13,11 +13,14 @@ export default defineConfig({
     // SPEC-CRWDQ-063 mounts the canned override overlay into real DOM, so the
     // overrides suite runs under jsdom as well. Other suites stay on node (no
     // behavioural change).
+    // SPEC-CRWDQ-S58 never-blank escalation tests mount real DOM through the
+    // activator + SafeStateController, so the render suite runs under jsdom too.
     environmentMatchGlobs: [
       ['tests/config/**', 'jsdom'],
       ['tests/templates/**', 'jsdom'],
       ['tests/overlays/**', 'jsdom'],
       ['tests/overrides/**', 'jsdom'],
+      ['tests/render/**', 'jsdom'],
     ],
   },
 });
