@@ -92,18 +92,27 @@ export function venueBrandAssetId(barId: string): string {
 
 /**
  * The source/reason -> footer-text map (AC7). Calm, non-alarming phrasings
- * only: backend-planned scheduled/no_content render empty; every other reason
- * maps to a low-key "we're on it" indicator. These are player-authored
- * indicators, not echoes of any wire field (D-GRH-76 reconciled).
+ * only: every reason maps to an explicit, patron-legible status — backend-planned
+ * reasons affirm the CROWDAQ link ("Connected to CROWDAQ · …"), player fallbacks
+ * say we are reconnecting/connecting, and template escalations say the display is
+ * recovering. These are player-authored indicators, not echoes of any wire field
+ * (D-GRH-76 reconciled).
  */
 const FOOTER_STATUS: Record<SafeSource['kind'], Record<string, string>> = {
-  backend_planned: { scheduled: '', no_content: '', maintenance: 'Brief pause' },
-  player_fallback: {
-    control_channel_lost: 'Reconnecting…',
-    data_stale: 'Refreshing…',
-    no_recent_state: 'Loading…',
+  backend_planned: {
+    scheduled: 'Connected to CROWDAQ · waiting for next game',
+    no_content: 'Connected to CROWDAQ · nothing scheduled',
+    maintenance: 'Connected to CROWDAQ · scheduled maintenance',
   },
-  template_escalation: { template_input_invalid: 'Loading…', template_buffer_timeout: 'Loading…' },
+  player_fallback: {
+    control_channel_lost: 'Reconnecting to CROWDAQ backend…',
+    data_stale: 'Reconnecting · showing last update',
+    no_recent_state: 'Connecting to CROWDAQ backend…',
+  },
+  template_escalation: {
+    template_input_invalid: 'Recovering display · data issue',
+    template_buffer_timeout: 'Recovering display · timed out',
+  },
 };
 
 /** Footer text for a source, or '' when the map has no entry (defensive). */

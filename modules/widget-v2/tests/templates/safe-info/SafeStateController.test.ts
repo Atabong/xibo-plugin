@@ -362,14 +362,14 @@ describe('SafeStateController (SPEC-CRWDQ-052 part 1)', () => {
       expect(h.controller.state().inSafe).toBe(true);
     });
 
-    it('escalateFromTemplate(template_buffer_timeout) renders "Loading…" footer', async () => {
+    it('escalateFromTemplate(template_buffer_timeout) renders the recovery footer', async () => {
       const h = makeHarness();
       h.controller.start();
       h.controller.escalateFromTemplate('template_buffer_timeout');
       await vi.advanceTimersByTimeAsync(0);
 
       const status = safeRoot(h.host)!.querySelector<HTMLElement>('.cdq-safe-status')!;
-      expect(status.textContent).toBe('Loading…');
+      expect(status.textContent).toBe('Recovering display · timed out');
     });
   });
 
