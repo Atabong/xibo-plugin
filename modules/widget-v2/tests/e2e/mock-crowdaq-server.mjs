@@ -347,7 +347,12 @@ export function startMockServer(options = {}) {
           sendFrame(ws, control('ProgramSlot', { program_slot_id: 'slot-1', primary_game_id: GAME_ID }));
           sendFrame(ws, gameData('GameStateSnapshot', 100, {
             home_team: sg.home, away_team: sg.away, home_score: sg.hs, away_score: sg.as,
-            sport_context: { sport: sg.sport, league: sg.league, period_clock: sg.clock },
+            // SPEC-CRWDQ-084 — carry the rich sport detail + event timeline when the
+            // driver supplies them, so the headless render proof exercises the
+            // football/baseball DETAIL panels against the REAL bundle + CSS.
+            sport_context: { sport: sg.sport, league: sg.league, period_clock: sg.clock, ...(sg.detail ? { detail: sg.detail } : {}) },
+            ...(sg.timeline ? { timeline: sg.timeline } : {}),
+            ...(sg.status ? { status: sg.status } : {}),
           }));
           sendFrame(ws, control('PlannedState', {
             state_id: 'st-1', business_mode: 'single_game', program_slot_id: 'slot-1',
@@ -376,6 +381,15 @@ export function startMockServer(options = {}) {
         emitGoal() {
           if (!activeSocket) throw new Error('no active player socket');
           sendFrame(activeSocket, gameData('GameEvent', 101, { home_score: 1, last_moment: 'GOAL! Brazil takes the lead' }));
+        },
+        /**
+         * SPEC-CRWDQ-084 — push a FULL GameState snapshot (authoritative). Used
+         * by the rich-render proof to drive the clock re-sync (a new minute the
+         * local clock snaps to) + the baseball inning-by-inning progression.
+         */
+        emitSnapshot(payload, seq = 110) {
+          if (!activeSocket) throw new Error('no active player socket');
+          sendFrame(activeSocket, gameData('GameStateSnapshot', seq, payload));
         },
         /**
          * SPEC-CRWDQ-S41: simulate a proxy/pod roll by abruptly dropping the
