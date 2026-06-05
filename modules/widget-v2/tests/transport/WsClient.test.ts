@@ -496,3 +496,73 @@ describe('WsClient heartbeat liveness close (AC6 integration)', () => {
     await ctx.client.close();
   });
 });
+
+describe('WsClient.forceResync (SPEC-CRWDQ-S49)', () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+    vi.setSystemTime(0);
+  });
+  afterEach(() => { vi.useRealTimers(); });
+
+  it('recycles a HEALTHY socket and reconnects, re-running the registration handshake', async () => {
+    const ctx = build();
+    const p = ctx.client.connect();
+    ctx.sockets[0]!.simulateOpen();
+    ctx.sockets[0]!.simulateMessage(configPush);
+    await p;
+    expect(ctx.client.isOpen()).toBe(true);
+
+    // The socket is perfectly healthy — no drop, no error. forceResync must
+    // still cleanly recycle it so the backend re-pushes (the stuck-data_stale
+    // self-heal). The close event arms a reconnect.
+    ctx.client.forceResync();
+    expect(ctx.sockets[0]!.closedWith?.code).toBe(1000);
+    const recon = ctx.lifecycle.find((e) => e.event === 'reconnect');
+    expect(recon).toBeDefined();
+
+    // The reconnect opens a fresh socket and re-registers (re-push trigger).
+    vi.advanceTimersByTime(recon!.info.delayMs!);
+    expect(ctx.sockets).toHaveLength(2);
+    ctx.sockets[1]!.simulateOpen();
+    const first = JSON.parse(ctx.sockets[1]!.sent[0]!);
+    expect(first.message_type).toBe('DeviceRegistration');
+    await ctx.client.close();
+  });
+
+  it('is a no-op while a reconnect is already pending (a drop is already healing)', async () => {
+    const ctx = build();
+    const p = ctx.client.connect();
+    ctx.sockets[0]!.simulateOpen();
+    ctx.sockets[0]!.simulateMessage(configPush);
+    await p;
+
+    // Drop the socket -> a reconnect is scheduled (reconnectTimer set).
+    ctx.sockets[0]!.simulateClose(1006);
+    const reconCount1 = ctx.lifecycle.filter((e) => e.event === 'reconnect').length;
+    expect(reconCount1).toBe(1);
+
+    // A resync while that reconnect is pending must NOT schedule a second one
+    // or mint another socket.
+    ctx.client.forceResync();
+    const reconCount2 = ctx.lifecycle.filter((e) => e.event === 'reconnect').length;
+    expect(reconCount2).toBe(1);
+    expect(ctx.sockets).toHaveLength(1);
+    await ctx.client.close();
+  });
+
+  it('is a no-op after an application close()', async () => {
+    const ctx = build();
+    const p = ctx.client.connect();
+    ctx.sockets[0]!.simulateOpen();
+    ctx.sockets[0]!.simulateMessage(configPush);
+    await p;
+    await ctx.client.close();
+
+    const before = ctx.sockets.length;
+    ctx.client.forceResync();
+    // No new socket, no reconnect scheduled after an intentional close.
+    expect(ctx.sockets).toHaveLength(before);
+    vi.advanceTimersByTime(60_000);
+    expect(ctx.sockets).toHaveLength(before);
+  });
+});

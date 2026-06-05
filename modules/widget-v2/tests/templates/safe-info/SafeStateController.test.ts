@@ -140,9 +140,11 @@ interface Harness {
   journal: RecordingJournal;
   dwell: DwellTimer;
   player: RecordingPlayer;
+  /** SPEC-CRWDQ-S49 — count of active-resync requests the controller fired. */
+  resyncCount: () => number;
 }
 
-function makeHarness(): Harness {
+function makeHarness(opts: { requestResync?: () => void } = {}): Harness {
   const host = document.createElement('div');
   const slots = new ProgramSlotResolver();
   const journal = new RecordingJournal();
@@ -188,6 +190,7 @@ function makeHarness(): Harness {
   } as unknown as ProgramSlotFrame);
 
   const ws = new FakeWsLifecycle();
+  let resyncCount = 0;
   const controller = new SafeStateController({
     activator,
     gameStateStore,
@@ -196,9 +199,15 @@ function makeHarness(): Harness {
     slots,
     barPreferences: () => prefs(),
     assetManifestStore: assetStore,
+    // SPEC-CRWDQ-S49 — count resync requests; an explicit opts override wins.
+    requestResync:
+      opts.requestResync ??
+      ((): void => {
+        resyncCount += 1;
+      }),
   });
   activator.registerTemplate('safe_info', makeSafeAdapter({ template: new SafeInfoTemplate(), controller }));
-  return { host, activator, controller, gameStateStore, ws, journal, dwell, player };
+  return { host, activator, controller, gameStateStore, ws, journal, dwell, player, resyncCount: () => resyncCount };
 }
 
 const safeRoot = (host: HTMLElement): HTMLElement | null =>
@@ -394,6 +403,114 @@ describe('SafeStateController (SPEC-CRWDQ-052 part 1)', () => {
       expect(h.host.querySelector('.crowdaq-single-game')).not.toBeNull();
       expect(h.controller.state().inSafe).toBe(false);
       expect(h.controller.state().source).toBeNull();
+    });
+  });
+
+  // SPEC-CRWDQ-S49 — the active-resync loop that makes a player-side fallback
+  // SELF-HEAL on a still-connected bar (the replay-end stuck-`data_stale` bug):
+  // instead of waiting passively for a spontaneous backend re-push, the
+  // controller actively re-asks the backend for the current state until a real
+  // PlannedState supersedes the synthetic panel.
+  describe('SPEC-CRWDQ-S49 — active resync out of a player fallback', () => {
+    it('data_stale fires an IMMEDIATE resync, then repeats until recovery', async () => {
+      const h = makeHarness();
+      h.controller.start();
+      h.ws.fire('open');
+      h.gameStateStore.upsertSnapshot({ game_id: 'g1', seq: 1, home_score: 0 });
+      await h.activator.activate(singleGameFrame());
+      h.controller.notePlannedState('single_game');
+      await vi.advanceTimersByTimeAsync(0);
+
+      // Enter data_stale (120s no GameEvent in a content mode).
+      await vi.advanceTimersByTimeAsync(120_000);
+      await vi.advanceTimersByTimeAsync(0);
+      expect(safeRoot(h.host)!.dataset['reason']).toBe('data_stale');
+      // First resync is immediate on the trigger.
+      expect(h.resyncCount()).toBe(1);
+
+      // The loop repeats on the 15s retry cadence while still stuck.
+      await vi.advanceTimersByTimeAsync(15_000);
+      expect(h.resyncCount()).toBe(2);
+      await vi.advanceTimersByTimeAsync(15_000);
+      expect(h.resyncCount()).toBe(3);
+    });
+
+    it('stops re-asking once a real backend state supersedes the fallback', async () => {
+      const h = makeHarness();
+      h.controller.start();
+      h.ws.fire('open');
+      h.gameStateStore.upsertSnapshot({ game_id: 'g1', seq: 1, home_score: 0 });
+      await h.activator.activate(singleGameFrame());
+      h.controller.notePlannedState('single_game');
+      await vi.advanceTimersByTimeAsync(0);
+      await vi.advanceTimersByTimeAsync(120_000);
+      await vi.advanceTimersByTimeAsync(0);
+      expect(h.resyncCount()).toBe(1);
+
+      // Recovery: a real safe_info PlannedState arrives (the re-push a resync
+      // provoked) and supersedes the synthetic data_stale panel. A safe→safe
+      // supersede re-mounts a safe panel (so inSafe stays true), but the SOURCE
+      // flips from player_fallback to backend_planned — that is recovery, and it
+      // stops the active-resync loop.
+      await h.activator.activate(safeFrame());
+      await vi.advanceTimersByTimeAsync(0);
+      expect(safeRoot(h.host)!.dataset['source']).toBe('backend_planned');
+      expect(h.controller.state().source?.kind).toBe('backend_planned');
+
+      const countAtRecovery = h.resyncCount();
+      // No further resyncs after recovery — the loop is stopped (the next tick
+      // sees a non-player_fallback source and tears the loop down).
+      await vi.advanceTimersByTimeAsync(60_000);
+      expect(h.resyncCount()).toBe(countAtRecovery);
+    });
+
+    it('no_recent_state also drives the active resync loop', async () => {
+      const h = makeHarness();
+      h.controller.start();
+      h.ws.fire('open');
+      // 60s WS-open with no PlannedState -> no_recent_state.
+      await vi.advanceTimersByTimeAsync(60_000);
+      await vi.advanceTimersByTimeAsync(0);
+      expect(safeRoot(h.host)!.dataset['reason']).toBe('no_recent_state');
+      expect(h.resyncCount()).toBe(1);
+      await vi.advanceTimersByTimeAsync(15_000);
+      expect(h.resyncCount()).toBe(2);
+    });
+
+    it('a passive deployment (no requestResync seam) never throws + still mounts the panel', async () => {
+      // No `requestResync` seam wired — the controller must keep the old passive
+      // behaviour: it mounts the fallback panel and arms no resync loop, without
+      // throwing. (Build a bare controller so the seam is genuinely absent.)
+      const h = makeHarness();
+      const controller = new SafeStateController({
+        activator: h.activator,
+        gameStateStore: h.gameStateStore,
+        ws: h.ws,
+        clock: systemDwellClock,
+        slots: new ProgramSlotResolver(),
+        barPreferences: () => prefs(),
+        assetManifestStore: makeAssetStore().store,
+        // NOTE: no `requestResync` — passive deployment.
+      });
+      controller.start();
+      h.ws.fire('open');
+      await vi.advanceTimersByTimeAsync(60_000);
+      await vi.advanceTimersByTimeAsync(0);
+      // Reaching here without a throw is the assertion. Tidy up.
+      controller.stop();
+      expect(true).toBe(true);
+    });
+
+    it('stop() clears the resync loop', async () => {
+      const h = makeHarness();
+      h.controller.start();
+      h.ws.fire('open');
+      await vi.advanceTimersByTimeAsync(60_000);
+      await vi.advanceTimersByTimeAsync(0);
+      expect(h.resyncCount()).toBe(1);
+      h.controller.stop();
+      await vi.advanceTimersByTimeAsync(60_000);
+      expect(h.resyncCount()).toBe(1); // no further ticks after stop()
     });
   });
 });

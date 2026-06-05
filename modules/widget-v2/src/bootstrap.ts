@@ -591,6 +591,14 @@ export async function boot(
   // exists (INV-FACTORY-19 narrow seam — only the three connectivity events).
   const wsLifecycle = new DeferredWsLifecycle();
 
+  // SPEC-CRWDQ-S49 — late-bound resync seam. The SafeStateController is built
+  // before the CrowdaqWsClient (step 5), so the controller's active-resync
+  // trigger is a closure over a mutable client ref filled in once the client
+  // exists. While the controller is held in a player-side fallback it calls this
+  // to recycle the WS (the proven self-heal: reconnect→re-register→re-push), so
+  // the bar recovers on its own instead of waiting for a spontaneous re-push.
+  let wsClientRef: CrowdaqWsClient | null = null;
+
   // safe_info (default standing state). The controller also synthesizes safe_info
   // on the D-SAFE-01 player-side thresholds (control-channel loss / stale data /
   // no-state), routing through the normal activator.
@@ -603,6 +611,8 @@ export async function boot(
     barPreferences: () => lastPrefs,
     assetManifestStore: assets,
     lastThemeId: () => lastThemeId,
+    // SPEC-CRWDQ-S49 — drive an active resync while stuck in a player fallback.
+    requestResync: () => wsClientRef?.forceResync(),
   });
   activator.registerTemplate(
     'safe_info',
@@ -842,6 +852,10 @@ export async function boot(
     now: deps.now ?? (() => Date.now()),
     random: deps.random ?? (() => Math.random()),
   });
+
+  // SPEC-CRWDQ-S49 — fill the late-bound client ref so the controller's
+  // active-resync seam can recycle the WS once the client exists.
+  wsClientRef = client;
 
   // Bind the deferred WS-lifecycle seam to the real client and start the
   // D-SAFE-01 player-fallback controller (now that the WS exists). The

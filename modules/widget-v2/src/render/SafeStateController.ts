@@ -58,6 +58,15 @@ export const SAFE_THRESHOLDS = {
   dataStaleMs: 120_000,
   /** WS open with no PlannedState before this -> no_recent_state. */
   noRecentStateMs: 60_000,
+  /**
+   * SPEC-CRWDQ-S49 — while held in a player-side fallback (`data_stale` /
+   * `no_recent_state`), re-ask the backend for the authoritative state every
+   * this-many ms until a real PlannedState supersedes the synthetic panel. 15 s
+   * matches the WsClient reconnect `maxDelayMs` so a resync-driven reconnect has
+   * settled before the next attempt; the bar recovers within ~1 cycle of the
+   * backend being reachable, with zero manual action.
+   */
+  resyncRetryMs: 15_000,
 } as const;
 
 /** The program_slot_id of the client-synthesized safe state (Path B/C). */
@@ -92,6 +101,24 @@ export interface SafeStateControllerDeps {
    * for a backend state, so the synthetic safe panel renders in the live theme.
    */
   lastThemeId?: () => string | null;
+  /**
+   * SPEC-CRWDQ-S49 — active-resync seam. Invoked while the controller is held
+   * in a player-side fallback (`data_stale` / `no_recent_state`) to ask the
+   * backend to re-deliver the CURRENT authoritative state (the production wiring
+   * recycles the WS so the standard re-register→re-push runs). Without it the
+   * fallback is PASSIVE: it waits for the backend to spontaneously re-push, which
+   * never happens for an unchanged authored window on a still-connected bar (the
+   * replay-end stuck-`data_stale` bug). Optional — a deployment without it keeps
+   * the old passive behaviour; the headless harness/tests inject a spy.
+   */
+  requestResync?: () => void;
+  /**
+   * SPEC-CRWDQ-S49 — interval (ms) between resync attempts while still held in a
+   * player fallback. Defaults to {@link SAFE_THRESHOLDS.resyncRetryMs}. The first
+   * resync fires immediately on the fallback trigger; subsequent ones repeat on
+   * this cadence until a real backend state supersedes the synthetic panel.
+   */
+  resyncRetryMs?: number;
 }
 
 /** Content modes whose staleness the data_stale probe watches (D-GRH-26). */
@@ -121,6 +148,11 @@ export class SafeStateController {
   /** True while a content mode is active (drives the data_stale probe). */
   private inContentMode = false;
   private gameUnsub: (() => void) | null = null;
+  /**
+   * SPEC-CRWDQ-S49 — the repeating resync timer armed while held in a player
+   * fallback (`data_stale`/`no_recent_state`). Null when no resync is in flight.
+   */
+  private resyncTimer: unknown = null;
 
   constructor(deps: SafeStateControllerDeps) {
     this.deps = deps;
@@ -157,6 +189,7 @@ export class SafeStateController {
     this.controlLostTimer = null;
     this.noStateTimer = null;
     this.dataStaleTimer = null;
+    this.stopResyncLoop();
     this.gameUnsub?.();
     this.gameUnsub = null;
   }
@@ -212,6 +245,10 @@ export class SafeStateController {
   noteDetached(): void {
     this.inSafe = false;
     this.currentSource = null;
+    // SPEC-CRWDQ-S49 — recovery: a real backend state superseded the synthetic
+    // safe panel, so stop the active-resync loop. (A subsequent fallback re-arms
+    // it.) Cheap + idempotent; safe to call when no loop is running.
+    this.stopResyncLoop();
   }
 
   /** Current diagnostic state. */
@@ -274,10 +311,69 @@ export class SafeStateController {
    * state (a second close-timeout while already control_channel_lost is a no-op).
    */
   private async trigger(source: SafeSource): Promise<void> {
-    if (this.inSafe && sameSource(this.currentSource, source)) return;
+    if (this.inSafe && sameSource(this.currentSource, source)) {
+      // Already in this exact fallback — re-arming the render is a no-op, but
+      // keep the active-resync loop alive so a still-stuck bar keeps re-asking
+      // the backend (SPEC-CRWDQ-S49). Idempotent: armResyncLoop no-ops if armed.
+      this.armResyncLoop(source);
+      return;
+    }
     this.pendingSource = source;
     this.synthCounter += 1;
+    // SPEC-CRWDQ-S49 — a player-side fallback is by definition "the backend has
+    // not given me the current truth". Actively re-ask for it (immediately, then
+    // on a retry cadence) until a real PlannedState supersedes this panel —
+    // rather than waiting passively for a spontaneous re-push that, for an
+    // unchanged authored window on a still-connected bar, never comes. The
+    // control_channel_lost case is already covered by the WsClient's own
+    // reconnect (the socket is DOWN); arming here too is harmless (forceResync
+    // no-ops while a reconnect is pending) and makes the recovery uniform.
+    this.armResyncLoop(source);
     await this.deps.activator.activate(this.syntheticFrame());
+  }
+
+  // --- active resync loop (SPEC-CRWDQ-S49) -----------------------------------
+
+  /**
+   * Arm (or keep alive) the repeating resync while held in a player fallback.
+   * The FIRST resync fires immediately so recovery starts without waiting a full
+   * retry cadence; thereafter it repeats every `resyncRetryMs` until
+   * {@link noteDetached}/{@link stop} clears it. A no-op when no `requestResync`
+   * seam is wired (passive deployment) or the source is not a player_fallback.
+   */
+  private armResyncLoop(source: SafeSource): void {
+    if (this.deps.requestResync === undefined) return;
+    if (source.kind !== 'player_fallback') return;
+    if (this.resyncTimer !== null) return; // already looping.
+    this.fireResync();
+    const retryMs = this.deps.resyncRetryMs ?? SAFE_THRESHOLDS.resyncRetryMs;
+    const tick = (): void => {
+      // Stop the moment we're no longer in a player fallback (recovered, or
+      // moved to a backend-authored safe state).
+      if (!this.inSafe || this.currentSource?.kind !== 'player_fallback') {
+        this.stopResyncLoop();
+        return;
+      }
+      this.fireResync();
+      this.resyncTimer = this.deps.clock.setTimer(tick, retryMs);
+    };
+    this.resyncTimer = this.deps.clock.setTimer(tick, retryMs);
+  }
+
+  /** Invoke the injected resync seam, swallowing any fault (best-effort). */
+  private fireResync(): void {
+    try {
+      this.deps.requestResync?.();
+    } catch {
+      /* a resync fault must never wedge the controller */
+    }
+  }
+
+  private stopResyncLoop(): void {
+    if (this.resyncTimer !== null) {
+      this.deps.clock.clearTimer(this.resyncTimer);
+      this.resyncTimer = null;
+    }
   }
 
   /**

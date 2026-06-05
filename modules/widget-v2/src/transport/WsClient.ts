@@ -185,6 +185,40 @@ export class CrowdaqWsClient implements WsClient {
     this.listeners[event].add(listener);
   }
 
+  /**
+   * SPEC-CRWDQ-S49 — force a state resync against the backend.
+   *
+   * The S41 self-heal recovers from a DROPPED socket (a reconnect re-runs the
+   * D-GRH-61 registration handshake, which makes the server replay the CURRENT
+   * authoritative re-push). But a bar can get STUCK in a player-side fallback
+   * (`data_stale` / `no_recent_state`) while its socket is perfectly HEALTHY —
+   * e.g. a replay ends with the player still connected, so the content feed
+   * simply stops and no further frame ever arrives. In that case the socket
+   * never drops, no reconnect ever fires, the backend (whose authored window is
+   * unchanged) has no reason to spontaneously re-push, and the synthetic safe
+   * panel sits forever. Proven live on bar-demo: the bar self-heals the instant
+   * the socket is cycled — but nothing cycles it.
+   *
+   * `forceResync()` is the missing trigger: it cleanly recycles the live socket
+   * so the standard reconnect→re-register→re-push path runs and delivers the
+   * authoritative PlannedState, which supersedes the synthetic fallback. It is a
+   * no-op after an application `close()` (intentionalClose) and when a reconnect
+   * is already pending (a drop is already healing). Closing with a synthetic
+   * 1006 routes through {@link handleConnectionFailure}, which schedules the
+   * reconnect; the browser's own close that follows is deduped via
+   * `failureHandled`. This is NOT a heartbeat — it is the deliberate, bounded
+   * "ask the backend for the truth again" the passive fallback always lacked.
+   */
+  forceResync(): void {
+    if (this.intentionalClose || this.reconnectTimer !== null) return;
+    this.heartbeat.stop();
+    this.cancelLivenessWatchdog();
+    // Close the live socket so the browser releases it; the synthetic-1006
+    // failure path owns the reconnect (the resulting close event is deduped).
+    this.socket?.close(CLEAN_CLOSE, 'ws_force_resync');
+    this.handleConnectionFailure(1006);
+  }
+
   // --- connection management -------------------------------------------------
 
   private open(): void {
