@@ -11,7 +11,15 @@
  */
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { boot, resolveWsUrl, HOST_TESTID, EnvelopeFlatteningDeserializer } from '../src/bootstrap';
+import { ImmediateSessionLock } from '../src/transport/SessionLock';
 import { FakeWebSocket } from './transport/support/FakeWebSocket';
+
+/** Spin the microtask queue until `predicate` holds (bounded), for async gates. */
+async function until(predicate: () => boolean, ticks = 50): Promise<void> {
+  for (let i = 0; i < ticks && !predicate(); i++) {
+    await Promise.resolve();
+  }
+}
 import { TESTID } from '../src/templates/single-game/SingleGameTemplate';
 
 /** A LocalStorage stand-in (jsdom provides one, but keep the boot test hermetic). */
@@ -163,10 +171,12 @@ describe('boot()', () => {
         displayInfo: { hardwareKey: 'hw-bar-demo', displayName: 'bar-demo' },
         webSocketFactory: factory as never,
         storage: new MemoryStorage(),
+        sessionLock: new ImmediateSessionLock(),
       },
     );
     // The first valid server frame resolves connect(); drive the handshake.
-    await Promise.resolve();
+    // The session lock gates connect(), so wait for the WS to be created.
+    await until(() => captured !== null);
     captured!.simulateOpen();
     captured!.simulateMessage(configPush());
     const rt = await bootPromise;
@@ -194,9 +204,10 @@ describe('boot()', () => {
         displayInfo: { hardwareKey: 'hw-bar-demo', displayName: 'bar-demo' },
         webSocketFactory: factory as never,
         storage: new MemoryStorage(),
+        sessionLock: new ImmediateSessionLock(),
       },
     );
-    await Promise.resolve();
+    await until(() => captured !== null);
     captured!.simulateOpen();
     captured!.simulateMessage(configPush());
     const rt = await bootPromise;
