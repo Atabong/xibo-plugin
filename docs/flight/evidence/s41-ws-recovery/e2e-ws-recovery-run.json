@@ -1,0 +1,16 @@
+{
+  "steps": [
+    "CONNECTED baseline: BRA 0 / ARG 0, registrations=1",
+    "forced drop: server.dropActive() (TCP terminate, no clean close)",
+    "SELF-HEALED: 2nd DeviceRegistration received 787ms after drop, NO manual action",
+    "resync: single_game re-rendered after reconnect (left fallback)",
+    "LIVE conn proven: post-recovery GameEvent rendered (BRA 1)"
+  ],
+  "passed": true,
+  "reconMs": 787,
+  "registrationCount": 2,
+  "evidence": {
+    "connected": "C:\\Users\\Atabong\\Documents\\GitHub\\xibo-plugin\\docs\\flight\\evidence\\s41-ws-recovery\\e2e-1-connected.png",
+    "recovered": "C:\\Users\\Atabong\\Documents\\GitHub\\xibo-plugin\\docs\\flight\\evidence\\s41-ws-recovery\\e2e-2-recovered.png"
+  }
+}
