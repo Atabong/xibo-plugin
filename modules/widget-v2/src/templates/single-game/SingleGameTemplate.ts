@@ -228,11 +228,16 @@ function renderGame(
   const ctx = state?.sport_context;
   const ctxText = q('cdq-context-text');
   if (ctxText) {
-    const parts = [ctx?.league, ctx?.sport, ctx?.venue].filter(
+    // S26 — show a friendly sport label ("Baseball", "Basketball") in the strap
+    // rather than the raw enum ("american_football"), branching on sport.
+    const sportLabel = sportDisplayName(ctx?.sport);
+    const parts = [ctx?.league, sportLabel, ctx?.venue].filter(
       (p): p is string => typeof p === 'string' && p.length > 0,
     );
     ctxText.textContent = parts.length ? parts.join('  ·  ') : 'LIVE';
   }
+  // Stamp the sport on the root so CSS / assertions can branch per sport.
+  if (ctx?.sport) root.dataset['sport'] = ctx.sport;
 
   // ---- team blocks (name + real crest, falling back to derived colour) ----
   paintTeam(sel(TESTID.homeTeam), state?.home_team, state?.home_score, crestResolver);
@@ -367,7 +372,9 @@ function fireGoal(root: HTMLElement, side: 'home' | 'away', state: GameState | n
     const word = banner.querySelector<HTMLElement>('.cdq-goal-word');
     const sub = banner.querySelector<HTMLElement>('.cdq-goal-sub');
     const team = (side === 'home' ? state?.home_team : state?.away_team) ?? '';
-    if (word) word.textContent = 'GOAL';
+    // S26 — the scoring "word" is sport-appropriate (RUN for baseball,
+    // BASKET for basketball, TOUCHDOWN for NFL, GOAL for football/hockey).
+    if (word) word.textContent = scoreWordForSport(state?.sport_context?.sport);
     if (sub) sub.textContent = team ? `${team.toUpperCase()}` : '';
     banner.setAttribute('aria-hidden', 'false');
     banner.classList.add('is-on');
@@ -430,6 +437,47 @@ function fitTeamName(nameEl: HTMLElement): void {
       break;
     }
     nameEl.style.setProperty('--name-scale', String(scale));
+  }
+}
+
+/**
+ * S26 — the sport-appropriate word flashed on a score change. Football and
+ * hockey both score "GOAL"; baseball scores a "RUN"; basketball a "BASKET";
+ * american football a "TOUCHDOWN". Unknown / absent sport → "SCORE" (a safe,
+ * sport-neutral default that still reads on the bar). Branches on the
+ * `sport_context.sport` enum the backend stamps per sport.
+ */
+function scoreWordForSport(sport: string | undefined): string {
+  switch (sport) {
+    case 'baseball':
+      return 'RUN';
+    case 'basketball':
+      return 'BASKET';
+    case 'american_football':
+      return 'TOUCHDOWN';
+    case 'hockey':
+    case 'football':
+      return 'GOAL';
+    default:
+      return 'SCORE';
+  }
+}
+
+/** S26 — map the catalog sport enum to a broadcast-friendly display label. */
+function sportDisplayName(sport: string | undefined): string | undefined {
+  switch (sport) {
+    case 'baseball':
+      return 'Baseball';
+    case 'basketball':
+      return 'Basketball';
+    case 'hockey':
+      return 'Hockey';
+    case 'american_football':
+      return 'Football'; // American football, distinct from soccer "football"
+    case 'football':
+      return 'Football';
+    default:
+      return sport;
   }
 }
 
