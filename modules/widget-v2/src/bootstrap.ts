@@ -1019,6 +1019,10 @@ function readGameFields(frame: Record<string, unknown>): GameState | GameEvent {
   if (typeof frame['last_moment'] === 'string') out.last_moment = frame['last_moment'] as string;
   const sc = frame['sport_context'];
   if (sc != null && typeof sc === 'object') out.sport_context = sc as SportContext;
+  // SPEC-CRWDQ-084 — carry the rich event timeline (additive). The replay /
+  // live producer emits the cumulative history on every snapshot frame.
+  const tl = frame['timeline'];
+  if (Array.isArray(tl)) out.timeline = tl as NonNullable<GameState['timeline']>;
   return out;
 }
 

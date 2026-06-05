@@ -36,6 +36,60 @@ export interface SportContext {
   excitement?: number;
   /** SPEC-CRWDQ-S13 — signed momentum lean [-100,100], +home / −away. */
   momentum?: number;
+  /**
+   * SPEC-CRWDQ-084 — the sport-specific DETAIL block the rich single_game panel
+   * renders (football half/clock + possession/shots; baseball line score +
+   * inning/half + count + bases). Additive + optional; an open record at the
+   * render layer so the per-sport detail renderer narrows it. Absent on a thin
+   * frame / an older backend → the panel renders nothing (the shell still shows).
+   */
+  detail?: Record<string, unknown>;
+}
+
+/**
+ * SPEC-CRWDQ-084 — one ordered entry in a game's event timeline (the match
+ * history the rich single_game DETAIL panel renders). Mirrors the backend wire
+ * `GameTimelineEntry`. Sport-neutral: football goal|card|sub|var|penalty,
+ * baseball inning|score. Additive + optional on `GameState.timeline`.
+ */
+export interface GameTimelineEntry {
+  seq: number;
+  clock?: string;
+  kind: string;
+  team?: 'home' | 'away';
+  player?: string;
+  detail?: string;
+}
+
+/**
+ * SPEC-CRWDQ-084 — football (soccer) sport-detail the FootballDetail panel reads.
+ */
+export interface FootballDetail {
+  half?: '1H' | 'HT' | '2H' | 'ET' | 'PEN';
+  minute?: number;
+  stoppage?: number;
+  possession?: { home: number; away: number };
+  shots?: { home: number; away: number };
+}
+
+/** SPEC-CRWDQ-084 — one inning column in the baseball line score. */
+export interface BaseballLineScoreEntry {
+  inning: number;
+  home: number | null;
+  away: number | null;
+}
+
+/** SPEC-CRWDQ-084 — baseball sport-detail the BaseballDetail panel reads. */
+export interface BaseballDetail {
+  inning?: number;
+  half?: 'top' | 'bottom' | 'mid' | 'end';
+  balls?: number;
+  strikes?: number;
+  outs?: number;
+  bases?: { first: boolean; second: boolean; third: boolean };
+  lineScore?: BaseballLineScoreEntry[];
+  hits?: { home: number; away: number };
+  errors?: { home: number; away: number };
 }
 
 /**
@@ -62,6 +116,13 @@ export interface GameState {
   sport_context?: SportContext;
   /** Last notable moment text; the overlay renders only when non-empty. */
   last_moment?: string;
+  /**
+   * SPEC-CRWDQ-084 — the ordered event timeline (match history) the rich
+   * single_game DETAIL panel renders. Additive + optional; the full snapshot is
+   * monotonic so every frame carries the cumulative history. Absent on an older
+   * backend / a thin frame.
+   */
+  timeline?: GameTimelineEntry[];
 }
 
 /**

@@ -28,6 +28,10 @@ import type { TemplateInstance } from '../../render/TemplateInstance';
 import { themeAttr, type ResolvedTheme } from '../../render/ThemeResolver';
 import type { GameState, ProgramSlotPayload } from '../../render/types';
 import type { CrestResolver } from '../../render/CrestResolver';
+// SPEC-CRWDQ-084 — importing the registry index registers the football +
+// baseball detail panels (side effect) and exposes the lookup.
+import { sportDetailPanel, type SportDetailInstance } from './sport-detail/index';
+import { GameClock, type ClockTimer, type ClockView } from './GameClock';
 
 /** Stable test ids for the template's sub-regions (AC1). */
 export const TESTID = {
@@ -39,6 +43,8 @@ export const TESTID = {
   clock: 'single-game-clock',
   overlay: 'single-game-overlay',
   placeholder: 'single-game-no-live',
+  /** SPEC-CRWDQ-084 — the sport-specific detail region host. */
+  detail: 'single-game-detail',
 } as const;
 
 /** Default last-moment cap (existing widget convention). */
@@ -63,6 +69,11 @@ export interface SingleGameContext {
    * callers/tests that don't pass it keep the colour-block behaviour.
    */
   crestResolver?: CrestResolver;
+  /**
+   * SPEC-CRWDQ-084 — timer seam for the continuously-advancing GameClock so
+   * tests drive the tick loop deterministically. Defaults to real timers.
+   */
+  clockTimer?: ClockTimer;
 }
 
 /**
@@ -81,6 +92,52 @@ interface RenderMemo {
   goalTimer: ReturnType<typeof setTimeout> | null;
 }
 
+/** SPEC-CRWDQ-084 — per-mount detail-panel state (mounted lazily per sport). */
+interface DetailMemo {
+  sport: string | null;
+  instance: SportDetailInstance | null;
+}
+
+/**
+ * SPEC-CRWDQ-084 — mount (or re-mount on sport change) the sport-specific detail
+ * panel into the host, then update it with the current state. A sport with no
+ * registered panel clears the host (shell-only). Decoupled: the panel reads only
+ * off `state`.
+ */
+function renderDetail(host: HTMLElement | null, memo: DetailMemo, state: GameState | null): void {
+  if (!host) return;
+  const sport = state?.sport_context?.sport;
+  if (sport !== memo.sport) {
+    if (memo.instance?.dispose) memo.instance.dispose();
+    memo.instance = null;
+    host.replaceChildren();
+    memo.sport = sport ?? null;
+    const panel = sportDetailPanel(sport);
+    if (panel) memo.instance = panel.mount(host);
+  }
+  memo.instance?.update(state);
+}
+
+/**
+ * SPEC-CRWDQ-084 — paint the shell clock pill from the LOCAL clock's view, so
+ * the displayed time advances between server frames. Writes the SAME period +
+ * clock split the server-frame render uses, so a fresh frame renders identically
+ * to before (no regression) and the value only MOVES on the in-between ticks.
+ * Also stamps a `data-clock-running` flag CSS uses to animate a live dot, and a
+ * `--pulse` variable the detail panels animate off.
+ */
+function applyClockView(root: HTMLElement, view: ClockView): void {
+  const periodEl = root.querySelector<HTMLElement>('.cdq-period');
+  const clockEl = root.querySelector<HTMLElement>('.cdq-clock-time');
+  const pc = parsePeriodClock(view.periodClock);
+  if (periodEl) periodEl.textContent = pc.period;
+  if (clockEl) clockEl.textContent = pc.clock;
+  root.dataset['clockRunning'] = view.running ? 'true' : 'false';
+  root.style.setProperty('--cdq-pulse', String(view.pulse.toFixed(3)));
+  const clockBox = root.querySelector<HTMLElement>(`[data-testid="${TESTID.clock}"]`);
+  if (clockBox && view.running && (pc.period || pc.clock)) retrigger(clockBox, 'cdq-tick');
+}
+
 export class SingleGameTemplate {
   /** Mount the template, subscribing to the slot's primary game. */
   mount(host: HTMLElement, ctx: SingleGameContext): SingleGameInstance {
@@ -94,13 +151,25 @@ export class SingleGameTemplate {
     let unsubscribe = (): void => {};
     let unsubCrest = (): void => {};
 
+    // SPEC-CRWDQ-084 — the continuously-advancing game clock + the swappable
+    // sport-detail panel. The clock fills the gap between server frames so the
+    // bar looks alive; the panel surfaces each sport's rich data.
+    const clock = new GameClock(ctx.clockTimer);
+    const detailHost = root.querySelector<HTMLElement>(`[data-testid="${TESTID.detail}"]`);
+    const detailState: DetailMemo = { sport: null, instance: null };
+
     if (gameId === null) {
       // No live game referenced — the "no live game" placeholder. The activator
       // (not the template) owns the fallback journal; the template only renders.
       renderPlaceholder(root);
     } else {
-      const render = (state: GameState | null): void =>
+      const render = (state: GameState | null): void => {
         renderGame(root, state, maxMoment, memo, ctx.crestResolver);
+        // Re-sync the local clock to this authoritative frame (server wins).
+        clock.sync(state);
+        // Mount / update the sport-specific detail panel.
+        renderDetail(detailHost, detailState, state);
+      };
       render(ctx.gameStateStore.get(gameId));
       unsubscribe = ctx.gameStateStore.subscribe(gameId, (state) => render(state));
       // SPEC-CRWDQ-S11 — when a crest warms (async, best-effort), re-paint so
@@ -110,12 +179,17 @@ export class SingleGameTemplate {
           render(ctx.gameStateStore.get(gameId)),
         );
       }
+      // Drive the shell clock pill from the local tick BETWEEN server frames so
+      // the minute visibly advances (paused at HT/FT/pre_game by the clock).
+      clock.start((view) => applyClockView(root, view));
     }
 
     return {
       detach(): HTMLElement {
         unsubscribe();
         unsubCrest();
+        clock.stop();
+        if (detailState.instance?.dispose) detailState.instance.dispose();
         if (memo.goalTimer !== null) clearTimeout(memo.goalTimer);
         root.remove();
         return root;
@@ -177,6 +251,12 @@ function buildRoot(themeAttrValue: string): HTMLElement {
   meterTrack.append(meterFill);
   meter.append(meterLabel, meterTrack);
 
+  // SPEC-CRWDQ-084 — the swappable sport-specific DETAIL region. The shell owns
+  // the host element + its testid; the per-sport panel populates it (or it stays
+  // empty for a sport with no registered panel — shell-only, graceful).
+  const detail = div('cdq-detail-host');
+  detail.dataset['testid'] = TESTID.detail;
+
   // The last-moment overlay (ticker) + the big transient GOAL banner.
   const overlay = document.createElement('aside');
   overlay.className = 'cdq-overlay';
@@ -188,7 +268,7 @@ function buildRoot(themeAttrValue: string): HTMLElement {
   banner.setAttribute('aria-hidden', 'true');
   banner.append(span('cdq-goal-word'), span('cdq-goal-sub'));
 
-  root.append(header, score, meter, overlay, banner);
+  root.append(header, score, meter, detail, overlay, banner);
   return root;
 }
 

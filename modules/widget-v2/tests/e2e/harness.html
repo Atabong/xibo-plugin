@@ -339,6 +339,186 @@ html, body { margin: 0; padding: 0; height: 100%; background: var(--cdq-bg-0); }
   color: var(--cdq-ink-dim); text-transform: uppercase;
 }
 
+/* =============================================================================
+   SPEC-CRWDQ-084 — sport-specific DETAIL panels (swappable, registry-driven).
+
+   The shell (strap / score / clock / excitement) is unchanged. Each sport's
+   panel mounts into `.cdq-detail-host` (a positioned region that does NOT
+   disturb the 3-row shell grid). Football = an event-timeline strip + half/
+   clock + stat strip down the LEFT; baseball = a line-score scorebug band
+   across the BOTTOM. Theme-aware (inherits the --cdq-* palette), broadcast-grade,
+   legible from 10ft. CSS-only motion, snap-Chromium safe.
+   ========================================================================== */
+.crowdaq-single-game .cdq-detail-host { display: contents; }
+
+/* a live-dot / clock pulse driven by the GameClock --cdq-pulse variable */
+.crowdaq-single-game[data-clock-running='true'] .cdq-live-dot {
+  animation: cdq-livedot 1.1s steps(1, end) infinite;
+}
+@keyframes cdq-livedot { 0%, 60% { opacity: 1; } 61%, 100% { opacity: 0.25; } }
+
+/* ---- FOOTBALL detail: event timeline strip + half/clock + stats --------- */
+.cdq-detail-football {
+  position: absolute; left: clamp(16px, 3vw, 48px); top: 50%;
+  transform: translateY(-50%);
+  z-index: 2;
+  display: flex; flex-direction: column; gap: 0.9em;
+  width: clamp(230px, 26vw, 380px);
+  max-height: 64%;
+  font-family: var(--cdq-tech);
+  animation: var(--mount-in); animation-delay: 200ms;
+  pointer-events: none;
+}
+.cdq-detail-football .cdq-fb-half {
+  display: flex; align-items: baseline; gap: 0.6em;
+  padding: 0.42em 0.9em; border-radius: 0.5em;
+  background: linear-gradient(100deg, rgba(31, 227, 160, 0.16), rgba(25, 194, 255, 0.06));
+  border: 1px solid var(--cdq-line);
+  box-shadow: 0 8px 26px -14px var(--cdq-accent-glow);
+}
+.cdq-detail-football .cdq-fb-half[hidden] { display: none; }
+.cdq-detail-football .cdq-fb-half-label {
+  font-weight: 700; letter-spacing: 0.18em; text-transform: uppercase;
+  font-size: clamp(0.72rem, 1.2vw, 0.96rem); color: var(--cdq-accent);
+}
+.cdq-detail-football .cdq-fb-half-clock {
+  font-family: var(--cdq-display); font-weight: 800;
+  font-size: clamp(1.1rem, 2.1vw, 1.7rem); color: var(--cdq-ink);
+  font-variant-numeric: tabular-nums;
+}
+.cdq-detail-football .cdq-fb-timeline {
+  list-style: none; margin: 0; padding: 0;
+  display: flex; flex-direction: column; gap: 0.32em;
+  overflow: hidden;
+}
+.cdq-detail-football .cdq-fb-timeline[hidden] { display: none; }
+.cdq-detail-football .cdq-fb-row {
+  display: grid; grid-template-columns: 2.6em 1.4em 1fr; align-items: center;
+  gap: 0.5em;
+  padding: 0.28em 0.55em; border-radius: 0.42em;
+  background: rgba(255, 255, 255, 0.045);
+  border-left: 3px solid var(--cdq-line);
+  font-size: clamp(0.78rem, 1.35vw, 1.04rem);
+  animation: cdq-rise 360ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+.cdq-detail-football .cdq-fb-row[data-team='home'] { border-left-color: var(--cdq-accent); }
+.cdq-detail-football .cdq-fb-row[data-team='away'] { border-left-color: var(--cdq-accent-2); }
+.cdq-detail-football .cdq-fb-goal { background: rgba(31, 227, 160, 0.12); }
+.cdq-detail-football .cdq-fb-min {
+  font-weight: 700; color: var(--cdq-ink-dim); font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+.cdq-detail-football .cdq-fb-glyph { text-align: center; font-size: 1.1em; }
+.cdq-detail-football .cdq-fb-text {
+  color: var(--cdq-ink); font-weight: 600;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.cdq-detail-football .cdq-fb-var .cdq-fb-glyph {
+  font-size: 0.62em; font-weight: 800; letter-spacing: 0.06em; color: var(--cdq-accent-warm);
+}
+.cdq-detail-football .cdq-fb-stats {
+  display: flex; flex-direction: column; gap: 0.4em;
+}
+.cdq-detail-football .cdq-fb-stats[hidden] { display: none; }
+.cdq-detail-football .cdq-fb-stat {
+  display: grid; grid-template-columns: 3em 1fr 3em; align-items: center; gap: 0.5em;
+  font-size: clamp(0.68rem, 1.1vw, 0.9rem); letter-spacing: 0.12em;
+  position: relative;
+}
+.cdq-detail-football .cdq-fb-stat-label {
+  text-align: center; color: var(--cdq-ink-dim); text-transform: uppercase; font-weight: 600;
+}
+.cdq-detail-football .cdq-fb-stat-home, .cdq-detail-football .cdq-fb-stat-away {
+  font-family: var(--cdq-display); font-weight: 800; color: var(--cdq-ink);
+  font-variant-numeric: tabular-nums;
+}
+.cdq-detail-football .cdq-fb-stat-away { text-align: right; }
+
+/* ---- BASEBALL detail: line-score scorebug band across the bottom -------- */
+.cdq-detail-baseball {
+  position: absolute; left: 50%; bottom: clamp(8px, 2vh, 24px);
+  transform: translateX(-50%);
+  z-index: 2;
+  display: flex; align-items: stretch; gap: clamp(10px, 1.6vw, 22px);
+  max-width: 94%;
+  padding: 0.55em 0.8em; border-radius: 0.6em;
+  background: linear-gradient(180deg, rgba(10, 15, 28, 0.86), rgba(5, 7, 13, 0.92));
+  border: 1px solid var(--cdq-line);
+  box-shadow: 0 18px 50px -20px #000;
+  backdrop-filter: blur(8px);
+  font-family: var(--cdq-tech);
+  animation: var(--mount-in); animation-delay: 200ms;
+}
+.cdq-detail-baseball .cdq-bb-linescore {
+  border-collapse: collapse; color: var(--cdq-ink);
+  font-variant-numeric: tabular-nums;
+  font-size: clamp(0.7rem, 1.25vw, 1.02rem);
+}
+.cdq-detail-baseball .cdq-bb-linescore td {
+  padding: 0.16em 0.42em; text-align: center; min-width: 1.4em;
+}
+.cdq-detail-baseball .cdq-bb-head td {
+  color: var(--cdq-ink-dim); font-weight: 700; font-size: 0.82em;
+  border-bottom: 1px solid var(--cdq-line);
+  letter-spacing: 0.04em;
+}
+.cdq-detail-baseball .cdq-bb-total-head, .cdq-detail-baseball .cdq-bb-total { font-weight: 800; }
+.cdq-detail-baseball .cdq-bb-r { color: var(--cdq-accent); }
+.cdq-detail-baseball .cdq-bb-team {
+  text-align: left !important; font-family: var(--cdq-display); font-weight: 800;
+  letter-spacing: 0.04em; padding-right: 0.8em !important;
+  white-space: nowrap;
+}
+.cdq-detail-baseball .cdq-bb-cell { color: var(--cdq-ink); }
+.cdq-detail-baseball .cdq-bb-total { color: var(--cdq-ink); border-left: 1px solid var(--cdq-line); }
+
+.cdq-detail-baseball .cdq-bb-rail {
+  display: flex; align-items: center; gap: clamp(8px, 1.3vw, 18px);
+  padding-left: clamp(8px, 1.3vw, 18px);
+  border-left: 1px solid var(--cdq-line);
+}
+.cdq-detail-baseball .cdq-bb-inning {
+  display: flex; align-items: center; gap: 0.3em;
+  font-family: var(--cdq-display); font-weight: 800;
+  font-size: clamp(0.95rem, 1.8vw, 1.4rem); color: var(--cdq-ink);
+}
+.cdq-detail-baseball .cdq-bb-inning[hidden] { display: none; }
+.cdq-detail-baseball .cdq-bb-inning-arrow { color: var(--cdq-accent); }
+.cdq-detail-baseball .cdq-bb-inning[data-half='top'] .cdq-bb-inning-arrow { color: var(--cdq-accent-2); }
+.cdq-detail-baseball .cdq-bb-count {
+  display: flex; gap: 0.5em;
+}
+.cdq-detail-baseball .cdq-bb-count[hidden] { display: none; }
+.cdq-detail-baseball .cdq-bb-count-cell {
+  display: flex; flex-direction: column; align-items: center; gap: 0.1em;
+}
+.cdq-detail-baseball .cdq-bb-count-label {
+  font-size: 0.6rem; letter-spacing: 0.14em; color: var(--cdq-ink-dim); font-weight: 700;
+}
+.cdq-detail-baseball .cdq-bb-count-val {
+  font-family: var(--cdq-display); font-weight: 800;
+  font-size: clamp(0.95rem, 1.7vw, 1.3rem); color: var(--cdq-ink);
+}
+.cdq-detail-baseball .cdq-bb-bases {
+  position: relative; width: clamp(38px, 4vw, 56px); height: clamp(38px, 4vw, 56px);
+}
+.cdq-detail-baseball .cdq-bb-bases[hidden] { display: none; }
+.cdq-detail-baseball .cdq-bb-base {
+  position: absolute; width: 30%; height: 30%;
+  transform: rotate(45deg);
+  background: rgba(255, 255, 255, 0.12);
+  border: 1px solid var(--cdq-line);
+}
+.cdq-detail-baseball .cdq-bb-base[data-pos='second'] { top: 0; left: 35%; }
+.cdq-detail-baseball .cdq-bb-base[data-pos='third'] { top: 35%; left: 0; }
+.cdq-detail-baseball .cdq-bb-base[data-pos='first'] { top: 35%; right: 0; }
+.cdq-detail-baseball .cdq-bb-base[data-pos='home'] { bottom: 0; left: 35%; opacity: 0.4; }
+.cdq-detail-baseball .cdq-bb-base[data-on='true'] {
+  background: var(--cdq-accent);
+  box-shadow: 0 0 12px var(--cdq-accent-glow);
+  border-color: var(--cdq-accent);
+}
+
 /* ---- GOAL moment: punch + flash + banner -------------------------------- */
 .crowdaq-single-game[data-goal] .cdq-score-center { z-index: 2; }
 .crowdaq-single-game .cdq-score-home.cdq-punch,
