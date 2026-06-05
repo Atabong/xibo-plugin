@@ -100,6 +100,19 @@ export class CrowdaqWsClient implements WsClient {
   private lastConfigHash: string | null = null;
   /** Set true only by the public `close()`; suppresses auto-reconnect. */
   private intentionalClose = false;
+  /**
+   * True once the CURRENT socket reached OPEN. Reset on every `open()`. Drives
+   * the pre-open-failure recovery in {@link onError}: a WebSocket whose connect
+   * is REFUSED before it ever opens (e.g. the Xibo player's Content-Security-
+   * Policy `connect-src` blocking the cross-origin game-delivery WS, or DNS /
+   * TLS failure) fires `error` but — observed live on Chromium — NEVER fires a
+   * subsequent `close`. Without this guard the whole close-driven recovery
+   * (reconnect backoff + the SafeStateController `control_channel_lost`
+   * fallback that mounts safe_info) would never arm, leaving the host blank.
+   */
+  private opened = false;
+  /** Guards against double-handling when both `error` and `close` do fire. */
+  private failureHandled = false;
   private reconnectAttempt = 0;
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
   /** Resolver for the in-flight `connect()` promise (first-frame gate). */
@@ -167,6 +180,8 @@ export class CrowdaqWsClient implements WsClient {
 
   private open(): void {
     this.teardownSocket();
+    this.opened = false;
+    this.failureHandled = false;
     const ws = this.deps.webSocketFactory(this.config.url, SUBPROTOCOL);
     this.socket = ws;
 
@@ -177,6 +192,7 @@ export class CrowdaqWsClient implements WsClient {
   }
 
   private onOpen(): void {
+    this.opened = true;
     // D-GRH-61: a single DeviceRegistration is the first outbound frame on
     // every open. ConfigPush arrival (the first server frame) implicitly
     // acks it, which is what resolves connect().
@@ -262,10 +278,36 @@ export class CrowdaqWsClient implements WsClient {
   private onError(ev: unknown): void {
     const reason = (ev as { message?: string }).message;
     this.emit('error', reason !== undefined ? { reason } : {});
+
+    // Pre-open connect failure recovery. When the socket errors WITHOUT ever
+    // having opened, the browser may not deliver a follow-up `close` event
+    // (verified live on the Xibo Chromium player: a CSP-`connect-src`-blocked
+    // WS fires ONLY `error`, leaving readyState=CLOSED and no `close`). Treat
+    // that as a synthetic 1006 close so the standard close-path recovery runs:
+    // it emits `close` (arming the SafeStateController `control_channel_lost`
+    // safe_info fallback so the bar stops showing a blank host) and schedules a
+    // reconnect. A real `close` arriving afterwards is deduped via
+    // `failureHandled`. An already-OPEN socket that errors is left to its own
+    // (real) `close` event as before.
+    if (this.opened || this.intentionalClose) return;
+    this.handleConnectionFailure(undefined);
   }
 
   private onClose(ev: unknown): void {
     const code = (ev as { code?: number }).code;
+    this.handleConnectionFailure(code);
+  }
+
+  /**
+   * The single close/failure recovery path, reached from a real `close` event
+   * OR a pre-open `error` that the browser never followed with a `close`.
+   * Idempotent per connection attempt (the {@link failureHandled} guard) so a
+   * synthesized-then-real close (or vice versa) only recovers once.
+   */
+  private handleConnectionFailure(code: number | undefined): void {
+    if (this.failureHandled) return;
+    this.failureHandled = true;
+
     this.heartbeat.stop();
     this.emit('close', code !== undefined ? { code } : {});
 

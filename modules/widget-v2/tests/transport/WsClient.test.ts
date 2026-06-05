@@ -261,6 +261,54 @@ describe('WsClient reconnect (AC7)', () => {
     await ctx.client.close();
   });
 
+  it('recovers from a pre-open connect error that never fires close (CSP/DNS/TLS refusal)', async () => {
+    // Live Chromium on the Xibo player: a WS whose connect is REFUSED before
+    // it ever opens (CSP connect-src block, DNS, TLS) fires ONLY `error` and
+    // NEVER a follow-up `close`. The close-driven recovery (emit 'close' so the
+    // SafeStateController control_channel_lost safe_info fallback arms, plus a
+    // reconnect schedule) must still run, or the host stays blank.
+    const ctx = build(makeConfig(), () => 0.5);
+    ctx.client.connect();
+    // No simulateOpen — connect refused. Only an error, no close.
+    ctx.sockets[0]!.simulateError('connection refused: CSP connect-src');
+
+    // 'close' was synthesized so the safe_info fallback can mount.
+    const closeEvt = ctx.lifecycle.find((e) => e.event === 'close');
+    expect(closeEvt).toBeDefined();
+
+    // A reconnect was scheduled exactly once.
+    const recons = ctx.lifecycle.filter((e) => e.event === 'reconnect');
+    expect(recons).toHaveLength(1);
+    expect(recons[0]!.info.attempt).toBe(1);
+
+    vi.advanceTimersByTime(recons[0]!.info.delayMs!);
+    expect(ctx.sockets).toHaveLength(2); // reconnected
+  });
+
+  it('recovers only ONCE if a pre-open error is later followed by a real close', async () => {
+    // Defensive: some browsers may deliver both. The failureHandled guard must
+    // dedupe so we do not emit two closes or schedule two reconnects.
+    const ctx = build(makeConfig(), () => 0.5);
+    ctx.client.connect();
+    ctx.sockets[0]!.simulateError('refused');
+    ctx.sockets[0]!.simulateClose(1006); // real close arrives afterwards
+
+    expect(ctx.lifecycle.filter((e) => e.event === 'close')).toHaveLength(1);
+    expect(ctx.lifecycle.filter((e) => e.event === 'reconnect')).toHaveLength(1);
+  });
+
+  it('does NOT synthesize a close from an error on an already-OPEN socket', async () => {
+    // An open socket that errors is left to its own real `close` event (the
+    // pre-open guard must not fire for an established connection).
+    const ctx = build();
+    await connect(ctx);
+    const closesBefore = ctx.lifecycle.filter((e) => e.event === 'close').length;
+    ctx.sockets[0]!.simulateError('mid-stream blip');
+    expect(ctx.lifecycle.filter((e) => e.event === 'close').length).toBe(closesBefore);
+    expect(ctx.lifecycle.filter((e) => e.event === 'reconnect')).toHaveLength(0);
+    await ctx.client.close();
+  });
+
   it('grows the backoff delay across attempts, bounded by maxDelayMs', async () => {
     // random()=1 selects the top of each jitter window: delay == window cap.
     const ctx = build(makeConfig({ reconnect: { initialDelayMs: 1_000, maxDelayMs: 4_000, jitter: 'full' } }), () => 1);
