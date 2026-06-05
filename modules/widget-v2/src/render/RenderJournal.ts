@@ -43,6 +43,13 @@ export type RenderJournalEventType =
   | 'ad_slot_completed'
   // --- shared mount-validation guard (multi/fixtures/recap/with-ads) ---
   | 'template_input_invalid'
+  // --- SPEC-CRWDQ-S58 never-blank escalation (D-SAFE-01) ---
+  // A content adapter threw while mounting (caught at the activator; the host is
+  // cleared and the state escalates to safe_info).
+  | 'template_mount_threw'
+  // The activator escalated an unsatisfiable/invalid content state to safe_info
+  // instead of leaving the host blank (the never-blank guarantee).
+  | 'template_escalated_to_safe'
   // --- fixtures_with_live_game template (SPEC-CRWDQ-066) ---
   | 'live_tile_reconciled';
 

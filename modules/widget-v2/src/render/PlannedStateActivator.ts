@@ -125,6 +125,23 @@ export interface PlannedStateActivatorDeps {
    */
   onActivated?: (mode: BusinessMode) => void;
   /**
+   * SPEC-CRWDQ-S58 — NEVER-BLANK escalation seam (D-SAFE-01). The single point
+   * where an UNSATISFIABLE or invalid PlannedState is turned into a safe_info
+   * render instead of an empty host. Fired when a content adapter DECLINES the
+   * mount (returns null — e.g. a `multiple_games_with_ads` state whose `ad_slot`
+   * is missing/NULL, journaling `template_input_invalid`/`missing_ad_slot`) OR
+   * when an adapter THROWS while mounting. The composition root wires this to
+   * `SafeStateController.escalateFromTemplate('template_input_invalid')`, which
+   * synthesizes a safe_info PlannedState through THIS same activator — so the
+   * screen degrades to the calm CROWDAQ panel and is NEVER left blank.
+   *
+   * Optional: a deployment without it keeps the legacy behaviour (a declined
+   * mount renders nothing). The headless harness injects a spy to assert the
+   * escalation fires. The activator never escalates a `safe_info` decline (the
+   * safe adapter never declines, but the guard prevents any escalation loop).
+   */
+  escalateToSafe?: (reason: 'template_input_invalid') => void;
+  /**
    * SPEC-CRWDQ-S11 — resolve a real club crest from the AssetManifest by team.
    * Forwarded into the built-in single_game context so the score-bug renders
    * the real badge image (falling back to its colour block on a miss). Optional
@@ -385,18 +402,51 @@ export class PlannedStateActivator {
     // Run the incoming transition (AC9), then mount via the mode's adapter (AC1).
     await this.deps.transitions.run(payload.transition, this.deps.host);
     const adapter = this.adapters.get(payload.business_mode);
-    const mounted =
-      adapter?.mount({
-        host: this.deps.host,
-        payload,
-        slot,
-        theme,
-        gameStateStore: this.deps.gameStateStore,
-      }) ?? null;
+    // SPEC-CRWDQ-S58 — NEVER blank the screen. A declining adapter (returns
+    // null) OR one that THROWS while mounting must escalate to safe_info, not
+    // leave the host empty. An unsatisfiable `multiple_games_with_ads` (missing
+    // ad_slot) is the production incident this closes: it journaled
+    // `template_input_invalid`/`missing_ad_slot` then rendered NOTHING. Now any
+    // such decline routes through the SafeStateController to the calm CROWDAQ
+    // safe_info panel.
+    let mounted: TemplateMount | null;
+    try {
+      mounted =
+        adapter?.mount({
+          host: this.deps.host,
+          payload,
+          slot,
+          theme,
+          gameStateStore: this.deps.gameStateStore,
+        }) ?? null;
+    } catch (err) {
+      // A template that threw mid-mount may have left partial DOM in the host —
+      // clear it so the safe panel mounts into a clean host (never overlaid on a
+      // broken half-render), then escalate.
+      this.deps.journal.record({
+        type: 'template_mount_threw',
+        state_id: payload.state_id,
+        mode: payload.business_mode,
+        error: err instanceof Error ? err.message : String(err),
+      });
+      this.deps.host.replaceChildren();
+      mounted = null;
+    }
     if (mounted === null) {
-      // The adapter declined (e.g. an empty manifest with no fallback): nothing
-      // is rendered, no dwell is armed, and the active-state pointer stays clear.
+      // The adapter declined or threw: the active-state pointer stays clear and
+      // no dwell is armed. Rather than leave the host blank, ESCALATE to
+      // safe_info (D-SAFE-01) unless this WAS the safe_info mount (the safe
+      // adapter never declines, but the guard prevents any escalation loop).
       this.activeStateId = null;
+      if (payload.business_mode !== 'safe_info' && this.deps.escalateToSafe) {
+        this.deps.journal.record({
+          type: 'template_escalated_to_safe',
+          state_id: payload.state_id,
+          mode: payload.business_mode,
+          reason: 'template_input_invalid',
+        });
+        this.deps.escalateToSafe('template_input_invalid');
+      }
       return;
     }
     this.activeInstance = mounted.instance;

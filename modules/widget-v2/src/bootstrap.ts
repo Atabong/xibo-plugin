@@ -459,6 +459,14 @@ export interface WidgetRuntime {
 /** Stable test id for the mounted host (parallels the template TESTID set). */
 export const HOST_TESTID = 'crowdaq-widget-v2';
 
+/**
+ * SPEC-CRWDQ-S58 — deployed build marker. Stamped on the `widget_boot` journal
+ * line so the operator can confirm (via the player console / `kubectl logs`)
+ * that a given player picked up THIS build (the never-blank fix) and not a stale
+ * cached bundle. Bump on each deployed widget build.
+ */
+export const BUILD_MARKER = 'build:s58-never-blank';
+
 /** Default heartbeat cadence (D-GRH-59 / SPEC-CRWDQ-022). */
 const DEFAULT_HEARTBEAT_MS = 30_000;
 const DEFAULT_ACK_TIMEOUT_MS = 10_000;
@@ -574,6 +582,12 @@ export async function boot(
     // Late-bound: forwards each activation to the SafeStateController (built
     // just below) so its no_recent_state / data_stale probes track the mode.
     onActivated: (mode) => safeController.notePlannedState(mode),
+    // SPEC-CRWDQ-S58 NEVER-BLANK (D-SAFE-01): an unsatisfiable/invalid content
+    // PlannedState (e.g. multiple_games_with_ads with a missing ad_slot) or a
+    // template that throws while mounting escalates to the calm safe_info panel
+    // instead of leaving the bar blank. Late-bound onto the SafeStateController
+    // built just below; routes through the SAME activator (Path C).
+    escalateToSafe: (reason) => safeController.escalateFromTemplate(reason),
     // SPEC-CRWDQ-S11 — real club crests for the built-in single_game score-bug.
     crestResolver,
   });
@@ -904,7 +918,7 @@ export async function boot(
       });
     });
 
-  journal.record({ event: 'widget_boot', wsUrl, barId, displayId });
+  journal.record({ event: 'widget_boot', build: BUILD_MARKER, wsUrl, barId, displayId });
 
   return {
     host,
