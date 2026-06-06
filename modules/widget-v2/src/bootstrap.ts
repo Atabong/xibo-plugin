@@ -460,12 +460,15 @@ export interface WidgetRuntime {
 export const HOST_TESTID = 'crowdaq-widget-v2';
 
 /**
- * SPEC-CRWDQ-S58 — deployed build marker. Stamped on the `widget_boot` journal
- * line so the operator can confirm (via the player console / `kubectl logs`)
- * that a given player picked up THIS build (the never-blank fix) and not a stale
- * cached bundle. Bump on each deployed widget build.
+ * Deployed build marker. Stamped on the `widget_boot` journal line so the
+ * operator can confirm (via the player console / served iframe HTML) that a
+ * given player picked up THIS build and not a stale cached bundle. Bump on each
+ * deployed widget build. s72: the delivery WS is opened UNCONDITIONALLY on
+ * render (stencil auto-boot, independent of Xibo's isDataExpected lifecycle) so
+ * the live channel is always established and the s49 active-resync reconnect
+ * loop is always armed.
  */
-export const BUILD_MARKER = 'build:s58-never-blank';
+export const BUILD_MARKER = 'build:s72-ws-unconditional';
 
 /** Default heartbeat cadence (D-GRH-59 / SPEC-CRWDQ-022). */
 const DEFAULT_HEARTBEAT_MS = 30_000;

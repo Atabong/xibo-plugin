@@ -114,7 +114,7 @@
     data-crowdaq-display-id="{{ displayId }}"
     data-crowdaq-player-version="{{ playerVersion }}"
     data-crowdaq-heartbeat-interval-ms="{{ heartbeatIntervalMs }}"
-    data-crowdaq-bundle-build="s49-data-stale-active-resync">
+    data-crowdaq-bundle-build="s72-ws-unconditional">
     <!-- boot() mounts the active business_mode template into this host: a
          <section class="crowdaq-single-game"> for a live game, a
          <section class="crowdaq-safe-info"> for the default no-games standing
@@ -122,6 +122,105 @@
          AssetManifest-driven branded gap-fill. Until the WS handshake completes
          the host is empty. -->
 </div>
+<!--
+  SPEC-CRWDQ-S72 — UNCONDITIONAL WS OPEN ON RENDER.
+
+  CROWDAQ's live data arrives over the crowdaq.v1 WebSocket, NOT Xibo's static
+  <dataType> mechanism (which is intentionally empty). The module therefore has
+  isDataExpected=false and Xibo classifies it as a STATIC widget. On some player
+  runtimes (notably the 4.0.x snap webview seen in the s71 diagnosis) the
+  data-lifecycle code path that invokes `onRender_<id>` is gated on the widget's
+  data being expected/ready — so for a static widget `onRender_9` is DEFINED but
+  NEVER CALLED, the bundle's boot() never runs, the delivery WS is never opened,
+  and (because the WS was never opened) the s49 active-resync reconnect loop is
+  never armed. The bar then renders only the static ProgramSlot snapshot baked
+  into the widget HTML at collect time and never receives a live update.
+
+  This stencil-level <script> ALWAYS runs (it is part of the parsed body HTML,
+  independent of Xibo's data lifecycle). It boots the widget unconditionally:
+  on DOMContentLoaded it invokes the player-defined onRender_<id> itself if the
+  player has not already done so. It is fully IDEMPOTENT — boot() stamps
+  `host.__crowdaqWidgetV2` on the host on success, and the per-bar single-session
+  lock (S22) guarantees only ONE iframe across Xibo's double buffer opens the WS
+  — so a redundant invocation (player + this fallback, or both iframes) never
+  double-opens the socket. If the player DOES call onRender on its own, this is a
+  no-op. The build marker on the host (`data-crowdaq-bundle-build`) lets the
+  operator confirm pickup via the player console / served iframe HTML.
+-->
+<script type="text/javascript">
+(function () {
+    'use strict';
+    var booted = false;
+
+    function hostEl() {
+        return document.querySelector('[data-crowdaq-v2-root]');
+    }
+
+    function alreadyBooted() {
+        var h = hostEl();
+        // Either fully booted (runtime handle present) or a boot is in flight
+        // (synchronous guard the onRender IIFE sets before its async boot()).
+        return !!(h && (h.__crowdaqWidgetV2 || h.__crowdaqBooting));
+    }
+
+    // Discover the player-defined render entry. Xibo emits a per-widget function
+    // `onRender_<widgetId>` (a top-level function declaration → a global) whose
+    // numeric id is assigned by the CMS at render time and is NOT known at
+    // stencil-author time, so we scan the global scope for any `onRender_*`
+    // function rather than hard-coding the id. There is exactly one widget per
+    // iframe HTML, so the first match is ours.
+    function findOnRender() {
+        var scope = (typeof window !== 'undefined') ? window : null;
+        if (!scope) { return null; }
+        for (var key in scope) {
+            if (key.indexOf('onRender_') === 0) {
+                try { if (typeof scope[key] === 'function') { return scope[key]; } } catch (e) {}
+            }
+        }
+        return null;
+    }
+
+    // Invoke the player-defined onRender_<id> (which inlines the bundle + boots).
+    // It resolves the host via its own [data-crowdaq-v2-root] selector and reads
+    // the widget properties from the host data-* attributes when no `properties`
+    // object is passed, so calling it with the document root + nulls is safe.
+    function invokeOnRender() {
+        if (booted || alreadyBooted()) { return true; }
+        var fn = findOnRender();
+        if (typeof fn !== 'function') { return false; }
+        try {
+            fn(0, document, [], null, null);
+            booted = true;
+            return true;
+        } catch (e) {
+            try { console.error('[crowdaq-widget-v2] auto-boot onRender failed', e); } catch (ignore) {}
+            return false;
+        }
+    }
+
+    // Poll briefly for the onRender_<id> definition (its <script> follows this
+    // one in document order) and for the player's own invocation. Stop as soon
+    // as the widget has booted (host runtime present) or our invocation lands.
+    function armAutoBoot() {
+        var attempts = 0;
+        var MAX_ATTEMPTS = 50; // ~10s at 200ms — covers slow bundle parse
+        var timer = setInterval(function () {
+            attempts++;
+            if (alreadyBooted()) { clearInterval(timer); return; } // player booted it
+            if (invokeOnRender()) { clearInterval(timer); return; } // we booted it
+            if (attempts >= MAX_ATTEMPTS) { clearInterval(timer); }
+        }, 200);
+        // Also try immediately in case onRender_<id> is already defined.
+        if (invokeOnRender() || alreadyBooted()) { clearInterval(timer); }
+    }
+
+    if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', armAutoBoot, { once: true });
+    } else {
+        armAutoBoot();
+    }
+})();
+</script>
         ]]></twig>
         <style><![CDATA[
 /* CROWDAQ Widget v2 — broadcast-grade render styles (S9). Self-contained
@@ -1236,6 +1335,20 @@ html, body { margin: 0; padding: 0; height: 100%; background: var(--cdq-bg-0); }
         || rootEl;
     var props = (typeof properties !== 'undefined' && properties) ? properties : {};
 
+    // SPEC-CRWDQ-S72 — SYNCHRONOUS single-boot guard per iframe. This renderer is
+    // now invoked from TWO places: Xibo's data-lifecycle (`onRender_<id>`, which
+    // may or may not fire for a static/isDataExpected=false widget) AND the
+    // stencil-level unconditional auto-boot. Both can run, and the runtime handle
+    // (`host.__crowdaqWidgetV2`) is only set asynchronously after boot() resolves,
+    // so a flag set BEFORE the async boot is required to prevent a second
+    // in-flight boot() from double-mounting the host / opening a second WS within
+    // this iframe. (Cross-iframe double-buffer is separately handled by the S22
+    // per-bar single-session lock inside boot().)
+    if (host && (host.__crowdaqWidgetV2 || host.__crowdaqBooting)) {
+        return; // already booted or a boot is in flight for this host
+    }
+    if (host) { try { host.__crowdaqBooting = true; } catch (e) { /* ignore */ } }
+
     // Properties may arrive as strings (data-attributes); coerce the number.
     var heartbeat = parseInt(props.heartbeatIntervalMs, 10);
 
@@ -1253,6 +1366,8 @@ html, body { margin: 0; padding: 0; height: 100%; background: var(--cdq-bg-0); }
         // Expose the runtime for a headless probe / DevTools inspection.
         try { host.__crowdaqWidgetV2 = rt; } catch (e) { /* ignore */ }
     }).catch(function (err) {
+        // Clear the in-flight guard so a later (re)render can retry the boot.
+        try { host.__crowdaqBooting = false; } catch (e) { /* ignore */ }
         try { console.error('[crowdaq-widget-v2] boot failed', err); } catch (e) { /* ignore */ }
     });
 })();
