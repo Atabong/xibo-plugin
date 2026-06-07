@@ -272,8 +272,15 @@ export class EnvelopeFlatteningDeserializer implements Deserializer {
     const payload = frame['payload'];
     if (payload == null || typeof payload !== 'object') return result;
     // Hoist payload keys to top level without clobbering an existing top-level
-    // key and without dropping `payload` (AssetManifest reads frame.payload).
+    // key and without dropping `payload` (AssetManifest / OverrideInjection /
+    // MessagingLane / FixtureList read frame.payload).
     const flattened: Record<string, unknown> = { ...(payload as Record<string, unknown>), ...frame };
+    // S87 — drop the envelope-only `channel` wrapper key. It is the transport
+    // routing tag, never an inner message field, so leaving it on the flattened
+    // frame made the closed-shape ConfigPush validator reject every live frame
+    // as `schema_invalid` (~8/sec). No handler reads a top-level `channel`.
+    // `payload` is intentionally KEPT (the four stores above still read it).
+    delete flattened['channel'];
     return flattened as unknown as ServerFrame;
   }
 }
@@ -466,7 +473,7 @@ export const HOST_TESTID = 'crowdaq-widget-v2';
  * that a given player picked up THIS build (the never-blank fix) and not a stale
  * cached bundle. Bump on each deployed widget build.
  */
-export const BUILD_MARKER = 'build:s83-bar-tz';
+export const BUILD_MARKER = 'build:s87-configpush-envelope';
 
 /** Default heartbeat cadence (D-GRH-59 / SPEC-CRWDQ-022). */
 const DEFAULT_HEARTBEAT_MS = 30_000;

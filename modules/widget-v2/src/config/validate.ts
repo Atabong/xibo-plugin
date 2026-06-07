@@ -73,6 +73,37 @@ const hasExactKeys = (obj: Record<string, unknown>, keys: readonly string[]): bo
   return keys.every((k) => Object.prototype.hasOwnProperty.call(obj, k));
 };
 
+/**
+ * S87 — envelope-only wrapper keys the live `buildEnvelope` adds around every
+ * frame (`{ schema_version, channel, message_type, ts, payload, bar_id? }`).
+ * The `EnvelopeFlatteningDeserializer` hoists `payload`'s contents to the top
+ * level but keeps `payload` itself (AssetManifest reads `frame.payload`); the
+ * envelope `channel` is likewise not part of the inner ConfigPush message.
+ * Neither is a contract drift — they are the transport wrapper — so the
+ * closed-shape top-level check tolerates exactly these two keys. A genuinely
+ * unknown surplus key (not in this set) still rejects as `schema_invalid`.
+ */
+const IGNORED_ENVELOPE_KEYS: readonly string[] = ['channel', 'payload'];
+
+/**
+ * Closed-shape check that tolerates the known envelope wrapper keys. Every
+ * expected key must be present; any extra key MUST be a recognised envelope
+ * wrapper, never an arbitrary surplus (D-GRH-73 closed-shape, S87-relaxed only
+ * for the transport wrapper).
+ */
+const hasExactKeysIgnoringEnvelope = (
+  obj: Record<string, unknown>,
+  keys: readonly string[],
+): boolean => {
+  for (const k of keys) {
+    if (!Object.prototype.hasOwnProperty.call(obj, k)) return false;
+  }
+  for (const k of Object.keys(obj)) {
+    if (!keys.includes(k) && !IGNORED_ENVELOPE_KEYS.includes(k)) return false;
+  }
+  return true;
+};
+
 const isValidIana = (tz: string): boolean => {
   try {
     // `Intl.DateTimeFormat` throws RangeError for an unknown IANA zone.
@@ -160,7 +191,7 @@ export function validateConfigPush(frame: unknown): ValidationResult {
     'display_id',
     ...PAYLOAD_KEYS,
   ];
-  if (!hasExactKeys(frame, expectedTopKeys)) return invalid('schema_invalid');
+  if (!hasExactKeysIgnoringEnvelope(frame, expectedTopKeys)) return invalid('schema_invalid');
 
   if (typeof frame['cache_ceiling_bytes'] !== 'number') return invalid('schema_invalid');
   if (!isIntervals(frame['intervals'])) return invalid('schema_invalid');
