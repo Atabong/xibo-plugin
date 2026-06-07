@@ -13,6 +13,7 @@ import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { boot, resolveWsUrl, HOST_TESTID, EnvelopeFlatteningDeserializer } from '../src/bootstrap';
 import { ImmediateSessionLock } from '../src/transport/SessionLock';
 import { FakeWebSocket } from './transport/support/FakeWebSocket';
+import { PREFERENCES_STORAGE_KEY } from '../src/config/PreferenceStore';
 
 /** Spin the microtask queue until `predicate` holds (bounded), for async gates. */
 async function until(predicate: () => boolean, ticks = 50): Promise<void> {
@@ -75,6 +76,42 @@ const configPush = (): string =>
     cache_ceiling_bytes: 1000,
     intervals: { journal_sync_ms: 1000, heartbeat_ms: 30000, manifest_recheck_ms: 60000 },
   });
+
+/** A ConfigPush carrying a specific timezone + config_hash (D-GRH-73 tests). */
+const configPushTz = (timezone: string, configHash: string): string =>
+  JSON.stringify({
+    message_type: 'ConfigPush',
+    config_hash: configHash,
+    schema_version: 1,
+    ts: '2026-06-03T00:00:00Z',
+    bar_id: 'bar-demo',
+    display_id: 'disp-1',
+    preferences: {
+      theme: { state: 'default' },
+      sports: [],
+      leagues: [],
+      region: null,
+      state: null,
+      city: null,
+      timezone,
+      business_hours: [],
+      local_team_list: [],
+      fallback_mode_order: [],
+    },
+    cache_ceiling_bytes: 1000,
+    intervals: { journal_sync_ms: 1000, heartbeat_ms: 30000, manifest_recheck_ms: 60000 },
+  });
+
+/** A persisted preference snapshot (the localStorage shape) carrying `timezone`. */
+const persistedSnapshot = (timezone: string, configHash: string): string =>
+  JSON.stringify({
+    configHash,
+    payload: JSON.parse(configPushTz(timezone, configHash)),
+  });
+
+/** The rendered kickoff text of the first fixtures card under the host. */
+const fixtureWhen = (host: HTMLElement): string =>
+  host.querySelector('[data-testid="cdq-fixture-when"]')?.textContent ?? '';
 
 describe('resolveWsUrl', () => {
   it('appends /ws to a ws base', () => {
@@ -282,5 +319,94 @@ describe('boot()', () => {
 
     await rt.destroy();
     expect(captured!.closedWith?.code).toBe(1000);
+  });
+
+  it('renders the fixtures board in the bar timezone from a PERSISTED snapshot on a hash-matched reconnect (D-GRH-73 / S83)', async () => {
+    // Pre-seed localStorage with a persisted ConfigPush snapshot carrying the
+    // bar's real zone (America/Chicago) — the state after a prior session's
+    // first push. On THIS reconnect the delivery re-sends the SAME config_hash,
+    // so the handler returns `unchanged` and never sets lastPrefs. Without the
+    // boot-seed the fixtures thunk would fall back to 'UTC'; with it the board
+    // renders in the bar's local zone, labeled (CDT), from the persisted prefs.
+    const storage = new MemoryStorage();
+    storage.setItem(PREFERENCES_STORAGE_KEY, persistedSnapshot('America/Chicago', 'cfg-seed'));
+
+    const target = document.createElement('div');
+    const bootPromise = boot(
+      target,
+      { wsBaseUrl: 'ws://game-delivery' },
+      {
+        displayInfo: { hardwareKey: 'hw-bar-demo', displayName: 'bar-demo' },
+        webSocketFactory: factory as never,
+        storage,
+        sessionLock: new ImmediateSessionLock(),
+      },
+    );
+    await until(() => captured !== null);
+    captured!.simulateOpen();
+    // Reconnect ConfigPush: SAME hash as persisted -> `unchanged` (hash_match),
+    // so lastPrefs is NOT set by the handler — only the boot-seed provides the tz.
+    captured!.simulateMessage(configPushTz('America/Chicago', 'cfg-seed'));
+    const rt = await bootPromise;
+    const host = rt.host;
+
+    // Drive a fixtures PlannedState: FixtureList (kickoff) -> ProgramSlot ->
+    // PlannedState(fixtures). A 2026-06-02T20:10Z kickoff is 3:10 PM CDT.
+    captured!.simulateMessage(
+      JSON.stringify({
+        message_type: 'FixtureList',
+        payload: {
+          fixtures: [
+            {
+              eventId: 'eA',
+              sport: 'football',
+              leagueId: 39,
+              leagueName: 'Premier League',
+              homeTeam: 'Arsenal',
+              awayTeam: 'Chelsea',
+              kickoffUtc: '2026-06-02T20:10:00Z',
+              feedStatus: 'scheduled',
+            },
+          ],
+        },
+      }),
+    );
+    captured!.simulateMessage(
+      JSON.stringify({ message_type: 'AssetManifest', payload: { version: 'v1', assets: [] } }),
+    );
+    captured!.simulateMessage(
+      JSON.stringify({
+        message_type: 'ProgramSlot',
+        program_slot_id: 'slot-fx',
+        primary_game_id: null,
+        game_ids: [],
+        fixture_ids: ['eA'],
+      }),
+    );
+    captured!.simulateMessage(
+      JSON.stringify({
+        message_type: 'PlannedState',
+        state_id: 'st-fx',
+        business_mode: 'fixtures',
+        program_slot_id: 'slot-fx',
+        ad_slot_id: null,
+        dwell_target_ms: 30000,
+        transition: { animation_id: 'cut', duration_ms: 0 },
+        theme_id: null,
+      }),
+    );
+
+    await vi.waitFor(() => {
+      expect(host.querySelectorAll('section.crowdaq-fixtures').length).toBe(1);
+    });
+
+    const when = fixtureWhen(host);
+    // CONVERTED to the bar's zone (3:10 PM, not the raw 8:10 PM UTC) AND LABELED.
+    expect(when).toMatch(/3:10/);
+    expect(when).toMatch(/CDT/);
+    expect(when).not.toMatch(/8:10/);
+    expect(when).not.toMatch(/UTC/);
+
+    await rt.destroy();
   });
 });

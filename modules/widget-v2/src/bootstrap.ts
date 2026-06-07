@@ -568,6 +568,24 @@ export async function boot(
   );
   const configHandler = new ConfigPushHandler(preferenceStore, pendingApply, journal);
 
+  // SEED lastPrefs from the PERSISTED snapshot at boot (D-GRH-73). On a
+  // RECONNECT the delivery re-sends a ConfigPush whose hash MATCHES the already
+  // persisted snapshot, so the handler returns `unchanged` and never sets
+  // lastPrefs — leaving the fixtures timezone thunk to fall back to 'UTC' even
+  // though the bar's real zone is sitting in localStorage from the first push.
+  // Seeding here makes the bar's zone available BEFORE the first frame is
+  // dispatched, so a fixtures board mounted off a hash-matched reconnect renders
+  // in the bar's local timezone (labeled) instead of the UTC fallback.
+  try {
+    const persisted = await preferenceStore.load();
+    if (persisted) {
+      lastPrefs = { ...persisted.payload.preferences, bar_id: barId } as SafeBarPreferences;
+    }
+  } catch {
+    // A storage read fault is non-fatal: lastPrefs stays null and the first
+    // wire ConfigPush will populate it (the pre-fix behaviour).
+  }
+
   const activator = new PlannedStateActivator({
     host,
     slots,
