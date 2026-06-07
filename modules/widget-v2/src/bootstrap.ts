@@ -473,7 +473,7 @@ export const HOST_TESTID = 'crowdaq-widget-v2';
  * that a given player picked up THIS build (the never-blank fix) and not a stale
  * cached bundle. Bump on each deployed widget build.
  */
-export const BUILD_MARKER = 'build:s87-configpush-envelope';
+export const BUILD_MARKER = 'build:s87-heartbeat-configpush';
 
 /** Default heartbeat cadence (D-GRH-59 / SPEC-CRWDQ-022). */
 const DEFAULT_HEARTBEAT_MS = 30_000;
