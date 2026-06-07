@@ -165,6 +165,20 @@ class WithAdsCompositeInstance implements TemplateInstance {
   async reconcile(event: TemplateReconcileEvent): Promise<void> {
     await this.content.reconcile?.(event);
   }
+
+  /**
+   * Forward a pending bar-preference apply (D-GRH-73 timezone) to the content
+   * child VERBATIM, exactly like `reconcile`. A `fixtures_with_ads` child is a
+   * `FixturesInstance` whose `applyPending({ timezone })` re-formats every card
+   * under the bar's new zone; the ad panel carries no time and is untouched. A
+   * child with no `applyPending` (it opted out) is a silent no-op. This is the
+   * seam the live {@link FixturesTimezoneBroadcast} drives so a `replaced`
+   * ConfigPush reformats the already-mounted composite without a remount.
+   */
+  applyPending(pending: { timezone?: string }): void {
+    const child = this.content as Partial<{ applyPending(p: { timezone?: string }): void }>;
+    child.applyPending?.(pending);
+  }
 }
 
 /**

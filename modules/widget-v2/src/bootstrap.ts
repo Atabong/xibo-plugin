@@ -80,6 +80,7 @@ import { makeAmbientAdapter } from './templates/ambient/AmbientAdapter';
 // S9-modes assembly: the remaining D-GRH-26 templates, each registered through
 // the SAME PlannedStateActivator seam (INV-FACTORY-19) — never a forked path.
 import { FixtureListStore } from './render/FixtureListStore';
+import { FixturesTimezoneBroadcast } from './render/FixturesTimezoneBroadcast';
 import type { FixtureListFrameTyped } from './templates/fixtures/types';
 import { MultiGameTemplate } from './templates/multi-game/MultiGameTemplate';
 import { makeMultiGameAdapter } from './templates/multi-game/MultiGameAdapter';
@@ -465,7 +466,7 @@ export const HOST_TESTID = 'crowdaq-widget-v2';
  * that a given player picked up THIS build (the never-blank fix) and not a stale
  * cached bundle. Bump on each deployed widget build.
  */
-export const BUILD_MARKER = 'build:s58-never-blank';
+export const BUILD_MARKER = 'build:s83-bar-tz';
 
 /** Default heartbeat cadence (D-GRH-59 / SPEC-CRWDQ-022). */
 const DEFAULT_HEARTBEAT_MS = 30_000;
@@ -669,8 +670,16 @@ export async function boot(
   const adSlotCache = new Map<string, AdSlotPayload>();
   const adSlots: AdSlotResolver = { resolve: (id) => adSlotCache.get(id) ?? null };
   // Bar-local IANA timezone for fixtures kickoff formatting (D-GRH-73); falls
-  // back to UTC until a ConfigPush carries a timezone preference.
+  // back to UTC until a ConfigPush carries a timezone preference. Passed to the
+  // fixtures adapters as a THUNK (evaluated at mount, after the first ConfigPush
+  // populated lastPrefs) so the cold-boot 'UTC' fallback is never frozen into a
+  // render.
   const fixturesTimezone = (): string => lastPrefs?.timezone ?? 'UTC';
+  // Live bar-timezone broadcast (D-GRH-73): a `replaced` ConfigPush that EDITS
+  // the bar's zone reformats the already-mounted fixtures board(s) in place
+  // (no remount). Independent of the SPEC-014 pending-apply slot the activator
+  // drains for the theme swap, so the two never race over the single slot.
+  const fixturesTimezoneBroadcast = new FixturesTimezoneBroadcast();
 
   // multiple_games — 2×4 score-bug grid (SPEC-CRWDQ-031).
   activator.registerTemplate(
@@ -692,7 +701,8 @@ export async function boot(
       cardTransitions: noopCardTransitions,
       fixtureListStore,
       assetManifestStore: assets,
-      timezone: fixturesTimezone(),
+      timezone: fixturesTimezone,
+      timezoneBroadcast: fixturesTimezoneBroadcast,
     }),
   );
 
@@ -710,7 +720,8 @@ export async function boot(
       cardTransitions: noopCardTransitions,
       fixtureListStore,
       assetManifestStore: assets,
-      timezone: fixturesTimezone(),
+      timezone: fixturesTimezone,
+      timezoneBroadcast: fixturesTimezoneBroadcast,
     }),
   );
 
@@ -749,7 +760,8 @@ export async function boot(
       adSlots,
       fixtureListStore,
       transitionExecutor: transitions,
-      timezone: fixturesTimezone(),
+      timezone: fixturesTimezone,
+      timezoneBroadcast: fixturesTimezoneBroadcast,
     }),
   );
 
@@ -777,14 +789,23 @@ export async function boot(
       void configHandler
         .handle(toConfigPushFrame(frame as Record<string, unknown>) as ConfigPushFrame)
         .then((outcome) => {
+          // Capture the applied preferences on BOTH the first push AND a later
+          // EDIT (`replaced`). A tz EDIT must update lastPrefs so the fixtures
+          // thunk reads the new zone on the next mount; without this branch a
+          // `replaced` push silently never took effect (the original bug).
           if (outcome.kind === 'first_push' || outcome.kind === 'replaced') {
-            const prefs = outcome.kind === 'first_push' ? outcome.preferences : null;
-            if (prefs) {
-              barTheme.set(prefs.theme);
-              // Capture the applied preferences (+ bar_id) for the safe/ambient
-              // venue-brand chain, and the resolved theme id for synthetic safe.
-              lastPrefs = { ...prefs, bar_id: barId } as SafeBarPreferences;
-              lastThemeId = prefs.theme.state === 'set' ? prefs.theme.id : null;
+            const prefs = outcome.preferences;
+            const priorTimezone = lastPrefs?.timezone ?? null;
+            barTheme.set(prefs.theme);
+            // Capture the applied preferences (+ bar_id) for the safe/ambient
+            // venue-brand chain, and the resolved theme id for synthetic safe.
+            lastPrefs = { ...prefs, bar_id: barId } as SafeBarPreferences;
+            lastThemeId = prefs.theme.state === 'set' ? prefs.theme.id : null;
+            // GUARANTEED tz handling (D-GRH-73): when the bar's zone CHANGED,
+            // reformat the already-mounted fixtures board(s) in place so the
+            // edit visibly takes effect without waiting for a remount.
+            if (prefs.timezone !== priorTimezone) {
+              fixturesTimezoneBroadcast.broadcast(prefs.timezone);
             }
           }
         });

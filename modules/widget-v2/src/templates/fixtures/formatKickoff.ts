@@ -4,12 +4,17 @@
  * A fixture's `kickoffUtc` (ISO 8601 UTC) is rendered in the bar's `timezone`
  * with a relative-day prefix computed against bar-local "now":
  *
- *   | bar-local date vs bar-local now | display              |
- *   |---------------------------------|----------------------|
- *   | same calendar day               | "Today 7:30 PM"      |
- *   | next calendar day               | "Tomorrow 7:30 PM"   |
- *   | 2..6 days ahead                 | "Sat 7:30 PM"        |
- *   | >= 7 days ahead                 | "May 21 7:30 PM"     |
+ *   | bar-local date vs bar-local now | display                |
+ *   |---------------------------------|------------------------|
+ *   | same calendar day               | "Today 7:30 PM CDT"    |
+ *   | next calendar day               | "Tomorrow 7:30 PM CDT" |
+ *   | 2..6 days ahead                 | "Sat 7:30 PM CDT"      |
+ *   | >= 7 days ahead                 | "May 21 7:30 PM CDT"   |
+ *
+ * The time carries its short timezone name (GUARANTEED-LABEL, D-GRH-73): a
+ * viewer always sees which zone the kickoff is in, and the pre-ConfigPush UTC
+ * fallback is rendered as an explicit "… UTC" rather than silently implying
+ * local time.
  *
  * The day boundary is bar-local midnight in `timezone` (NOT UTC) — the calendar
  * day is derived from the timezone-projected y/m/d, not the UTC date. Locale is
@@ -46,12 +51,20 @@ function localMidnightUtc(ms: number, timeZone: string): number {
   return Date.UTC(get('year'), get('month') - 1, get('day'));
 }
 
-/** The bar-local clock time, e.g. "7:30 PM". */
+/**
+ * The bar-local clock time WITH its short timezone name, e.g. "7:30 PM CDT"
+ * (or "8:10 PM UTC" for the pre-ConfigPush fallback zone). The short tz name
+ * (D-GRH-73 GUARANTEED-LABEL) makes the rendered zone explicit to a viewer so
+ * a converted time is never mistaken for raw UTC and the UTC fallback is
+ * labeled rather than silently implying local. `timeZoneName: 'short'` yields
+ * the IANA short name (e.g. "MDT" / "PDT" / "UTC").
+ */
 function localTime(ms: number, timeZone: string): string {
   return new Intl.DateTimeFormat(undefined, {
     timeZone,
     hour: 'numeric',
     minute: '2-digit',
+    timeZoneName: 'short',
   }).format(new Date(ms));
 }
 

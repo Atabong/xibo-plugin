@@ -105,12 +105,16 @@ describe('ConfigPushHandler', () => {
       const next = makePayload({ config_hash: 'hash-bbb' });
       const outcome = await handler.handle(next);
 
-      expect(outcome).toEqual({
+      expect(outcome).toMatchObject({
         kind: 'replaced',
         previousHash: 'hash-aaa',
         configHash: 'hash-bbb',
         evictedKeys: ['k3', 'k4'],
       });
+      // S83 / D-GRH-73: a `replaced` outcome carries the freshly-applied
+      // preferences so an EDIT (e.g. a new timezone) reaches the render-side
+      // lastPrefs capture and reformats the live fixtures board.
+      expect(outcome).toHaveProperty('preferences', next.preferences);
       expect((await store.load())?.configHash).toBe('hash-bbb');
       expect(apply.hasPending()).toBe(true);
       expect(journal.events[1]).toMatchObject({

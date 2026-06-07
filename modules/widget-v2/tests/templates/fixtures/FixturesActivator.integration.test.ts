@@ -184,7 +184,7 @@ function makeHarness(opts: { pendingTimezone?: string } = {}): Harness {
       cardTransitions,
       fixtureListStore: store,
       assetManifestStore: assetStore,
-      timezone: 'America/Chicago',
+      timezone: () => 'America/Chicago',
       ...(opts.pendingTimezone
         ? { pendingApply: new OneShotPendingTimezone(opts.pendingTimezone) }
         : {}),

@@ -130,6 +130,12 @@ export class ConfigPushHandler {
       // First-ever push: stored as a replace, journaled/reported as first_push.
       return { kind: 'first_push', preferences: payload.preferences, configHash };
     }
-    return { kind: 'replaced', previousHash: prior.configHash, configHash, evictedKeys };
+    return {
+      kind: 'replaced',
+      previousHash: prior.configHash,
+      configHash,
+      evictedKeys,
+      preferences: payload.preferences,
+    };
   }
 }

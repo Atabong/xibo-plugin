@@ -28,7 +28,9 @@ import type { AssetManifestStore } from '../../render/AssetManifestStore';
 import type { FixtureListStore } from '../../render/FixtureListStore';
 import type { GameStateStore } from '../../render/GameStateStore';
 import type { CardTransitions } from '../multi-game/CardSet';
+import type { FixturesTimezoneBroadcast } from '../../render/FixturesTimezoneBroadcast';
 import type { PendingPreferenceApply } from '../fixtures/FixturesTemplate';
+import { subscribeTimezoneReformat } from '../fixtures/subscribeTimezoneReformat';
 import { FixturesWithLiveGameTemplate } from './FixturesWithLiveGameTemplate';
 
 /** Drains a pending bar-preference apply for the next mount (D-GRH-73 timezone). */
@@ -49,10 +51,21 @@ export interface FixturesWithLiveGameAdapterDeps {
    * deployment need not pass it.
    */
   gameStateStore?: GameStateStore;
-  /** Bar-local IANA timezone for the static tiles' kickoff times (D-GRH-73). */
-  timezone: string;
+  /**
+   * Bar-local IANA timezone for the static tiles' kickoff times (D-GRH-73), a
+   * THUNK evaluated at `mount` time (not captured at registration) so a render
+   * after the first ConfigPush picks up the bar's real zone instead of the
+   * frozen pre-ConfigPush 'UTC' fallback. See {@link FixturesAdapterDeps.timezone}.
+   */
+  timezone: () => string;
   /** Optional pending-preference source drained at mount (AC12 parity). */
   pendingApply?: PendingTimezoneApply;
+  /**
+   * Live bar-timezone broadcast (D-GRH-73): a `replaced` ConfigPush that
+   * changes the bar's zone re-formats this already-mounted composite's static
+   * tiles in place (no remount). Omitted on a deployment with no live tz edits.
+   */
+  timezoneBroadcast?: FixturesTimezoneBroadcast;
 }
 
 /** Build the `fixtures_with_live_game` adapter for `registerTemplate`. */
@@ -64,7 +77,7 @@ export function makeFixturesWithLiveGameAdapter(
       const instance = deps.template.mount(args.host, {
         programSlot: args.slot,
         theme: args.theme,
-        timezone: deps.timezone,
+        timezone: deps.timezone(),
         fixtureListStore: deps.fixtureListStore,
         assetManifestStore: deps.assetManifestStore,
         gameStateStore: deps.gameStateStore ?? args.gameStateStore,
@@ -73,9 +86,12 @@ export function makeFixturesWithLiveGameAdapter(
         pendingApply: deps.pendingApply?.takePending() ?? null,
       });
       if (instance === null) return null;
+      // Live tz-edit reformat (D-GRH-73): a `replaced` ConfigPush reformats the
+      // static tiles in place; detach unsubscribes.
+      const wired = subscribeTimezoneReformat(instance, deps.timezoneBroadcast);
       // The promoted tile drives itself off the GameStateStore subscription; no
       // game_state_revision gates through to the reconcile hook (it is a no-op).
-      return { instance, subscribedGameIds: new Set<string>() };
+      return { instance: wired, subscribedGameIds: new Set<string>() };
     },
   };
 }
