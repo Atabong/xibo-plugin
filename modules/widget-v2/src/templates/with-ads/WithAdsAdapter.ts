@@ -34,6 +34,8 @@ import type { CrestResolver } from '../../render/CrestResolver';
 import type { CardTransitions } from '../multi-game/CardSet';
 import type { AdSlotPayload } from '../../render/types';
 import { DwellTimer, type DwellClock, systemDwellClock } from '../../render/DwellTimer';
+import type { FixturesTimezoneBroadcast } from '../../render/FixturesTimezoneBroadcast';
+import { subscribeTimezoneReformat } from '../fixtures/subscribeTimezoneReformat';
 import type { MultiGameWithAdsTemplate } from './MultiGameWithAdsTemplate';
 import type { FixturesWithAdsTemplate } from './FixturesWithAdsTemplate';
 import type { FixturesContext } from '../fixtures/FixturesTemplate';
@@ -128,10 +130,22 @@ export interface FixturesWithAdsAdapterDeps {
   adSlots: AdSlotResolver;
   fixtureListStore: FixturesContext['fixtureListStore'];
   transitionExecutor: FixturesContext['transitionExecutor'];
-  /** Bar-local IANA timezone for kickoff formatting (D-GRH-73). */
-  timezone: string;
+  /**
+   * Bar-local IANA timezone for kickoff formatting (D-GRH-73), a THUNK
+   * evaluated at `mount` time (not captured at registration) so a render after
+   * the first ConfigPush picks up the bar's real zone rather than the frozen
+   * pre-ConfigPush 'UTC' fallback. See {@link FixturesAdapterDeps.timezone}.
+   */
+  timezone: () => string;
   /** Optional pending-preference source drained at mount (AC12 parity). */
   pendingApply?: PendingTimezoneApply;
+  /**
+   * Live bar-timezone broadcast (D-GRH-73): a `replaced` ConfigPush reformats
+   * the already-mounted composite's fixture cards in place (no remount). The
+   * composite forwards the reformat to its fixtures child; the ad panel carries
+   * no time and is untouched. Omitted on a deployment with no live tz edits.
+   */
+  timezoneBroadcast?: FixturesTimezoneBroadcast;
   dwell?: SnapshottingDwellTimer;
 }
 
@@ -150,7 +164,7 @@ export function makeFixturesWithAdsAdapter(deps: FixturesWithAdsAdapterDeps): Te
       const instance = deps.template.mount(args.host, {
         programSlot: args.slot,
         theme: args.theme,
-        timezone: deps.timezone,
+        timezone: deps.timezone(),
         fixtureListStore: deps.fixtureListStore,
         assetManifestStore: deps.assetManifestStore,
         transitionExecutor: deps.transitionExecutor,
@@ -163,8 +177,11 @@ export function makeFixturesWithAdsAdapter(deps: FixturesWithAdsAdapterDeps): Te
         dwellActualMs: () => deps.dwell?.elapsedAtSupersede() ?? 0,
       });
       if (instance === null) return null;
+      // Live tz-edit reformat (D-GRH-73): the composite forwards the reformat to
+      // its fixtures child; detach unsubscribes.
+      const wired = subscribeTimezoneReformat(instance, deps.timezoneBroadcast);
       // Fixtures subscribes to no games: no game_state_revision gates through.
-      return { instance, subscribedGameIds: new Set<string>() };
+      return { instance: wired, subscribedGameIds: new Set<string>() };
     },
   };
 }

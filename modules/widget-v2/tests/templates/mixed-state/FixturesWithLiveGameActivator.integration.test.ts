@@ -155,7 +155,7 @@ function makeHarness() {
       fixtureListStore: fixtures,
       assetManifestStore: assetStore,
       gameStateStore: games,
-      timezone: 'America/Chicago',
+      timezone: () => 'America/Chicago',
     }),
   );
   const dispatcher = new FrameDispatcher(noopRequester, noActive);

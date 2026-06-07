@@ -47,3 +47,21 @@ describe('formatKickoff relative-day prefix table (America/Chicago)', () => {
     expect(out).toMatch(/8:30/);
   });
 });
+
+describe('formatKickoff GUARANTEED tz label (D-GRH-73, S83)', () => {
+  it('appends the short timezone name for a bar zone (MDT in America/Denver)', () => {
+    // 2026-06-02T20:10Z == 14:10 MDT (the spec worked example).
+    const out = formatKickoff('2026-06-02T20:10:00Z', 'America/Denver', NOW);
+    expect(out).toMatch(/2:10 PM MDT/);
+  });
+
+  it('appends a different short name for a different zone (PDT)', () => {
+    const out = formatKickoff('2026-06-02T20:10:00Z', 'America/Los_Angeles', NOW);
+    expect(out).toMatch(/1:10 PM PDT/);
+  });
+
+  it('explicitly labels the UTC fallback (never silently implies local)', () => {
+    const out = formatKickoff('2026-06-02T20:10:00Z', 'UTC', NOW);
+    expect(out).toMatch(/8:10 PM UTC/);
+  });
+});

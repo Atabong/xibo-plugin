@@ -22,7 +22,20 @@ export type ConfigPushFrame = unknown;
 export type ConfigPushOutcome =
   | { kind: 'first_push'; preferences: BarPreferencesWire; configHash: string }
   | { kind: 'unchanged'; configHash: string }
-  | { kind: 'replaced'; previousHash: string; configHash: string; evictedKeys: string[] }
+  | {
+      kind: 'replaced';
+      previousHash: string;
+      configHash: string;
+      evictedKeys: string[];
+      /**
+       * The freshly-applied preferences (D-GRH-73). Carried on a `replaced`
+       * outcome — not just `first_push` — so a bar-preference EDIT (e.g. a new
+       * `timezone`) reaches the render-side `lastPrefs` capture and re-formats
+       * the live fixtures board, instead of the edit silently never taking
+       * effect.
+       */
+      preferences: BarPreferencesWire;
+    }
   | { kind: 'rejected'; reason: ConfigRejectReason };
 
 /**

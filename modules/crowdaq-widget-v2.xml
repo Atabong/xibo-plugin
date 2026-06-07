@@ -114,7 +114,7 @@
     data-crowdaq-display-id="{{ displayId }}"
     data-crowdaq-player-version="{{ playerVersion }}"
     data-crowdaq-heartbeat-interval-ms="{{ heartbeatIntervalMs }}"
-    data-crowdaq-bundle-build="s49-data-stale-active-resync">
+    data-crowdaq-bundle-build="s83-bar-tz">
     <!-- boot() mounts the active business_mode template into this host: a
          <section class="crowdaq-single-game"> for a live game, a
          <section class="crowdaq-safe-info"> for the default no-games standing

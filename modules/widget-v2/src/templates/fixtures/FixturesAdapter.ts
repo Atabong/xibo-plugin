@@ -29,8 +29,10 @@ import type { AssetManifestStore } from '../../render/AssetManifestStore';
 import type { FixtureListStore } from '../../render/FixtureListStore';
 import type { TransitionExecutor } from '../../render/TransitionExecutor';
 import type { TransitionSpec } from '../../render/types';
+import type { FixturesTimezoneBroadcast } from '../../render/FixturesTimezoneBroadcast';
 import type { CardTransitions } from '../multi-game/CardSet';
 import { FixturesTemplate, type PendingPreferenceApply } from './FixturesTemplate';
+import { subscribeTimezoneReformat } from './subscribeTimezoneReformat';
 
 /** Drains a pending bar-preference apply for the next mount (D-GRH-73 timezone). */
 export interface PendingTimezoneApply {
@@ -45,8 +47,16 @@ export interface FixturesAdapterDeps {
   fixtureListStore: FixtureListStore;
   /** Consumed from SPEC-CRWDQ-064; this adapter neither defines nor creates it. */
   assetManifestStore: AssetManifestStore;
-  /** Bar-local IANA timezone for kickoff formatting (D-GRH-73). */
-  timezone: string;
+  /**
+   * Bar-local IANA timezone for kickoff formatting (D-GRH-73), supplied as a
+   * THUNK evaluated at `mount` time — NOT a value captured at registration.
+   * The adapter is registered during bootstrap BEFORE the first ConfigPush has
+   * populated the bar preferences; capturing a `string` here would freeze the
+   * pre-ConfigPush 'UTC' fallback into every mount. Reading the thunk inside
+   * `mount` (which runs per PlannedState, after ConfigPush set the prefs)
+   * resolves the bar's real zone for every render.
+   */
+  timezone: () => string;
   /**
    * Optional pending-preference source drained at mount (a new bar `timezone`
    * re-formats every card immediately, AC12). Omitted on a deployment with no
@@ -54,6 +64,12 @@ export interface FixturesAdapterDeps {
    * independent.
    */
   pendingApply?: PendingTimezoneApply;
+  /**
+   * Live bar-timezone broadcast (D-GRH-73). When provided, a `replaced`
+   * ConfigPush that changes the bar's zone re-formats this already-mounted board
+   * immediately (no remount). Omitted on a deployment with no live tz edits.
+   */
+  timezoneBroadcast?: FixturesTimezoneBroadcast;
 }
 
 /**
@@ -75,7 +91,7 @@ export function makeFixturesAdapter(deps: FixturesAdapterDeps): TemplateAdapter 
       const instance = deps.template.mount(args.host, {
         programSlot: args.slot,
         theme: args.theme,
-        timezone: deps.timezone,
+        timezone: deps.timezone(),
         fixtureListStore: deps.fixtureListStore,
         assetManifestStore: deps.assetManifestStore,
         transitionExecutor: noopTransitionExecutor as TransitionExecutor,
@@ -85,9 +101,12 @@ export function makeFixturesAdapter(deps: FixturesAdapterDeps): TemplateAdapter 
         pendingApply: deps.pendingApply?.takePending() ?? null,
       });
       if (instance === null) return null;
+      // Live tz-edit reformat (D-GRH-73): subscribe this board to the broadcast
+      // so a `replaced` ConfigPush reformats it in place; detach unsubscribes.
+      const wired = subscribeTimezoneReformat(instance, deps.timezoneBroadcast);
       // Fixtures is the pre-game catalog: it subscribes to NO games, so no
       // game_state_revision ever gates through to its reconcile hook (AC11).
-      return { instance, subscribedGameIds: new Set<string>() };
+      return { instance: wired, subscribedGameIds: new Set<string>() };
     },
   };
 }
