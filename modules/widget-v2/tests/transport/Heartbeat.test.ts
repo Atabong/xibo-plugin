@@ -54,20 +54,23 @@ describe('Heartbeat cadence (AC6)', () => {
     loop.stop();
   });
 
-  it('carries HeartbeatPayload with player_local_ts and config_hash', () => {
+  it('emits a FLAT Heartbeat frame with player_local_ts + config_hash (WsClient wraps it)', () => {
+    // S87 — the loop emits the FLAT player frame; the SINGLE envelope wrap is
+    // WsClient.send's job. The loop must NOT pre-wrap (that double-nested the
+    // heartbeat on the wire so the server read a null config_hash).
     vi.setSystemTime(123_456);
     const { sink, loop } = make({ now: () => Date.now() });
     loop.start();
     vi.advanceTimersByTime(HB_INTERVAL);
     expect(sink.frames[0]).toMatchObject({
-      schema_version: 1,
-      channel: 'control',
       message_type: 'Heartbeat',
-      payload: {
-        player_local_ts: 123_456 + HB_INTERVAL,
-        config_hash: 'cfg-1',
-      },
+      player_local_ts: 123_456 + HB_INTERVAL,
+      config_hash: 'cfg-1',
     });
+    // Not pre-wrapped: no envelope fields, no nested payload.
+    expect('payload' in (sink.frames[0] as object)).toBe(false);
+    expect('schema_version' in (sink.frames[0] as object)).toBe(false);
+    expect('channel' in (sink.frames[0] as object)).toBe(false);
     loop.stop();
   });
 

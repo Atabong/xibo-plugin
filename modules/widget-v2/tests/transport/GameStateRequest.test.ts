@@ -11,17 +11,19 @@ class RecordingSend {
 }
 
 describe('GameStateRequestSender', () => {
-  it('emits a GameStateRequest frame with game_id and since_seq', () => {
+  it('emits a FLAT GameStateRequest frame with game_id and since_seq (WsClient wraps it)', () => {
+    // S87 — the sender emits the FLAT player frame; the SINGLE envelope wrap is
+    // WsClient.send's job. Pre-wrapping here double-nested the frame on the wire.
     const sink = new RecordingSend();
     const sender = new GameStateRequestSender(sink.send);
     sender.requestForGap('G', 3);
     expect(sink.sent).toHaveLength(1);
     expect(sink.sent[0]).toMatchObject({
-      schema_version: 1,
-      channel: 'control',
       message_type: 'GameStateRequest',
-      payload: { game_id: 'G', since_seq: 3 },
+      game_id: 'G',
+      since_seq: 3,
     });
+    expect('payload' in (sink.sent[0] as object)).toBe(false);
   });
 
   it('coalesces a second request for the same game while one is outstanding', () => {
@@ -41,11 +43,13 @@ describe('GameStateRequestSender', () => {
     expect(sink.sent).toHaveLength(2);
     expect(sink.sent[0]).toMatchObject({
       message_type: 'GameStateRequest',
-      payload: { game_id: 'G', since_seq: 3 },
+      game_id: 'G',
+      since_seq: 3,
     });
     expect(sink.sent[1]).toMatchObject({
       message_type: 'GameStateRequest',
-      payload: { game_id: 'G', since_seq: 9 },
+      game_id: 'G',
+      since_seq: 9,
     });
   });
 

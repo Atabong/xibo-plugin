@@ -140,13 +140,17 @@ describe('Dispatcher + GameStateRequestSender integration (AC5)', () => {
     d.dispatch(ge('G', 25)); // new gap after baseline 20 -> request since 20
 
     expect(sent).toHaveLength(2);
+    // S87 — the sender emits FLAT player frames (WsClient.send does the single
+    // envelope wrap), so game_id/since_seq sit at the top level here.
     expect(sent[0]).toMatchObject({
       message_type: 'GameStateRequest',
-      payload: { game_id: 'G', since_seq: 1 },
+      game_id: 'G',
+      since_seq: 1,
     });
     expect(sent[1]).toMatchObject({
       message_type: 'GameStateRequest',
-      payload: { game_id: 'G', since_seq: 20 },
+      game_id: 'G',
+      since_seq: 20,
     });
   });
 });
