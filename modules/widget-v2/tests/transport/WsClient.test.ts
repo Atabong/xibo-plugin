@@ -133,6 +133,44 @@ describe('WsClient.connect (AC1, AC2)', () => {
   });
 });
 
+describe('WsClient heartbeat on-wire shape (S87 — single envelope, config_hash readable)', () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+    vi.setSystemTime(0);
+  });
+  afterEach(() => { vi.useRealTimers(); });
+
+  it('sends a SINGLE-nested Heartbeat envelope with config_hash at payload.config_hash', async () => {
+    const ctx = build();
+    const p = ctx.client.connect();
+    ctx.sockets[0]!.simulateOpen();
+    // ConfigPush sets the current config hash the heartbeat stamps.
+    ctx.sockets[0]!.simulateMessage(configPush);
+    await p;
+    // Advance one heartbeat interval so the loop emits.
+    vi.advanceTimersByTime(30_000);
+
+    const hbRaw = ctx.sockets[0]!.sent
+      .map((s) => JSON.parse(s))
+      .find((f) => f.message_type === 'Heartbeat');
+    expect(hbRaw).toBeDefined();
+    // Single envelope: fields directly under `payload`, NOT payload.payload.
+    expect(hbRaw).toMatchObject({
+      schema_version: 1,
+      channel: 'control',
+      message_type: 'Heartbeat',
+      payload: { config_hash: 'h1' },
+    });
+    expect(typeof hbRaw.payload.player_local_ts).toBe('number');
+    // Regression guard: the historical double-nest bug buried the real fields
+    // under payload.payload, so the server read a null config_hash.
+    expect('payload' in hbRaw.payload).toBe(false);
+    expect('schema_version' in hbRaw.payload).toBe(false);
+    expect('channel' in hbRaw.payload).toBe(false);
+    await ctx.client.close();
+  });
+});
+
 describe('WsClient read loop journaling (AC8, AC9)', () => {
   beforeEach(() => {
     vi.useFakeTimers();

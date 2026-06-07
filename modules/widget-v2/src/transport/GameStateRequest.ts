@@ -8,7 +8,7 @@
  * burst of gaps producing a request storm even if the dispatcher's own
  * coalescing is bypassed.
  */
-import { buildEnvelope, type GameStateRequestFrame, type PlayerToServerFrame } from '../wire';
+import type { GameStateRequestFrame, PlayerToServerFrame } from '../wire';
 import type { GameStateRequester } from './types';
 
 export type SendFn = (frame: PlayerToServerFrame) => void;
@@ -23,12 +23,15 @@ export class GameStateRequestSender implements GameStateRequester {
       return;
     }
     this.outstanding.add(gameId);
+    // Send the FLAT player frame; `WsClient.send` is the single point that
+    // wraps it in the server envelope. Pre-wrapping here too double-nested the
+    // frame (`payload.payload.*`), the same bug fixed for Heartbeat (S87).
     const frame: GameStateRequestFrame = {
       message_type: 'GameStateRequest',
       game_id: gameId,
       since_seq: sinceSeq,
     };
-    this.send(buildEnvelope(frame));
+    this.send(frame);
   }
 
   /** Called when the matching `GameStateSnapshot` arrives; clears the gate. */

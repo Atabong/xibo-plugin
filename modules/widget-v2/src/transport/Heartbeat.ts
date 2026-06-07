@@ -13,7 +13,7 @@
  * vitest fake timers under test) so cadence and timeout are deterministic
  * without real wall-clock waits — system boundary per INV-FACTORY-17.
  */
-import { buildEnvelope, type HeartbeatFrame, type PlayerToServerFrame } from '../wire';
+import type { HeartbeatFrame, PlayerToServerFrame } from '../wire';
 import type { Heartbeat } from './types';
 
 export interface HeartbeatConfig {
@@ -75,12 +75,18 @@ export class HeartbeatLoop implements Heartbeat {
     const armDeadline = this.outstandingTs === null;
     this.outstandingTs = ts;
 
+    // Send the FLAT player frame. `WsClient.send` is the SINGLE point that
+    // wraps a player frame in the server envelope (codec `buildEnvelope`):
+    // pre-wrapping here too produced a DOUBLE-nested heartbeat
+    // (`payload.payload.{player_local_ts,config_hash}`), so the server read a
+    // null `payload.config_hash` and every HeartbeatAck returned
+    // `config_hash_ok:false`, masking config-drift detection (S87, live wire).
     const frame: HeartbeatFrame = {
       message_type: 'Heartbeat',
       player_local_ts: ts,
       config_hash: this.config.configHash(),
     };
-    this.config.send(buildEnvelope(frame));
+    this.config.send(frame);
 
     if (armDeadline) {
       this.timeoutHandle = setTimeout(() => {
