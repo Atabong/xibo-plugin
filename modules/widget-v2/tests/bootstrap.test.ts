@@ -9,7 +9,7 @@
  * resolution + targeting, the DeviceRegistration handshake, single_game mount,
  * score render, and the in-place score update on a GameEvent.
  */
-import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { boot, resolveWsUrl, HOST_TESTID, EnvelopeFlatteningDeserializer } from '../src/bootstrap';
 import { ImmediateSessionLock } from '../src/transport/SessionLock';
 import { FakeWebSocket } from './transport/support/FakeWebSocket';
@@ -197,6 +197,61 @@ describe('boot()', () => {
     expect(rt.client).toBeNull();
     expect(text(rt.host, 'crowdaq-configure-placeholder')).toBe('Configure wsBaseUrl');
     await rt.destroy();
+  });
+
+  // SPEC-CRWDQ-S110 — the widget must NOT call xiboIC.info() when it cannot
+  // change the outcome (the 4.0.x Linux player's info() bridge XHRs the
+  // unserved /info route → a steady 404 poll in the console). It must still
+  // call info() when a display:<field> wsBaseUrl or a missing id override needs
+  // it. (deps.displayInfo is left undefined here so boot takes the real path.)
+  describe('xiboIC.info() avoidance (S110 /info 404 fix)', () => {
+    let infoCalls: number;
+    beforeEach(() => {
+      infoCalls = 0;
+      (globalThis as Record<string, unknown>)['xiboIC'] = {
+        info: (cb: { done: (xhr: { responseText: string }) => void }) => {
+          infoCalls += 1;
+          cb.done({ responseText: JSON.stringify({ hardwareKey: 'hw', displayName: 'd' }) });
+        },
+      };
+    });
+    afterEach(() => {
+      delete (globalThis as Record<string, unknown>)['xiboIC'];
+    });
+
+    it('does NOT call info() when both barId+displayId overrides and a literal wsBaseUrl are set', async () => {
+      const target = document.createElement('div');
+      const rt = await boot(
+        target,
+        { wsBaseUrl: 'wss://gd.test', barId: 'bar-1', displayId: 'disp-1' },
+        { webSocketFactory: factory as never, sessionLock: new ImmediateSessionLock() },
+      );
+      expect(infoCalls).toBe(0);
+      expect(rt.wsUrl).toBe('wss://gd.test/ws');
+      await rt.destroy();
+    });
+
+    it('DOES call info() when wsBaseUrl uses display:<field> targeting', async () => {
+      const target = document.createElement('div');
+      const rt = await boot(
+        target,
+        { wsBaseUrl: 'display:displayName', barId: 'bar-1', displayId: 'disp-1' },
+        { webSocketFactory: factory as never, sessionLock: new ImmediateSessionLock() },
+      );
+      expect(infoCalls).toBe(1);
+      await rt.destroy();
+    });
+
+    it('DOES call info() when an id override is missing (must fall back)', async () => {
+      const target = document.createElement('div');
+      const rt = await boot(
+        target,
+        { wsBaseUrl: 'wss://gd.test', barId: 'bar-1' }, // no displayId
+        { webSocketFactory: factory as never, sessionLock: new ImmediateSessionLock() },
+      );
+      expect(infoCalls).toBe(1);
+      await rt.destroy();
+    });
   });
 
   it('connects with the crowdaq.v1 subprotocol and sends DeviceRegistration', async () => {
