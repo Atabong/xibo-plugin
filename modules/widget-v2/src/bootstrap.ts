@@ -98,6 +98,10 @@ import {
 } from './templates/with-ads/WithAdsAdapter';
 import type { AdSlotPayload } from './render/types';
 
+import { JournalStore } from './observability/JournalStore';
+import { JournalSyncClient } from './observability/JournalSyncClient';
+import { Observer } from './observability/index';
+import { ImpressionEmitter } from './observability/ImpressionEmitter';
 import { ConfigPushHandler } from './config/ConfigPushHandler';
 import { LocalStoragePreferenceStore, type PreferenceDerivedCache } from './config/PreferenceStore';
 import { PendingApplySlot } from './config/ApplyPreferenceState';
@@ -531,6 +535,27 @@ export async function boot(
 
   const journal = new ConsoleJournalSink(deps.journalSink);
 
+  // SPEC-CRWDQ-S105 — durable journal store + emit adapter for the ad-impression
+  // loop. An `ad_slot_rendered` render event becomes a journal row that drains
+  // to the backend over the SPEC-CRWDQ-061 JournalSync WS path (the
+  // JournalSyncClient is bound onto the WS client at step 5). The store's
+  // IndexedDB open is best-effort: a headless/preview environment without
+  // IndexedDB keeps the console breadcrumb and simply records no durable
+  // impression rows (the loop is a live-bar concern). `impressionJournal`
+  // decorates the console sink so AdPanel renders both log AND meter.
+  const journalStore = new JournalStore({ barId, displayId });
+  let journalSyncClient: JournalSyncClient | null = null;
+  const observer = new Observer(journalStore, () => new Date().toISOString(), {
+    onAppended: () => journalSyncClient?.onAppended(),
+  });
+  void journalStore.ready().catch((err) => {
+    journal.record({
+      event: 'journal_store_unavailable',
+      error: err instanceof Error ? err.message : String(err),
+    });
+  });
+  const impressionJournal = new ImpressionEmitter({ inner: journal, observer });
+
   if (wsUrl === null) {
     // No WS base configured — render the configure placeholder, do not dial.
     renderConfigurePlaceholder(host, doc);
@@ -768,7 +793,10 @@ export async function boot(
     'multiple_games_with_ads',
     makeMultiGameWithAdsAdapter({
       template: new MultiGameWithAdsTemplate(new MultiGameTemplate()),
-      journal,
+      // SPEC-CRWDQ-S105 — the with-ads composites mount the AdPanel, whose
+      // `ad_slot_rendered` must be metered. The ImpressionEmitter forwards every
+      // event to the console sink AND emits the impression journal row.
+      journal: impressionJournal,
       cardTransitions: noopCardTransitions,
       assetManifestStore: assets,
       adSlots,
@@ -781,7 +809,8 @@ export async function boot(
     'fixtures_with_ads',
     makeFixturesWithAdsAdapter({
       template: new FixturesWithAdsTemplate(new FixturesTemplate()),
-      journal,
+      // SPEC-CRWDQ-S105 — meter AdPanel renders (see multiple_games_with_ads).
+      journal: impressionJournal,
       cardTransitions: noopCardTransitions,
       assetManifestStore: assets,
       adSlots,
@@ -920,6 +949,27 @@ export async function boot(
   // active-resync seam can recycle the WS once the client exists.
   wsClientRef = client;
 
+  // SPEC-CRWDQ-S105 / SPEC-CRWDQ-061 — bind the JournalSyncClient onto the WS
+  // client so journaled ad impressions (and other player telemetry) drain to
+  // the backend: periodically, on backlog, and on (re)connect. The
+  // CrowdaqWsClient satisfies JournalSyncWsClient (isOpen/send/on). This is the
+  // transport that carries the impression rows the ImpressionEmitter appended.
+  journalSyncClient = new JournalSyncClient({
+    store: journalStore,
+    ws: client,
+    identity: { barId, displayId },
+    config: {
+      syncIntervalMs: properties.heartbeatIntervalMs ?? DEFAULT_HEARTBEAT_MS,
+      maxBatchSize: 50,
+      maxBatchBytes: 256 * 1024,
+      retainMaxRows: 10_000,
+      retainMaxAgeMs: 7 * 24 * 60 * 60 * 1000,
+    },
+    now: deps.now ?? (() => Date.now()),
+    random: deps.random ?? (() => Math.random()),
+  });
+  journalSyncClient.start();
+
   // Bind the deferred WS-lifecycle seam to the real client and start the
   // D-SAFE-01 player-fallback controller (now that the WS exists). The
   // controller arms its connectivity/staleness probes; on a threshold it
@@ -976,6 +1026,9 @@ export async function boot(
     destroy: async () => {
       destroyed = true;
       safeController.stop();
+      // SPEC-CRWDQ-S105 — stop the journal-sync loop + release the store.
+      journalSyncClient?.stop();
+      journalStore.close();
       await client.close();
       // Release the lock so the OTHER iframe (or a fresh boot) can take over the
       // single session immediately, not after the lease times out. Do NOT await
