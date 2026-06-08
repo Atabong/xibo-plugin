@@ -473,7 +473,7 @@ export const HOST_TESTID = 'crowdaq-widget-v2';
  * that a given player picked up THIS build (the never-blank fix) and not a stale
  * cached bundle. Bump on each deployed widget build.
  */
-export const BUILD_MARKER = 'build:s102-fixtures-crests';
+export const BUILD_MARKER = 'build:s110-widget-cleanup';
 
 /** Default heartbeat cadence (D-GRH-59 / SPEC-CRWDQ-022). */
 const DEFAULT_HEARTBEAT_MS = 30_000;
@@ -518,12 +518,29 @@ export async function boot(
   target.appendChild(host);
 
   // 2. resolve display identity + the WS URL.
-  const info = deps.displayInfo !== undefined ? deps.displayInfo : await resolveXiboInfo();
+  const barIdProp = typeof properties.barId === 'string' ? properties.barId.trim() : '';
+  const displayIdProp = typeof properties.displayId === 'string' ? properties.displayId.trim() : '';
+  // SPEC-CRWDQ-S110 — DO NOT call xiboIC.info() when we don't need it. On the
+  // Xibo 4.0.x Linux player the xiboIC.info() bridge resolves to an XHR against
+  // the player web-root `/info`, which that build does NOT serve → a steady
+  // ~0.6/s `GET http://localhost:9696/info 404` in the player console (the S110
+  // player-sweep finding). info() is only needed to (i) resolve a
+  // `display:<field>` wsBaseUrl, or (ii) fall back for bar_id / display_id when
+  // the overrides are absent. The live deploy sets BOTH `barId` and `displayId`
+  // overrides AND a literal wsBaseUrl, so info() is pure overhead there. Skip it
+  // whenever it cannot change the outcome — eliminating the 404 poll at the
+  // source — and only resolve it when actually required.
+  const wsNeedsInfo = (properties.wsBaseUrl ?? '').trim().startsWith('display:');
+  const identityNeedsInfo = barIdProp.length === 0 || displayIdProp.length === 0;
+  const info =
+    deps.displayInfo !== undefined
+      ? deps.displayInfo
+      : wsNeedsInfo || identityNeedsInfo
+        ? await resolveXiboInfo()
+        : null;
   const wsUrl = resolveWsUrl(properties.wsBaseUrl ?? '', info);
   // bar_id binding: an explicit `barId` property wins (required where
   // xiboIC.info() is unavailable), else the player-reported hardwareKey.
-  const barIdProp = typeof properties.barId === 'string' ? properties.barId.trim() : '';
-  const displayIdProp = typeof properties.displayId === 'string' ? properties.displayId.trim() : '';
   const barId = (barIdProp.length > 0 ? barIdProp : readField(info, 'hardwareKey')) ?? 'unknown-bar';
   const displayId = (displayIdProp.length > 0
     ? displayIdProp
@@ -969,12 +986,38 @@ export async function boot(
 
   journal.record({ event: 'widget_boot', build: BUILD_MARKER, wsUrl, barId, displayId });
 
-  return {
+  // SPEC-CRWDQ-S110 — self-teardown on pagehide (the dead duplicate media_9
+  // iframe fix). Xibo renders TWO same-origin double-buffer iframes of this
+  // widget per region and, on a layout/region transition, HIDES the losing one
+  // but keeps it attached — leaving a second mounted host (its DOM + an
+  // already-released WS holder) hanging around the renderer (the S110 sweep's
+  // "dead duplicate media_9 iframe", bodyLen > 0). `pagehide` fires on the
+  // iframe that is navigated away / detached; tearing the runtime down there
+  // removes our host so the losing buffer is left clean (empty body) instead of
+  // a stale rendered card. Guarded by `destroyed` so an explicit destroy() +
+  // pagehide don't double-run. `pageshow` (bfcache restore) is intentionally not
+  // handled — Xibo recreates the iframe rather than restoring from bfcache.
+  const win = doc.defaultView;
+  let onPageHide: (() => void) | null = null;
+  if (win) {
+    onPageHide = (): void => {
+      if (destroyed) return;
+      journal.record({ event: 'widget_pagehide_teardown', barId, displayId });
+      void runtime.destroy();
+    };
+    win.addEventListener('pagehide', onPageHide);
+  }
+
+  const runtime: WidgetRuntime = {
     host,
     wsUrl,
     client,
     destroy: async () => {
       destroyed = true;
+      if (win && onPageHide) {
+        win.removeEventListener('pagehide', onPageHide);
+        onPageHide = null;
+      }
       safeController.stop();
       await client.close();
       // Release the lock so the OTHER iframe (or a fresh boot) can take over the
@@ -989,6 +1032,7 @@ export async function boot(
       host.remove();
     },
   };
+  return runtime;
 }
 
 /**
