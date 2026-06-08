@@ -473,7 +473,7 @@ export const HOST_TESTID = 'crowdaq-widget-v2';
  * that a given player picked up THIS build (the never-blank fix) and not a stale
  * cached bundle. Bump on each deployed widget build.
  */
-export const BUILD_MARKER = 'build:s87-heartbeat-configpush';
+export const BUILD_MARKER = 'build:s102-fixtures-crests';
 
 /** Default heartbeat cadence (D-GRH-59 / SPEC-CRWDQ-022). */
 const DEFAULT_HEARTBEAT_MS = 30_000;
@@ -726,6 +726,7 @@ export async function boot(
       cardTransitions: noopCardTransitions,
       fixtureListStore,
       assetManifestStore: assets,
+      crestResolver,
       timezone: fixturesTimezone,
       timezoneBroadcast: fixturesTimezoneBroadcast,
     }),
@@ -745,6 +746,7 @@ export async function boot(
       cardTransitions: noopCardTransitions,
       fixtureListStore,
       assetManifestStore: assets,
+      crestResolver,
       timezone: fixturesTimezone,
       timezoneBroadcast: fixturesTimezoneBroadcast,
     }),
@@ -785,6 +787,7 @@ export async function boot(
       adSlots,
       fixtureListStore,
       transitionExecutor: transitions,
+      crestResolver,
       timezone: fixturesTimezone,
       timezoneBroadcast: fixturesTimezoneBroadcast,
     }),

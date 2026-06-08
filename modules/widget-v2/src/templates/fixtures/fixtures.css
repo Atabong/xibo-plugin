@@ -45,8 +45,51 @@
 
 .cdq-teams {
   display: flex;
-  align-items: baseline;
+  align-items: center;
   gap: 6px;
+}
+
+/* A team slot: real crest (S11) next to the team name, vertically centred. */
+.cdq-home,
+.cdq-away {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--cdq-team-crest-gap, 6px);
+}
+
+/* The per-team crest slot (S11). Holds either the real club logo <img> or a
+ * colour-block monogram fallback (consistent with single_game / multiple_games). */
+.cdq-team-crest {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: var(--cdq-team-crest-size, 22px);
+  height: var(--cdq-team-crest-size, 22px);
+}
+
+.cdq-team-crest .cdq-team-crest-img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+
+/* Monogram fallback: a small rounded colour block with the club's initials,
+ * coloured by the same deterministic hue the score templates use. */
+.cdq-team-crest .cdq-team-crest-mono {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  height: 100%;
+  border-radius: 4px;
+  font-size: var(--cdq-team-crest-mono-size, 9px);
+  font-weight: 700;
+  line-height: 1;
+  letter-spacing: 0.02em;
+  color: #fff;
+  background: hsl(var(--team-h, 210) 55% 38%);
 }
 
 .cdq-vs {

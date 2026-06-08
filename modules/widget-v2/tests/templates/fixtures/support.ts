@@ -19,6 +19,7 @@ import {
 } from '../../../src/render/AssetManifestStore';
 import type { RenderJournal, RenderJournalEntry } from '../../../src/render/RenderJournal';
 import type { CardTransitions } from '../../../src/templates/multi-game/CardSet';
+import { CrestResolver, teamNameKey } from '../../../src/render/CrestResolver';
 import type { Fixture, FixtureListFrameTyped } from '../../../src/templates/fixtures/types';
 
 /** An in-memory render journal recorder (a real sink, not a mock). */
@@ -127,6 +128,36 @@ export function applyBadgeManifest(store: AssetManifestStore, assetIds: string[]
     needed_by: null,
   }));
   store.apply({ message_type: 'AssetManifest', payload: { version: 'v1', assets } } as AssetManifestFrame);
+}
+
+/**
+ * SPEC-CRWDQ-S11 — apply a manifest carrying one `kind:'crest'` entry per team
+ * name, keyed by `ref: teamNameKey(name)` exactly as the backend AssetManifest
+ * publishes club crests. Returns a CrestResolver bound to the same store. Pass
+ * `warm: false` to leave bytes cold (a get() miss → monogram, resolver warms).
+ */
+export function makeCrestManifest(
+  store: AssetManifestStore,
+  teamNames: string[],
+): CrestResolver {
+  const assets: AssetEntry[] = teamNames.map((name) => ({
+    asset_id: `crest:${teamNameKey(name).replace(/\s+/g, '-')}`,
+    content_hash: EMPTY_SHA256,
+    url: `https://cdn.example/crest/${teamNameKey(name).replace(/\s+/g, '-')}.png`,
+    content_type: 'image/png',
+    version: 'v1',
+    needed_by: null,
+    // Extra fields the CrestResolver reads off the entry (cast in the resolver).
+    kind: 'crest',
+    ref: teamNameKey(name),
+  })) as unknown as AssetEntry[];
+  store.apply({ message_type: 'AssetManifest', payload: { version: 'v1', assets } } as AssetManifestFrame);
+  return new CrestResolver(store);
+}
+
+/** Warm the hot-map bytes for a team's crest so a synchronous get() hits. */
+export async function warmCrest(store: AssetManifestStore, teamName: string): Promise<void> {
+  await store.ensure(`crest:${teamNameKey(teamName).replace(/\s+/g, '-')}`);
 }
 
 /** A complete fixture with sensible defaults. */

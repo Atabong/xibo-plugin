@@ -25,6 +25,7 @@
 import type { AssetManifestStore } from '../../render/AssetManifestStore';
 import type { FixtureListStore } from '../../render/FixtureListStore';
 import type { RenderJournal } from '../../render/RenderJournal';
+import type { CrestResolver } from '../../render/CrestResolver';
 import type { TransitionExecutor } from '../../render/TransitionExecutor';
 import type {
   TemplateInstance,
@@ -67,6 +68,13 @@ export interface FixturesContext {
   fixtureListStore: FixtureListStore;
   /** Consumed from SPEC-CRWDQ-064; this template neither defines nor creates it. */
   assetManifestStore: AssetManifestStore;
+  /**
+   * SPEC-CRWDQ-S11 — resolve real club crests from the AssetManifest by team
+   * name. Optional: absent → cards render the name + league chip only. When
+   * present each fixture card paints its two teams' crests (single_game /
+   * multiple_games parity).
+   */
+  crestResolver?: CrestResolver;
   /** Shared SPEC-CRWDQ-023 PlannedState-level transition executor. */
   transitionExecutor: TransitionExecutor;
   /** The PlannedState's catalog-name transition (SPEC-CRWDQ-017; `"cut"`). */
@@ -125,6 +133,7 @@ export class FixturesTemplate {
       transitions: ctx.cardTransitions ?? noopCardTransitions,
       timezone: ctx.timezone,
       ...(ctx.now === undefined ? {} : { now: ctx.now }),
+      ...(ctx.crestResolver === undefined ? {} : { crestResolver: ctx.crestResolver }),
     });
 
     // Mount adds cards with NO card-level animation (AC7).

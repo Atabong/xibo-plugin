@@ -49,6 +49,7 @@ export class FixturesWithAdsTemplate {
             pendingApply: ctx.pendingApply,
             ...(ctx.cardTransitions === undefined ? {} : { cardTransitions: ctx.cardTransitions }),
             ...(ctx.now === undefined ? {} : { now: ctx.now }),
+            ...(ctx.crestResolver === undefined ? {} : { crestResolver: ctx.crestResolver }),
           }),
       },
       ctx,

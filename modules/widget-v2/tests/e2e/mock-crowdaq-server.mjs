@@ -245,7 +245,10 @@ export function startMockServer(options = {}) {
               { eventId: 'fx-2', sport: 'Soccer', leagueId: 2, leagueName: 'La Liga', homeTeam: 'BARCELONA', awayTeam: 'SEVILLA', kickoffUtc: '2026-06-04T20:00:00Z', feedStatus: 'scheduled' },
               { eventId: 'fx-3', sport: 'Soccer', leagueId: 3, leagueName: 'Serie A', homeTeam: 'JUVENTUS', awayTeam: 'NAPOLI', kickoffUtc: '2026-06-04T21:45:00Z', feedStatus: 'scheduled' },
             ];
-            sendFrame(ws, control('AssetManifest', { version: 'v-e2e-fx', assets: [] }));
+            // SPEC-CRWDQ-S11 — crest assets (kind=crest, ref=team name_key) so the
+            // fixtures card resolves a REAL per-team crest by team name, exactly the
+            // live path. Empty `crests` → the colour-block monogram fallback path.
+            sendFrame(ws, control('AssetManifest', { version: 'v-e2e-fx', assets: crestAssets(options.crests) }));
             sendFrame(ws, control('FixtureList', { fixtures }));
             sendFrame(ws, control('ProgramSlot', { program_slot_id: 'fx-slot', primary_game_id: null, fixture_ids: fixtures.map((f) => f.eventId) }));
             sendFrame(ws, control('PlannedState', {
