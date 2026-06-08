@@ -1,0 +1,35 @@
+{
+  "passed": true,
+  "before": {
+    "screenshot": "C:\\Users\\Atabong\\Documents\\GitHub\\xibo-plugin\\docs\\flight\\evidence\\s102-crests-render\\before.png",
+    "cards": 3,
+    "crestImgCount": 0,
+    "monoCount": 6,
+    "teamsWithCrest": 0,
+    "imgCount": 0,
+    "teamNames": [
+      "DORTMUND",
+      "LEIPZIG",
+      "BARCELONA",
+      "SEVILLA",
+      "JUVENTUS",
+      "NAPOLI"
+    ]
+  },
+  "after": {
+    "screenshot": "C:\\Users\\Atabong\\Documents\\GitHub\\xibo-plugin\\docs\\flight\\evidence\\s102-crests-render\\after.png",
+    "cards": 3,
+    "crestImgCount": 6,
+    "monoCount": 0,
+    "teamsWithCrest": 6,
+    "imgCount": 6,
+    "teamNames": [
+      "DORTMUND",
+      "LEIPZIG",
+      "BARCELONA",
+      "SEVILLA",
+      "JUVENTUS",
+      "NAPOLI"
+    ]
+  }
+}

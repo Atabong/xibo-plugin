@@ -6,9 +6,12 @@ import {
   RecordingCardTransitions,
   makeAssetStore,
   applyBadgeManifest,
+  makeCrestManifest,
+  warmCrest,
   fixture,
   fixtureFrame,
 } from './support';
+import type { CrestResolver } from '../../../src/render/CrestResolver';
 
 const NOW = Date.parse('2026-06-01T18:00:00Z');
 const TZ = 'America/Chicago';
@@ -23,7 +26,7 @@ interface Harness {
   assetStore: ReturnType<typeof makeAssetStore>['store'];
 }
 
-function harness(badges: string[] = []): Harness {
+function harness(badges: string[] = [], crestResolver?: CrestResolver): Harness {
   const list = document.createElement('ul');
   list.className = 'cdq-fixture-list';
   const store = new FixtureListStore();
@@ -39,9 +42,16 @@ function harness(badges: string[] = []): Harness {
     transitions,
     timezone: TZ,
     now: () => NOW,
+    ...(crestResolver ? { crestResolver } : {}),
   });
   return { list, cards, store, journal, transitions, fetcher, assetStore };
 }
+
+const crestImg = (card: HTMLElement, testid: string): HTMLImageElement | null =>
+  sel(card, testid)?.querySelector<HTMLImageElement>('.cdq-team-crest .cdq-team-crest-img') ?? null;
+
+const crestMono = (card: HTMLElement, testid: string): HTMLElement | null =>
+  sel(card, testid)?.querySelector<HTMLElement>('.cdq-team-crest .cdq-team-crest-mono') ?? null;
 
 const sel = (card: HTMLElement, testid: string): HTMLElement | null =>
   card.querySelector(`[data-testid="${testid}"]`);
@@ -220,6 +230,125 @@ describe('FixtureCardSet add/remove/move + teardown', () => {
     h.cards.teardown();
     expect(cardEls(h.list)).toHaveLength(0);
     expect(h.cards.current()).toEqual([]);
+  });
+});
+
+describe('FixtureCardSet real team crests (SPEC-CRWDQ-S11)', () => {
+  it('renders an <img> with the warm crest URL for BOTH teams (distinct per team)', async () => {
+    const { store: assetStore } = makeAssetStore();
+    const crest = makeCrestManifest(assetStore, ['Arsenal', 'Chelsea']);
+    await warmCrest(assetStore, 'Arsenal');
+    await warmCrest(assetStore, 'Chelsea');
+
+    const h = harness([], crest);
+    // Rebind the harness to the SAME asset store the crest manifest applied to.
+    const list = document.createElement('ul');
+    const cards = new FixtureCardSet({
+      list,
+      fixtureListStore: h.store,
+      assetManifestStore: assetStore,
+      journal: h.journal,
+      transitions: h.transitions,
+      timezone: TZ,
+      now: () => NOW,
+      crestResolver: crest,
+    });
+    h.store.applyList(fixtureFrame([fixture('eA')]));
+    await cards.addCard('eA', 0);
+
+    const card = Array.from(list.querySelectorAll<HTMLElement>('.cdq-fixture-card'))[0]!;
+    const homeImg = crestImg(card, FIXTURE_CARD_TESTID.home);
+    const awayImg = crestImg(card, FIXTURE_CARD_TESTID.away);
+    expect(homeImg).not.toBeNull();
+    expect(awayImg).not.toBeNull();
+    // Real, distinct crest URLs per team (the gap: no longer a generic chip).
+    expect(homeImg!.getAttribute('src')).toMatch(/^blob:crest:arsenal$/);
+    expect(awayImg!.getAttribute('src')).toMatch(/^blob:crest:chelsea$/);
+    expect(homeImg!.getAttribute('src')).not.toBe(awayImg!.getAttribute('src'));
+    expect(sel(card, FIXTURE_CARD_TESTID.home)!.dataset['hasCrest']).toBe('true');
+    // The team NAME line is still intact next to the crest.
+    expect(sel(card, FIXTURE_CARD_TESTID.home)!.textContent).toContain('Arsenal');
+  });
+
+  it('falls back to a colour-block monogram when a team has no crest in the manifest', async () => {
+    const { store: assetStore } = makeAssetStore();
+    // Only Arsenal has a crest; Chelsea is missing → monogram fallback.
+    const crest = makeCrestManifest(assetStore, ['Arsenal']);
+    await warmCrest(assetStore, 'Arsenal');
+
+    const h = harness();
+    const list = document.createElement('ul');
+    const cards = new FixtureCardSet({
+      list,
+      fixtureListStore: h.store,
+      assetManifestStore: assetStore,
+      journal: h.journal,
+      transitions: h.transitions,
+      timezone: TZ,
+      now: () => NOW,
+      crestResolver: crest,
+    });
+    h.store.applyList(fixtureFrame([fixture('eA')]));
+    await cards.addCard('eA', 0);
+
+    const card = Array.from(list.querySelectorAll<HTMLElement>('.cdq-fixture-card'))[0]!;
+    // Arsenal: real crest img. Chelsea: monogram fallback (never a broken image).
+    expect(crestImg(card, FIXTURE_CARD_TESTID.home)).not.toBeNull();
+    expect(crestImg(card, FIXTURE_CARD_TESTID.away)).toBeNull();
+    const mono = crestMono(card, FIXTURE_CARD_TESTID.away)!;
+    expect(mono).not.toBeNull();
+    expect(mono.textContent).toBe('CHE');
+    expect(sel(card, FIXTURE_CARD_TESTID.away)!.dataset['hasCrest']).toBeUndefined();
+  });
+
+  it('swaps the real crest in over the monogram on a later onCrestReady warm (cold get)', async () => {
+    const { store: assetStore, fetcher } = makeAssetStore();
+    // Declared but NOT warm: first render is a get() miss → monogram + warm-fetch.
+    const crest = makeCrestManifest(assetStore, ['Arsenal', 'Chelsea']);
+
+    const h = harness();
+    const list = document.createElement('ul');
+    const cards = new FixtureCardSet({
+      list,
+      fixtureListStore: h.store,
+      assetManifestStore: assetStore,
+      journal: h.journal,
+      transitions: h.transitions,
+      timezone: TZ,
+      now: () => NOW,
+      crestResolver: crest,
+    });
+    h.store.applyList(fixtureFrame([fixture('eA')]));
+    await cards.addCard('eA', 0);
+
+    const card = Array.from(list.querySelectorAll<HTMLElement>('.cdq-fixture-card'))[0]!;
+    // Immediate render: monogram fallback (the card never blocks on a crest).
+    expect(crestImg(card, FIXTURE_CARD_TESTID.home)).toBeNull();
+    expect(crestMono(card, FIXTURE_CARD_TESTID.home)!.textContent).toBe('ARS');
+
+    // The resolver kicked one warm-fetch per team; await them so onCrestReady fires.
+    await assetStore.ensure('crest:arsenal');
+    await assetStore.ensure('crest:chelsea');
+    await Promise.resolve();
+    await Promise.resolve();
+
+    // Real crest images are now swapped in over the monograms (the swap-in path).
+    expect(crestImg(card, FIXTURE_CARD_TESTID.home)?.getAttribute('src')).toMatch(/^blob:/);
+    expect(crestImg(card, FIXTURE_CARD_TESTID.away)?.getAttribute('src')).toMatch(/^blob:/);
+    // Exactly one fetch per crest id (no churn).
+    expect(fetcher.fetched.filter((id) => id === 'crest:arsenal')).toHaveLength(1);
+  });
+
+  it('renders NO crest slot content (name-only) when no crestResolver is wired', async () => {
+    const h = harness(); // no crestResolver
+    h.store.applyList(fixtureFrame([fixture('eA')]));
+    await h.cards.addCard('eA', 0);
+    const card = cardEls(h.list)[0]!;
+    // The crest slot exists in the skeleton but stays empty (pre-S11 behaviour),
+    // so the team element's text is exactly the team name.
+    expect(crestImg(card, FIXTURE_CARD_TESTID.home)).toBeNull();
+    expect(crestMono(card, FIXTURE_CARD_TESTID.home)).toBeNull();
+    expect(sel(card, FIXTURE_CARD_TESTID.home)!.textContent).toBe('Arsenal');
   });
 });
 

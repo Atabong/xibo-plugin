@@ -922,14 +922,39 @@ html, body { margin: 0; padding: 0; height: 100%; background: var(--cdq-bg-0); }
 }
 .crowdaq-fixtures .cdq-sport-badge img { width: 100%; height: 100%; object-fit: contain; border-radius: 12px; }
 .crowdaq-fixtures .cdq-teams {
-  display: flex; align-items: baseline; flex-wrap: wrap; gap: 0.2em 0.5em;
+  display: flex; align-items: center; flex-wrap: wrap; gap: 0.2em 0.5em;
   font-family: var(--cdq-display); font-weight: 800;
   font-size: clamp(1.3rem, 3.4vw, 2.6rem); line-height: 1.02;
   text-transform: uppercase; color: var(--cdq-ink);
   min-width: 0; overflow-wrap: break-word;
 }
 .crowdaq-fixtures .cdq-home,
-.crowdaq-fixtures .cdq-away { min-width: 0; }
+.crowdaq-fixtures .cdq-away {
+  min-width: 0; display: inline-flex; align-items: center; gap: 0.34em;
+}
+
+/* SPEC-CRWDQ-S11 — real club crest beside each team name in the fixtures card.
+   The crest box is sized to the team type so a logo sits cleanly inline with the
+   name (a hit paints .cdq-team-crest-img; a miss paints the colour-block
+   monogram). Matches single_game / multiple_games crest treatment. */
+.crowdaq-fixtures .cdq-team-crest {
+  flex: 0 0 auto; display: inline-flex; align-items: center; justify-content: center;
+  width: 1.15em; height: 1.15em;
+}
+.crowdaq-fixtures .cdq-team-crest:empty { display: none; }
+.crowdaq-fixtures .cdq-team-crest .cdq-team-crest-img {
+  width: 100%; height: 100%; object-fit: contain;
+  filter: drop-shadow(0 2px 6px rgba(0, 0, 0, 0.45));
+}
+.crowdaq-fixtures .cdq-team-crest .cdq-team-crest-mono {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 100%; height: 100%; border-radius: 0.28em;
+  font-family: var(--cdq-tech); font-weight: 700; font-size: 0.34em;
+  line-height: 1; letter-spacing: 0.02em; color: #fff;
+  background: linear-gradient(150deg, hsl(var(--team-h, 210) 70% 50%), hsl(var(--team-h, 210) 64% 36%));
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.18);
+}
+.crowdaq-fixtures .cdq-team-name { min-width: 0; overflow-wrap: break-word; }
 .crowdaq-fixtures .cdq-vs {
   font-family: var(--cdq-tech); font-weight: 400; font-size: 0.5em;
   letter-spacing: 0.2em; color: var(--cdq-ink-faint); text-transform: lowercase;

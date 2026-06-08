@@ -22,6 +22,7 @@
 import type { AssetManifestStore } from '../../render/AssetManifestStore';
 import type { FixtureListStore } from '../../render/FixtureListStore';
 import type { RenderJournal } from '../../render/RenderJournal';
+import type { CrestResolver } from '../../render/CrestResolver';
 import type { CardTransitions } from '../multi-game/CardSet';
 import { formatKickoff } from './formatKickoff';
 import { badgeAssetId } from './badgeAssetId';
@@ -52,6 +53,14 @@ export interface FixtureCardSetDeps {
   timezone: string;
   /** Clock seam (INV-FACTORY-17). Defaults to `Date.now`. */
   now?: () => number;
+  /**
+   * SPEC-CRWDQ-S11 — resolve real club crests from the AssetManifest by team
+   * display name. Optional: absent → cards render the league-name chip only
+   * (existing behaviour). When present, each team renders its crest `<img>` next
+   * to its name (falling back to a colour-block monogram on a miss), matching how
+   * single_game / multiple_games already paint crests.
+   */
+  crestResolver?: CrestResolver;
 }
 
 export class FixtureCardSet {
@@ -61,9 +70,11 @@ export class FixtureCardSet {
   private readonly journal: RenderJournal;
   private readonly transitions: CardTransitions;
   private readonly now: () => number;
+  private readonly crestResolver: CrestResolver | undefined;
   private timezone: string;
   /** Cards in display order; index IS the list position. */
   private readonly cards: CardRecord[] = [];
+  private unsubCrest: () => void = () => {};
 
   constructor(deps: FixtureCardSetDeps) {
     this.list = deps.list;
@@ -73,6 +84,24 @@ export class FixtureCardSet {
     this.transitions = deps.transitions;
     this.timezone = deps.timezone;
     this.now = deps.now ?? Date.now;
+    this.crestResolver = deps.crestResolver;
+    // SPEC-CRWDQ-S11 — when a crest's bytes warm, re-paint every card's crests
+    // so the real club logo swaps in over the colour-block monogram (no new
+    // FixtureList needed). Mirrors multi-game CardSet's onCrestReady repaint.
+    if (this.crestResolver) {
+      this.unsubCrest = this.crestResolver.onCrestReady(() => this.repaintCrests());
+    }
+  }
+
+  /** Re-paint every live card's team crests from current fixture state. */
+  private repaintCrests(): void {
+    for (const card of this.cards) {
+      const fixture = this.store.resolve(card.eventId);
+      if (fixture !== null) {
+        this.renderCrest(card.element, FIXTURE_CARD_TESTID.home, fixture.homeTeam);
+        this.renderCrest(card.element, FIXTURE_CARD_TESTID.away, fixture.awayTeam);
+      }
+    }
   }
 
   /** The currently rendered event ids, in display order. */
@@ -147,6 +176,7 @@ export class FixtureCardSet {
 
   /** Unsubscribe + detach every card (the supersede / detach path). */
   teardown(): void {
+    this.unsubCrest();
     for (const card of this.cards) {
       card.unsubscribe();
       card.element.remove();
@@ -161,9 +191,14 @@ export class FixtureCardSet {
     card.dataset['status'] = fixture.feedStatus;
 
     const home = sel(card, FIXTURE_CARD_TESTID.home);
-    if (home) home.textContent = fixture.homeTeam;
+    if (home) setTeamName(home, fixture.homeTeam);
     const away = sel(card, FIXTURE_CARD_TESTID.away);
-    if (away) away.textContent = fixture.awayTeam;
+    if (away) setTeamName(away, fixture.awayTeam);
+
+    // SPEC-CRWDQ-S11 — paint each team's real club crest (resolver miss → the
+    // colour-block monogram fallback). No-op when no crestResolver was wired.
+    this.renderCrest(card, FIXTURE_CARD_TESTID.home, fixture.homeTeam);
+    this.renderCrest(card, FIXTURE_CARD_TESTID.away, fixture.awayTeam);
 
     this.renderTime(card, fixture);
 
@@ -216,6 +251,48 @@ export class FixtureCardSet {
       });
   }
 
+  /**
+   * SPEC-CRWDQ-S11 — paint one team's real club crest into its `.cdq-team-crest`
+   * slot, resolved from the AssetManifest by team display name (CrestResolver).
+   * A resolver hit swaps in an `<img>`; a miss (no crest published, or bytes not
+   * yet warm) renders the colour-block monogram fallback so a card is never
+   * sparse and the resolver's warm-fetch can swap the real crest in on the next
+   * `onCrestReady` repaint. No-op when no crestResolver was wired (the card keeps
+   * its name-only line, the pre-S11 behaviour).
+   */
+  private renderCrest(card: HTMLElement, testid: string, teamName: string): void {
+    if (!this.crestResolver) return;
+    const team = sel(card, testid);
+    if (!team) return;
+    const crest = team.querySelector<HTMLElement>('.cdq-team-crest');
+    if (!crest) return;
+
+    const url = this.crestResolver.crestUrlForTeam(teamName);
+    if (url) {
+      let img = crest.querySelector<HTMLImageElement>('img.cdq-team-crest-img');
+      if (!img) {
+        img = document.createElement('img');
+        img.className = 'cdq-team-crest-img';
+        img.alt = '';
+        img.decoding = 'async';
+        crest.replaceChildren(img);
+      }
+      if (img.getAttribute('src') !== url) img.src = url;
+      team.dataset['hasCrest'] = 'true';
+    } else {
+      // No real crest (yet) — colour-block monogram so the slot is never empty.
+      const { h } = teamColour(teamName);
+      crest.style.setProperty('--team-h', String(h));
+      crest.replaceChildren(
+        Object.assign(document.createElement('span'), {
+          className: 'cdq-team-crest-mono',
+          textContent: teamName.trim().slice(0, 3).toUpperCase(),
+        }),
+      );
+      delete team.dataset['hasCrest'];
+    }
+  }
+
   /** Re-stamp `data-position` + DOM order from the current index order. */
   private reindex(): void {
     this.cards.forEach((card, index) => {
@@ -236,15 +313,11 @@ function buildCard(eventId: string): HTMLElement {
 
   const teams = document.createElement('div');
   teams.className = 'cdq-teams';
-  const home = document.createElement('span');
-  home.className = 'cdq-home';
-  home.dataset['testid'] = FIXTURE_CARD_TESTID.home;
+  const home = buildTeam('cdq-home', FIXTURE_CARD_TESTID.home);
   const vs = document.createElement('span');
   vs.className = 'cdq-vs';
   vs.textContent = 'vs';
-  const away = document.createElement('span');
-  away.className = 'cdq-away';
-  away.dataset['testid'] = FIXTURE_CARD_TESTID.away;
+  const away = buildTeam('cdq-away', FIXTURE_CARD_TESTID.away);
   teams.append(home, vs, away);
 
   const when = document.createElement('time');
@@ -260,13 +333,52 @@ function buildCard(eventId: string): HTMLElement {
   return card;
 }
 
-/** Render the sport-neutral "TBA" placeholder for an unresolved eventId (AC7). */
+/**
+ * Build one team slot carrying the stable testid: a `.cdq-team-crest` (S11
+ * real-crest / monogram slot) followed by the `.cdq-team-name` line. The crest
+ * starts EMPTY so a card with no wired CrestResolver reads exactly the team name
+ * as its text (the pre-S11 contract the e2e + unit assertions rely on).
+ */
+function buildTeam(sideClass: string, testid: string): HTMLElement {
+  const team = document.createElement('span');
+  team.className = sideClass;
+  team.dataset['testid'] = testid;
+
+  const crest = document.createElement('span');
+  crest.className = 'cdq-team-crest';
+
+  const name = document.createElement('span');
+  name.className = 'cdq-team-name';
+
+  team.append(crest, name);
+  return team;
+}
+
+/** Write a team's display name into its `.cdq-team-name` line (crest untouched). */
+function setTeamName(team: HTMLElement, name: string): void {
+  const nameEl = team.querySelector<HTMLElement>('.cdq-team-name');
+  if (nameEl) nameEl.textContent = name;
+  else team.textContent = name; // a placeholder-flattened slot: re-stamp the name
+}
+
+/**
+ * Render the sport-neutral "TBA" placeholder for an unresolved eventId (AC7).
+ * Writes into the `.cdq-team-name` line and clears any crest, leaving the slot
+ * structure intact so a LATER in-place resolve (subscription fill) restores the
+ * real name + crest without rebuilding the card.
+ */
 function renderPlaceholder(card: HTMLElement): void {
   card.dataset['status'] = 'tba';
   const home = sel(card, FIXTURE_CARD_TESTID.home);
-  if (home) home.textContent = 'TBA';
+  if (home) {
+    setTeamName(home, 'TBA');
+    home.querySelector('.cdq-team-crest')?.replaceChildren();
+  }
   const away = sel(card, FIXTURE_CARD_TESTID.away);
-  if (away) away.textContent = '';
+  if (away) {
+    setTeamName(away, '');
+    away.querySelector('.cdq-team-crest')?.replaceChildren();
+  }
 }
 
 /** Paint a badge `<img>` with the resolved asset url. */
@@ -275,6 +387,19 @@ function paintBadge(badge: HTMLElement, url: string): void {
   img.alt = '';
   img.setAttribute('src', url);
   badge.replaceChildren(img);
+}
+
+/**
+ * Derive a stable team colour hue from the team name — the SAME deterministic
+ * golden-angle hash single_game / multiple_games use for their monogram blocks,
+ * so a club's fallback monogram reads with one consistent colour across modes.
+ */
+function teamColour(code: string): { h: number } {
+  const c = code.trim() || ' ';
+  let hash = 0;
+  for (let i = 0; i < c.length; i += 1) hash = (hash * 31 + c.charCodeAt(i)) >>> 0;
+  const h = Math.round(((hash % 360) + (c.charCodeAt(0) % 2 ? 0 : 137)) % 360);
+  return { h };
 }
 
 function sel(card: HTMLElement, testid: string): HTMLElement | null {

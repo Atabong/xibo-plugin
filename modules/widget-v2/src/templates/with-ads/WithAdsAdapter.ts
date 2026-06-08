@@ -130,6 +130,8 @@ export interface FixturesWithAdsAdapterDeps {
   adSlots: AdSlotResolver;
   fixtureListStore: FixturesContext['fixtureListStore'];
   transitionExecutor: FixturesContext['transitionExecutor'];
+  /** SPEC-CRWDQ-S11 — real club crests in the with-ads fixtures catalog. */
+  crestResolver?: CrestResolver;
   /**
    * Bar-local IANA timezone for kickoff formatting (D-GRH-73), a THUNK
    * evaluated at `mount` time (not captured at registration) so a render after
@@ -175,6 +177,7 @@ export function makeFixturesWithAdsAdapter(deps: FixturesWithAdsAdapterDeps): Te
         adSlot,
         stateId: args.payload.state_id,
         dwellActualMs: () => deps.dwell?.elapsedAtSupersede() ?? 0,
+        ...(deps.crestResolver ? { crestResolver: deps.crestResolver } : {}),
       });
       if (instance === null) return null;
       // Live tz-edit reformat (D-GRH-73): the composite forwards the reformat to

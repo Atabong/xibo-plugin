@@ -27,6 +27,7 @@ import type { RenderJournal } from '../../render/RenderJournal';
 import type { TemplateAdapter, TemplateMount } from '../../render/PlannedStateActivator';
 import type { AssetManifestStore } from '../../render/AssetManifestStore';
 import type { FixtureListStore } from '../../render/FixtureListStore';
+import type { CrestResolver } from '../../render/CrestResolver';
 import type { TransitionExecutor } from '../../render/TransitionExecutor';
 import type { TransitionSpec } from '../../render/types';
 import type { FixturesTimezoneBroadcast } from '../../render/FixturesTimezoneBroadcast';
@@ -47,6 +48,13 @@ export interface FixturesAdapterDeps {
   fixtureListStore: FixtureListStore;
   /** Consumed from SPEC-CRWDQ-064; this adapter neither defines nor creates it. */
   assetManifestStore: AssetManifestStore;
+  /**
+   * SPEC-CRWDQ-S11 — resolve real club crests by team name. Consumed from the
+   * bootstrap-owned CrestResolver (same instance single_game / multiple_games
+   * use); this adapter neither defines nor creates it. Optional so a deployment
+   * without it degrades to the name-only card.
+   */
+  crestResolver?: CrestResolver;
   /**
    * Bar-local IANA timezone for kickoff formatting (D-GRH-73), supplied as a
    * THUNK evaluated at `mount` time — NOT a value captured at registration.
@@ -99,6 +107,7 @@ export function makeFixturesAdapter(deps: FixturesAdapterDeps): TemplateAdapter 
         journal: deps.journal,
         cardTransitions: deps.cardTransitions,
         pendingApply: deps.pendingApply?.takePending() ?? null,
+        ...(deps.crestResolver === undefined ? {} : { crestResolver: deps.crestResolver }),
       });
       if (instance === null) return null;
       // Live tz-edit reformat (D-GRH-73): subscribe this board to the broadcast
