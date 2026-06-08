@@ -69,4 +69,33 @@ packaged XML:     build/crowdaq-widget-v2.packaged.xml (244767 bytes), sha7 0db4
 build marker:     build:s102-fixtures-crests  (in bundle + packaged XML, verified)
 ```
 
-Deployed durably via the Flux-managed CMS module (`xibo` repo `infra/k8s/apps/cms/custom-modules/crowdaq-widget-v2.xml`, `configMapGenerator` single-file). See the durability proof section below.
+Deployed durably via the Flux-managed CMS module (`xibo` repo `infra/k8s/apps/cms/custom-modules/crowdaq-widget-v2.xml`, `configMapGenerator` single-file subPath).
+
+## Deploy + durability proof (live cluster)
+
+PRs merged to main: **xibo-plugin#112** (`afcdd7c`) + **xibo#98** (`c370c41`).
+
+Flux reconcile pulled `main@sha1:c370c41` and applied the CMS kustomization. The `configMapGenerator` content-hash suffix changed `…-d8ht2b2m95` → `…-d5dgm2cch5`, mutating the Deployment pod template and forcing a Recreate rollout (`deployment "xibo-cms" successfully rolled out`). The old ConfigMap was pruned by Flux.
+
+Running pod after reconcile (`xibo-cms-5bfcc8499b-z72bw`):
+```
+build marker:        build:s102-fixtures-crests
+cdq-team-crest refs: 6
+crestUrlForTeam:     1
+module sha256:       0db4000cf9cd20ca00523558be1b105214ff35574205fac26dac7060834126c2
+```
+
+**Hard pod-delete durability check** — `kubectl delete pod xibo-cms-5bfcc8499b-z72bw`; the replacement pod (`xibo-cms-5bfcc8499b-zpjzt`) serves the **identical** module:
+```
+build marker:        build:s102-fixtures-crests
+cdq-team-crest refs: 6
+module sha256:       0db4000cf9cd20ca00523558be1b105214ff35574205fac26dac7060834126c2   (UNCHANGED)
+```
+The module survives a hard pod-delete with sha unchanged → genuinely Flux/git-managed (configMap subPath), not a transient `kubectl cp`.
+
+## Before → after summary
+
+- **Before:** live module `build:s87-heartbeat-configpush`, `0` `cdq-team-crest` refs — fixtures cards rendered team text + a generic sport chip, no crest `<img>`; the 16 delivered AssetManifest crests were unused.
+- **After:** live module `build:s102-fixtures-crests`, `6` `cdq-team-crest` refs; the fixtures catalog renders a **real per-team crest `<img>`** for each team (graceful monogram fallback on a miss). Headless proof: DOM imgCount **0 → 6**, 6 distinct per-team crests on screen.
+
+**PASS — real team crests render on the bar.**
